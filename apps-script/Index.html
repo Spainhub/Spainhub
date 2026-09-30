@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root{
+    --accent:#ff7f57;
+    --muted:#737272;
+    --ink:#131925;
+    --ink-2:#333333;
+    --ink-3:#3E424F;
+    --ink-4:#686f7d;
+    --bg:#ffffff;
+    --line:#ececec;
+    --line-2:#f4f4f4;
+    --sec-bg:#f2f2f2;
+    --sec-bg-hover:#e9e9e9;
+    --total-bg:#eeeeee;
+    --radius:10px;
+  }
+  [data-theme="dark"]{
+    --bg:#15171c;--ink:#f2f2f2;--ink-2:#dcdcdc;--ink-3:#c7c9d1;--ink-4:#9a9fae;
+    --muted:#9a9fae;--line:#2a2d34;--line-2:#23252b;--sec-bg:#22242a;
+    --sec-bg-hover:#282a31;--total-bg:#24262c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    font-size:13px;line-height:1.35;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1400px;margin:0 auto;padding:20px 16px 40px}
+  /* HEADER */
+  header.rpt{display:flex;justify-content:space-between;align-items:flex-start;
+    gap:16px;margin-bottom:14px;flex-wrap:wrap}
+  .rpt-title{font-size:19px;font-weight:700;letter-spacing:-.01em;color:var(--ink);margin:0 0 2px}
+  .rpt-title .accent{color:var(--accent)}
+  .rpt-sub{color:var(--muted);font-size:12px;margin:0}
+  .rpt-seller{font-weight:600;color:var(--ink-2);margin:4px 0 0;font-size:13px}
+  .rpt-period{color:var(--ink-4);font-size:11.5px;margin:2px 0 0}
+  .actions{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+  /* BUTTONS */
+  /* Кнопки действий в шапке — без рамок/фона, просто текст-ссылка */
+  .btn-text{appearance:none;border:none;background:transparent;color:var(--ink-4);
+    padding:6px 9px;font-size:12.5px;font-weight:600;cursor:pointer;transition:.15s;white-space:nowrap}
+  .btn-text:hover{color:var(--accent);text-decoration:underline}
+  .btn-sep{color:var(--line);user-select:none}
+  .btn{appearance:none;border:1px solid var(--line);background:#fff;color:var(--ink-2);
+    padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;
+    transition:.15s;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+  .btn:hover{border-color:var(--ink-4);color:var(--ink)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{filter:brightness(.95)}
+  .btn.ghost{background:#fff;color:var(--ink-4)}
+  .btn.mini{padding:5px 10px;font-size:11.5px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  /* FILTER */
+  .filter{background:#fafafa;border:1px solid var(--line);border-radius:var(--radius);
+    padding:10px 12px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field label{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+  .field input[type=date]{appearance:none;border:1px solid var(--line);border-radius:8px;
+    padding:6px 9px;font-size:12.5px;color:var(--ink-2);background:#fff;min-width:140px}
+  .field input[type=date]:focus{outline:none;border-color:var(--accent)}
+  .filter .spacer{flex:1}
+  .filter .hint{color:var(--muted);font-size:11.5px}
+  /* TABLE */
+  .tbl-wrap{border:1px solid var(--line);border-radius:var(--radius);overflow:auto;background:#fff}
+  table.pnl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;
+    min-width:1410px;table-layout:fixed}
+  table.pnl thead th{position:sticky;top:0;background:#fff;z-index:2;
+    border-bottom:1px solid var(--line);padding:6px 8px;text-align:right;
+    font-weight:700;color:var(--ink-2);white-space:nowrap;font-size:11px;letter-spacing:.02em;
+    vertical-align:top;line-height:1.25}
+  /* Закреплённые столбцы: №, Наименование, Сумма, Доля,% — не уезжают при
+     горизонтальной прокрутке. Ширины заданы жёстко (table-layout:fixed),
+     иначе "left" для sticky-колонок нельзя посчитать заранее. */
+  table.pnl th:nth-child(1), table.pnl td:nth-child(1){width:40px;position:sticky;left:0;z-index:3}
+  table.pnl th:nth-child(2), table.pnl td:nth-child(2){width:270px;position:sticky;left:40px;z-index:3;
+    overflow:hidden;text-overflow:ellipsis}
+  table.pnl th:nth-child(3), table.pnl td:nth-child(3){width:110px;position:sticky;left:310px;z-index:3}
+  table.pnl th:nth-child(4), table.pnl td:nth-child(4){width:90px;position:sticky;left:420px;z-index:3;
+    box-shadow:2px 0 4px -2px rgba(0,0,0,.15)}
+  table.pnl thead th:nth-child(-n+4){z-index:4}
+  table.pnl th:nth-child(n+5), table.pnl td:nth-child(n+5){width:100px}
+  table.pnl thead th.left{text-align:left}
+  table.pnl thead th .th-sub{display:block;font-weight:400;color:var(--muted);
+    font-size:10px;margin-top:2px}
+  table.pnl thead th.total-col{background:var(--total-bg)}
+  table.pnl tbody td{padding:5px 8px;border-bottom:1px solid var(--line-2);text-align:right;
+    color:var(--ink-2);white-space:nowrap;font-variant-numeric:tabular-nums;vertical-align:middle;
+    background:var(--bg)}
+  table.pnl tbody td.total-col{background:var(--total-bg)}
+  /* Названия строк — всегда в одну строку, не переносятся */
+  table.pnl tbody td.left{text-align:left;white-space:nowrap}
+  table.pnl tbody td.num-col{text-align:center;color:var(--muted);white-space:nowrap}
+  table.pnl tbody tr:last-child td{border-bottom:none}
+  /* Уровень 1 — Доходы / Прямые расходы / Валовая прибыль / OPEX /
+     Рентабельность / Чистая прибыль — единый светло-серый фон */
+  table.pnl tbody tr.lvl1 td{background:var(--sec-bg);font-weight:700;color:var(--ink)}
+  table.pnl tbody tr.lvl1 td.total-col{background:var(--total-bg)}
+  table.pnl tbody tr.lvl1.collapsible{cursor:pointer;user-select:none}
+  table.pnl tbody tr.lvl1.collapsible:hover td{background:var(--sec-bg-hover)}
+  /* Стрелка раскрытия — в столбце "№", не сдвигает название */
+  .toggle{display:inline-block;width:10px;color:var(--muted);font-weight:700;transition:transform .15s}
+  tr.collapsed .toggle{transform:rotate(-90deg)}
+  /* Уровень 3 — "в т.ч. ..." */
+  table.pnl tbody tr.lvl3 td.left{padding-left:26px;font-style:italic;
+    color:var(--ink-4);font-weight:400}
+  /* Строка параметров (дни недели) */
+  table.pnl tbody tr.row-params td{color:var(--muted);font-size:11px;
+    background:#fbfbfb;border-bottom:1px solid var(--line);padding:4px 8px}
+  table.pnl tbody tr.row-params td.left{color:var(--ink-4);font-style:italic}
+  /* Кнопка группового сворачивания/разворачивания — как в Excel */
+  .master-toggle{display:inline-flex;align-items:center;justify-content:center;
+    width:16px;height:16px;border:1px solid var(--line);border-radius:3px;
+    font-weight:700;font-size:11px;line-height:1;cursor:pointer;
+    color:var(--ink-3);background:#fff;user-select:none}
+  .master-toggle:hover{border-color:var(--accent);color:var(--accent)}
+  /* Строки с ручным вводом (COGS, реклама, налог, зарплата, прочее) */
+  table.pnl tbody tr.row-manual td.left::after{content:" ✎";color:var(--accent);font-style:normal}
+  .legend{margin-top:8px;font-size:11px;color:var(--muted);line-height:1.6}
+  .legend b{color:var(--ink-3)}
+  table.pnl tbody tr:hover td{background:#fcfcfc}
+  table.pnl tbody tr.lvl1:hover td{background:var(--sec-bg-hover)}
+  .num{font-variant-numeric:tabular-nums}
+  .neg{color:#c14a2a}
+  .zero{color:#b9b9b9}
+  /* LOADING / EMPTY */
+  .state{padding:36px 16px;text-align:center;color:var(--muted);font-size:12.5px}
+  .spinner{width:20px;height:20px;border:2px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* FOOTER */
+  footer.rpt{margin-top:20px;padding-top:12px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+    color:var(--muted);font-size:11.5px}
+  footer.rpt a{color:var(--ink);text-decoration:none}
+  footer.rpt a b{font-weight:700}
+  footer.rpt a span{font-weight:400}
+  footer.rpt a:hover b{color:var(--accent)}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:#fff;
+    padding:9px 14px;border-radius:8px;font-size:12.5px;opacity:0;transform:translateY(8px);
+    transition:.25s;pointer-events:none;z-index:50}
+  .toast.show{opacity:1;transform:translateY(0)}
+  .toast.err{background:#c14a2a}
+  /* Адаптив */
+  @media (max-width:720px){
+    .wrap{padding:14px 10px 32px}
+    .rpt-title{font-size:17px}
+    table.pnl{font-size:11.5px}
+    table.pnl thead th,table.pnl tbody td{padding:4px 6px}
+    .filter{padding:8px 10px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- HEADER -->
+  <header class="rpt">
+    <div>
+      <h1 class="rpt-title"><span class="accent">P&amp;L Report</span> Wildberries</h1>
+      <p class="rpt-sub">Отчёт о прибылях и убытках</p>
+      <p class="rpt-seller" id="seller">—</p>
+      <p class="rpt-period" id="periodLine">Загрузка…</p>
+    </div>
+    <div class="actions">
+      <button class="btn-text" id="btnPdf" title="Скачать PDF">PDF</button>
+      <span class="btn-sep">·</span>
+      <button class="btn-text" id="btnXls" title="Скачать Excel">Excel</button>
+      <span class="btn-sep">·</span>
+      <button class="btn-text" id="btnPrint" title="Печать">Печать</button>
+    </div>
+  </header>
+  <!-- FILTER -->
+  <section class="filter">
+    <div class="field">
+      <label for="from">Дата от</label>
+      <input type="date" id="from">
+    </div>
+    <div class="field">
+      <label for="to">Дата до</label>
+      <input type="date" id="to">
+    </div>
+    <button class="btn primary" id="btnApply">Применить</button>
+    <button class="btn ghost" id="btnReset">Сбросить</button>
+    <div class="spacer"></div>
+    <div class="hint" id="hint">По умолчанию: <span id="hintDefault">—</span></div>
+  </section>
+  <!-- TABLE -->
+  <div class="tbl-wrap" id="tblWrap">
+    <div class="state" id="state">
+      <div class="spinner"></div>
+      Загружаю данные…
+    </div>
+    <table class="pnl" id="pnl" style="display:none">
+      <thead>
+        <tr id="thead"></tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <div class="legend">✎ — строка ручного ввода (OPEX: реклама, налог, зарплата, прочее). Остальное считается автоматически.</div>
+  <!-- FOOTER -->
+  <footer class="rpt">
+    <div>© <span id="year"></span> P&amp;L Report Wildberries</div>
+    <div>
+      <a href="https://winscoms.com/" target="_blank" rel="noopener">
+        <b>winscoms</b> <span>— все технологии внутри</span>
+      </a>
+    </div>
+  </footer>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+  const state = { data:null, busy:false };
+  const $ = id => document.getElementById(id);
+  document.getElementById('year').textContent = new Date().getFullYear();
+  function toast(msg, isErr){
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.toggle('err', !!isErr);
+    t.classList.add('show');
+    clearTimeout(t._h);
+    t._h = setTimeout(()=>t.classList.remove('show'), 2400);
+  }
+  function fmtNum(v){
+    if (v === null || v === undefined || v === '') return '—';
+    if (typeof v === 'string' && v.trim()==='') return '—';
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g,'').replace(',','.'));
+    if (isNaN(n)) return String(v);
+    return n.toLocaleString('ru-RU', {maximumFractionDigits:2});
+  }
+  // Значения в листе хранятся как доля (0.731 = 73.1%) — переводим в %.
+  function fmtShare(v){
+    if (v === null || v === undefined || v === '') return '—';
+    const s = String(v).trim();
+    if (s.endsWith('%')) return s;
+    const n = typeof v === 'number' ? v : parseFloat(s.replace('%','').replace(',','.'));
+    if (isNaN(n)) return String(v);
+    return (n*100).toLocaleString('ru-RU',{maximumFractionDigits:1}) + '%';
+  }
+  // Строки-показатели (Рентабельность, комиссия %, логистика %) тоже
+  // хранятся как доля — та же конвертация, что и в Доля,%.
+  function fmtPeriodVal(v, isPercent){
+    return isPercent ? fmtShare(v) : fmtNum(v);
+  }
+  // Классификация строк — 3 уровня иерархии.
+  // level 1 (collapsible): настоящие разделы с дочерними строками.
+  // level 1 (plain): Рентабельность и Чистая прибыль — визуально как раздел,
+  //   но без дочерних строк, поэтому без стрелки сворачивания.
+  // level 3: подпункты "в т.ч. ...".
+  // Сравнение — по точному названию (в нижнем регистре), а не по префиксу:
+  // иначе "Валовая прибыль (GM), управленческая" ошибочно попала бы
+  // в тот же уровень, что и раздел "Валовая прибыль (Gross Margin)".
+  const L1_SECTIONS = new Set([
+    'доходы', 'прямые расходы (cogs & wb fees)',
+    'валовая прибыль (gross margin)', 'операционные расходы (opex)'
+  ]);
+  const L1_PLAIN = new Set(['рентабельность по gm, %', 'чистая прибыль (net profit)']);
+  function classifyRow(name){
+    const n = (name || '').trim().toLowerCase();
+    if (n === 'параметры') return 'row-params';
+    if (L1_SECTIONS.has(n)) return 'lvl1-sec';
+    if (L1_PLAIN.has(n)) return 'lvl1-plain';
+    if (n.startsWith('в т.ч.')) return 'lvl3';
+    return 'lvl2';
+  }
+  function numClass(v){
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g,'').replace(',','.'));
+    if (isNaN(n) || n===0) return 'num zero';
+    return n<0 ? 'num neg' : 'num';
+  }
+  // Определяем, какая строка является "родителем" для строк 2-го/3-го уровня.
+  // Родитель — ближайшая строка lvl1-sec выше (у lvl1-plain детей нет).
+  function markSubRows(rows){
+    let currentSection = -1;
+    rows.forEach((r, i) => {
+      const cls = classifyRow(r.name);
+      if (cls === 'lvl1-sec') currentSection = i;
+      r._section = currentSection;
+      r._type = cls;
+    });
+  }
+  function render(){
+    if (!state.data) return;
+    const {header, periods, rows} = state.data;
+    markSubRows(rows);
+    $('seller').textContent = header.seller || '';
+    $('periodLine').textContent =
+      `Период отчёта ${header.periodFrom || '—'} — ${header.periodTo || '—'} · в рублях`;
+    $('hintDefault').textContent = `${header.defaultFrom || '—'} — ${header.defaultTo || '—'}`;
+    // Шапка таблицы
+    // Формат периодов: "20.09.2026" + подпись "воскресенье" — из второй строки листа
+    const th = [];
+    th.push(`<th class="left num-col">№</th>`);
+    th.push(`<th class="left">Наименование показателя</th>`);
+    th.push(`<th class="total-col">Сумма</th>`);
+    th.push(`<th class="total-col">Доля, %</th>`);
+    periods.forEach(p => {
+      const parts = String(p).split('\n');
+      const date = parts[0] || '';
+      const sub = parts[1] || '';
+      th.push(`<th>${date}${sub ? `<span class="th-sub">${sub}</span>` : ''}</th>`);
+    });
+    $('thead').innerHTML = th.join('');
+    // Тело
+    const tbody = $('tbody');
+    tbody.innerHTML = rows.map((r, idx) => {
+      const isSec = r._type === 'lvl1-sec';
+      const isLvl1 = isSec || r._type === 'lvl1-plain';
+      let cls = isLvl1 ? 'lvl1' : (r._type === 'lvl3' ? 'lvl3' : (r._type === 'row-params' ? 'row-params' : ''));
+      if (isSec) cls += ' collapsible';
+      if (r.isManual) cls = (cls ? cls + ' ' : '') + 'row-manual';
+      // Стрелка — только у настоящих разделов с дочерними строками,
+      // и стоит в столбце "№", а не рядом с названием.
+      const isParams = r._type === 'row-params';
+      const toggle = isSec ? `<span class="toggle">▾</span>` : '';
+      const numCell = isParams
+        ? `<span class="master-toggle" id="masterToggle" title="Свернуть/развернуть все">−</span>`
+        : `${toggle}${r.num || ''}`;
+      const sumCell = fmtPeriodVal(r.sum, r.isPercent);
+      const cells = [
+        `<td class="left num-col">${numCell}</td>`,
+        `<td class="left">${escapeHtml(r.name || '')}</td>`,
+        `<td class="total-col ${numClass(r.sum)}">${sumCell}</td>`,
+        `<td class="total-col num">${fmtShare(r.share)}</td>`,
+        ...r.values.map(v => `<td class="${numClass(v)}">${fmtPeriodVal(v, r.isPercent)}</td>`)
+      ];
+      const trAttrs = [
+        `class="${cls.trim()}"`,
+        `data-idx="${idx}"`,
+        isSec ? `data-sec-idx="${idx}"` : '',
+        (r._type === 'lvl2' || r._type === 'lvl3' || r._type === 'row-params') ? `data-parent="${r._section}"` : ''
+      ].filter(Boolean).join(' ');
+      return `<tr ${trAttrs}>${cells.join('')}</tr>`;
+    }).join('');
+    // Скрываем подпункты, если у них есть родитель-раздел
+    // (по умолчанию все разделы развёрнуты — можно поменять)
+    // Раскомментируйте строку ниже, если нужно по умолчанию свернуть:
+    // collapseAll();
+    $('state').style.display = 'none';
+    $('pnl').style.display = 'table';
+    // Обработчики на разделы
+    tbody.querySelectorAll('tr.collapsible').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const idx = +tr.dataset.secIdx;
+        toggleSection(idx, tr);
+      });
+    });
+    const master = $('masterToggle');
+    if (master) {
+      master.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const all = [...tbody.querySelectorAll('tr.collapsible')];
+        const allCollapsed = all.length > 0 && all.every(tr => tr.classList.contains('collapsed'));
+        allCollapsed ? expandAll() : collapseAll();
+      });
+    }
+    updateMasterToggle();
+  }
+  function updateMasterToggle(){
+    const btn = $('masterToggle');
+    if (!btn) return;
+    const all = [...document.querySelectorAll('#tbody tr.collapsible')];
+    const allCollapsed = all.length > 0 && all.every(tr => tr.classList.contains('collapsed'));
+    btn.textContent = allCollapsed ? '+' : '−';
+  }
+  function toggleSection(secIdx, tr){
+    const rows = document.querySelectorAll(`#tbody tr[data-parent="${secIdx}"]`);
+    const collapsed = tr.classList.toggle('collapsed');
+    rows.forEach(r => { r.style.display = collapsed ? 'none' : ''; });
+    updateMasterToggle();
+  }
+  function collapseAll(){
+    document.querySelectorAll('#tbody tr.collapsible').forEach(tr => {
+      if (!tr.classList.contains('collapsed')) tr.click();
+    });
+  }
+  function expandAll(){
+    document.querySelectorAll('#tbody tr.collapsible').forEach(tr => {
+      if (tr.classList.contains('collapsed')) tr.click();
+    });
+  }
+  function escapeHtml(s){
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function setBusy(b){
+    state.busy = b;
+    ['btnApply','btnReset','btnPdf','btnXls','btnPrint'].forEach(id=>{
+      const el = $(id); if (el) el.disabled = b;
+    });
+  }
+  function load(){
+    setBusy(true);
+    $('state').style.display = 'block';
+    $('pnl').style.display = 'none';
+    $('state').innerHTML = '<div class="spinner"></div>Загружаю данные…';
+    google.script.run
+      .withSuccessHandler(data=>{
+        state.data = data;
+        $('from').value = toISO(data.header.periodFrom);
+        $('to').value   = toISO(data.header.periodTo);
+        render();
+        setBusy(false);
+      })
+      .withFailureHandler(err=>{
+        $('state').innerHTML = `Ошибка: ${err.message}`;
+        toast(err.message, true);
+        setBusy(false);
+      })
+      .getReportData();
+  }
+  function toISO(s){
+    if (!s) return '';
+    const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(s));
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    return String(s);
+  }
+  function toRU(s){
+    if (!s) return '';
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
+    if (m) return `${m[3]}.${m[2]}.${m[1]}`;
+    return String(s);
+  }
+  // Кнопки
+  $('btnApply').addEventListener('click', ()=>{
+    const from = toRU($('from').value);
+    const to   = toRU($('to').value);
+    if (!from || !to) { toast('Укажите обе даты', true); return; }
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(data=>{ state.data=data; render(); setBusy(false); toast('Период применён'); })
+      .withFailureHandler(err=>{ toast(err.message,true); setBusy(false); })
+      .applyPeriod(from, to);
+  });
+  $('btnReset').addEventListener('click', ()=>{
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(data=>{ state.data=data; render(); setBusy(false); toast('Сброшено к периоду по умолчанию'); })
+      .withFailureHandler(err=>{ toast(err.message,true); setBusy(false); })
+      .resetPeriod();
+  });
+  // Экспорт
+  function tableHTML(){
+    const t = document.getElementById('pnl');
+    const clone = t.cloneNode(true);
+    clone.style.display = 'table';
+    // Раскрываем все разделы в клоне
+    clone.querySelectorAll('tr[style*="display: none"]').forEach(tr=>tr.style.display='');
+    clone.querySelectorAll('tr.collapsible').forEach(tr=>tr.classList.remove('collapsed'));
+    return clone.outerHTML;
+  }
+  function reportHeaderHTML(){
+    const h = state.data.header;
+    return `
+      <h1 style="font-size:20px;margin:0 0 2px">P&amp;L Report Wildberries</h1>
+      <div style="color:#737272;font-size:11.5px">Отчёт о прибылях и убытках</div>
+      <div style="font-weight:700;margin:4px 0 0">${h.seller||''}</div>
+      <div style="color:#686f7d;font-size:11.5px;margin:2px 0 10px">
+        Период отчёта ${h.periodFrom||''} — ${h.periodTo||''} · в рублях
+      </div>`;
+  }
+  const EXPORT_CSS = `
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#333;padding:16px;font-size:11px}
+      h1{margin:0 0 2px}
+      table{width:100%;border-collapse:collapse;font-size:10.5px}
+      th,td{border:1px solid #e5e5e5;padding:3px 6px;text-align:right;white-space:nowrap}
+      th.left,td.left{text-align:left;white-space:nowrap}
+      thead th{background:#f4f4f4;font-weight:700;vertical-align:top}
+      thead th .th-sub{display:block;font-weight:400;color:#737272;font-size:9px;margin-top:1px}
+      tr.lvl1 td{background:#f2f2f2;font-weight:700}
+      tr.lvl3 td.left{padding-left:18px;font-style:italic;color:#686f7d}
+      tr.row-params td{background:#fbfbfb;color:#737272;font-size:10px}
+      .master-toggle{display:none}
+      .neg{color:#c14a2a}
+      footer{margin-top:14px;padding-top:8px;border-top:1px solid #e5e5e5;
+        color:#737272;font-size:10px;display:flex;justify-content:space-between}
+      footer a{color:#131925;text-decoration:none}
+    </style>`;
+  function footerHTML(){
+    return `<footer>
+      <div>© ${new Date().getFullYear()} P&amp;L Report Wildberries</div>
+      <div><a href="https://winscoms.com/" target="_blank"><b>winscoms</b> — все технологии внутри</a></div>
+    </footer>`;
+  }
+  $('btnPdf').addEventListener('click', ()=>{
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${EXPORT_CSS}</head><body>
+      ${reportHeaderHTML()}${tableHTML()}${footerHTML()}
+    </body></html>`;
+    const w = window.open('', '_blank');
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(()=>{ w.print(); }, 300);
+  });
+  $('btnPrint').addEventListener('click', ()=>$('btnPdf').click());
+  $('btnXls').addEventListener('click', ()=>{
+    const html = `<!DOCTYPE html><html xmlns:x="urn:schemas-microsoft-com:office:excel">
+      <head><meta charset="utf-8">${EXPORT_CSS}</head><body>
+      ${reportHeaderHTML()}${tableHTML()}${footerHTML()}
+      </body></html>`;
+    const blob = new Blob(['\ufeff', html], {type:'application/vnd.ms-excel'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `PnL_Wildberries_${state.data.header.periodFrom}_${state.data.header.periodTo}.xls`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+  load();
+</script>
+</body>
+</html>
