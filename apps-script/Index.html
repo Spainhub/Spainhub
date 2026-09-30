@@ -159,7 +159,6 @@
   .tab.active{color:var(--ink);border-bottom-color:var(--accent)}
   .tabs .spacer{flex:1}
   .sync{display:inline-flex;align-items:center;gap:8px;padding:0 6px 9px;font-size:11px;color:var(--muted)}
-  .sync .btn-text{padding:2px 6px;font-size:11.5px}
   .switch{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);
     padding:0 2px 9px;cursor:pointer;user-select:none}
   .switch input{accent-color:var(--accent);margin:0}
@@ -261,6 +260,7 @@
     </div>
     <button class="btn primary" id="btnApply">Применить</button>
     <button class="btn ghost" id="btnReset">Сбросить</button>
+    <button class="btn ghost" id="btnSync" title="Перечитать данные из Google Таблицы">Обновить данные</button>
     <div class="spacer"></div>
     <div class="hint" id="hint">По умолчанию: <span id="hintDefault">—</span></div>
   </section>
@@ -269,7 +269,7 @@
     <button class="tab active" data-tab="pnl">P&amp;L по периодам</button>
     <button class="tab" data-tab="sku">P&amp;L по SKU</button>
     <div class="spacer"></div>
-    <span class="sync"><button class="btn-text" id="btnSync" title="Перечитать данные из Google Таблицы">↻ Обновить</button><span id="syncInfo"></span></span>
+    <span class="sync"><span id="syncInfo"></span></span>
     <label class="switch" title="Показывать график строки при наведении мыши">
       <input type="checkbox" id="hoverCharts" checked> Графики при наведении
     </label>
@@ -512,7 +512,7 @@
   }
   function setBusy(b){
     state.busy = b;
-    ['btnApply','btnReset','btnPdf','btnXls','btnPrint'].forEach(id=>{
+    ['btnApply','btnReset','btnSync','btnPdf','btnXls','btnPrint'].forEach(id=>{
       const el = $(id); if (el) el.disabled = b;
     });
   }
@@ -683,6 +683,7 @@
       .withSuccessHandler(data => {
         state.pnlSyncing = false;
         stampSync();
+        if (!silent) toast('Данные обновлены');
         if (JSON.stringify(data) === state.dataJson) return;
         state.data = data;
         render();
@@ -690,7 +691,7 @@
       .withFailureHandler(err => { state.pnlSyncing = false; if (!silent) toast(err.message, true); })
       .getReportData();
   }
-  $('btnSync').addEventListener('click', () => { refreshActive(false); toast('Данные перечитываются из таблицы…'); });
+  $('btnSync').addEventListener('click', () => refreshActive(false));
   setInterval(() => { if (!document.hidden) refreshActive(true); }, REFRESH_MS);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshActive(true); });
   // Период поменялся (Применить / Сбросить) — обновляем всё зависимое
@@ -719,7 +720,7 @@
    * P&L ПО SKU
    * ===================================================================== */
   // Ширины колонок по типу (тип определяет сервер по заголовку листа)
-  const SKU_W = { num:44, id:105, art:150, text:160, pct:86, xyz:58, abc:58, money:104 };
+  const SKU_W = { num:44, id:105, art:150, text:150, pct:100, xyz:58, abc:58, money:100 };
   const SKU_LEFT = new Set(['num', 'id', 'art', 'text']);
   const SKU_STICKY = new Set(['num', 'id', 'art']);
   const skuIdx = type => state.sku ? state.sku.columns.findIndex(c => c.type === type) : -1;
@@ -734,13 +735,14 @@
     if (!quiet) {
       $('skuState').style.display = 'block';
       $('skuTable').style.display = 'none';
-      $('skuState').innerHTML = '<div class="spinner"></div>Читаю Calculation_sku…';
+      $('skuState').innerHTML = '<div class="spinner"></div>Загружаю данные ...';
     }
     google.script.run
       .withSuccessHandler(d => {
         if (req !== state.skuReq) { state.skuLoading = false; return; }
         state.skuLoading = false;
         stampSync();
+        if (!silent) toast('Данные обновлены');
         const json = JSON.stringify(d);
         if (quiet && json === state.skuJson) return;
         state.skuJson = json;
@@ -875,8 +877,7 @@
    * P&L: для строк из Data_wb — дневной ряд за весь период (сервер,
    *      PnlChart_getDailySeries) + скользящее среднее 7 дней; наведение
    *      на ячейку дня/месяца подсвечивает этот день/месяц на графике.
-   *      Для строк с ручным вводом — 2 мини-графика по колонкам отчёта
-   *      (3 месяца и 6 дней — у каждого своя шкала).
+   *      У строк без дневного ряда (ручной ввод и зависящие от него) графика нет.
    * SKU: выручка по неделям.
    * ===================================================================== */
   const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
@@ -982,14 +983,14 @@
     const m = /^(\d{4})-(\d{2})$/.exec(ym || '');
     return m ? `${MONTHS[+m[2] - 1]} ${m[1]}` : String(ym || '');
   }
-  const byKey = (a, b) => a.key < b.key ? -1 : (a.key > b.key ? 1 : 0);
 
   function pnlChartHTML(tr, col){
     const row = state.data && state.data.rows[+tr.dataset.idx];
     if (!row || row._type === 'row-params') return '';
     const ser = state.series && state.series.series[row.name];
     const pi = col - 4; // индекс колонки-периода (тип — по periodCols())
-    return ser && ser.values.length > 1 ? dailyCard(row, ser, state.series.dates, pi) : periodsCard(row, pi);
+    // Только линейный график по дням; у строк без дневного ряда (ручной ввод и т.п.) графика нет
+    return ser && ser.values.length > 1 ? dailyCard(row, ser, state.series.dates, pi) : '';
   }
 
   function dailyCard(row, ser, dates, pi){
@@ -1029,34 +1030,6 @@
     return cardHead(row.name, `${dates[0]} — ${dates[n - 1]} · по дням`) + kpiHTML(kpis) +
       lineSVG(vals, dates, hi, isPct) +
       `<div class="cc-legend"><span><i></i>по дням</span><span><i class="ma"></i>среднее за 7 дней</span></div>`;
-  }
-
-  function periodsCard(row, pi){
-    const v = row.values.map(x => typeof x === 'number' ? x : parseFloat(String(x).replace(/\s/g, '').replace(',', '.')) || 0);
-    const pcs = periodCols();
-    // Месяцы и дни — по типу колонки, от старых к новым (слева направо)
-    const months = pcs.filter(c => c.type === 'month').sort(byKey)
-      .map(c => ({ v: v[c.i], l: monthLabel(c.ym), hi: pi === c.i }));
-    const days = pcs.filter(c => c.type === 'day').sort(byKey)
-      .map(c => ({ v: v[c.i], l: c.key ? c.key.slice(8) + '.' + c.key.slice(5, 7) : String(c.label).slice(0, 5), hi: pi === c.i }));
-    const isPct = row.isPercent;
-    const fmt = x => isPct ? fmtShare(x) : fmtNum(Math.round(x));
-    const kpis = [
-      { k: 'Сумма', v: fmtPeriodVal(row.sum, isPct) },
-      isPct ? null : { k: 'Доля', v: fmtShare(row.share) },
-      months.length > 1
-        ? { k: `${months[months.length - 1].l} к ${months[months.length - 2].l}`,
-            v: trendHTML(months[months.length - 1].v, months[months.length - 2].v, isPct, row.name) }
-        : null
-    ].filter(Boolean);
-    // ширина графика пропорциональна числу столбцов; flex = ширине → одинаковый масштаб
-    const monW = 70 * months.length + 20, dayW = 40 * days.length + 20;
-    return cardHead(row.name, 'по колонкам отчёта') + kpiHTML(kpis) +
-      `<div style="display:flex;gap:14px">` +
-        (months.length ? `<div style="flex:${monW} 1 0">${barsSVG(months, fmt, 'Месяцы', monW, isPct)}</div>` : '') +
-        (days.length ? `<div style="flex:${dayW} 1 0">${barsSVG(days, fmt, 'Дни', dayW, isPct)}</div>` : '') +
-      `</div>` +
-      `<div class="cc-note">${row.isManual ? 'Строка ручного ввода — по дням не детализируется.' : 'Зависит от строк ручного ввода — по дням не детализируется.'}</div>`;
   }
 
   /* ---------- содержимое карточки: SKU ---------- */
