@@ -43,6 +43,21 @@
  * (вызывается вручную из редактора) пересоздаёт лист с чистыми
  * формулами — ручные значения OPEX при этом теряются, поэтому
  * используйте её только в аварийном случае.
+ *
+ * НАДЁЖНАЯ АВТОЗАГРУЗКА (защита от пропусков):
+ * - Первый запуск грузит окно целиком: с 1-го числа месяца 3 месяца
+ *   назад (столько нужно колонкам K:M) по сегодня.
+ * - dailyUpdate (ежедневный триггер) перезапрашивает последние
+ *   DAILY_OVERLAP_DAYS дней (WB дописывает строки задним числом),
+ *   догоняет, если триггер несколько дней не работал, и дозагружает
+ *   пропуски, найденные проверкой (Data_check.gs). Дубликаты
+ *   отсекаются по rrdId.
+ * - Загрузка идёт через очередь (ScriptProperties): при нехватке
+ *   времени (лимит 6 мин) прогресс сохраняется и скрипт сам
+ *   продолжает через минуту. Данные пишутся после каждой страницы.
+ * - 429/5xx/сетевые ошибки повторяются; каждый запуск пишется в лист
+ *   Load_log. После загрузки: очистка окна, пересчёт Calculation_sku,
+ *   проверка пропусков (письмо при проблемах).
  **********************************************************************/
 
 /**********************************************************************
@@ -52,13 +67,26 @@ const API_URL = 'https://finance-api.wildberries.ru/api/finance/v1/sales-reports
 const SHEET_DATA = 'Data_wb';
 const SHEET_CALC = 'Calculation';
 const SHEET_INFO = 'Info';
-const FIRST_RUN_DAYS = 30;
-const RETENTION_DAYS = 90;
-const MAX_MONTHS_BACK = 3;
+const MAX_MONTHS_BACK = 3;        // окно хранения: с 1-го числа месяца N месяцев назад
 const PAGE_LIMIT = 100000;
-const REQUEST_PAUSE_MS = 62000;
+const REQUEST_PAUSE_MS = 62000;   // лимит WB: 1 запрос в минуту
 const MAX_RUNTIME_MS = 5.5 * 60 * 1000;
+const REQUEST_BUDGET_MS = 90 * 1000; // запас времени на один запрос + запись
 const SELLER_NAME = 'ООО "Users"';
+
+// Автозагрузка
+const TZ_MSK = 'Europe/Moscow';
+const CHUNK_DAYS = 30;            // период одного запроса к API
+const DAILY_OVERLAP_DAYS = 7;     // сколько последних дней перезапрашивать каждый день
+const DAILY_TRIGGER_HOUR = 6;     // час запуска dailyUpdate (МСК)
+const LOAD_MAX_JOB_ERRORS = 3;    // после N ошибок подряд задание снимается
+const LOAD_RETRY_DELAY_MS = 15 * 60 * 1000; // повтор после ошибки через 15 мин
+const LOAD_LOG_SHEET = 'Load_log';
+const LOAD_LOG_MAX_ROWS = 1000;
+const PROP_LOAD_QUEUE = 'WB_LOAD_QUEUE';
+const PROP_LAST_REQUEST = 'WB_LAST_REQUEST_AT';
+const PROP_AFTERLOAD = 'WB_AFTERLOAD_PENDING';
+const PROP_DATA_VERSION = 'WB_DATA_VERSION';
 
 // Строки служебной "шапки" листа Calculation
 const CALC_ROW_TITLE = 1;
@@ -129,10 +157,20 @@ function onOpen() {
     .addSeparator()
     .addSubMenu(
       ui.createMenu('Wildberries — P&L')
-        .addItem('Первый запуск (1 месяц)', 'firstRun')
-        .addItem('Загрузить вчера', 'loadYesterday')
+        .addItem('Первый запуск (3 месяца)', 'firstRun')
+        .addItem('Ежедневное обновление (сейчас)', 'dailyUpdate')
         .addItem('Загрузить за период...', 'loadCustomPeriod')
         .addItem('Очистить старше 3 месяцев', 'cleanupOldRows')
+        .addSeparator()
+        .addItem('Пересчитать P&L по SKU', 'SkuCalc_rebuildMenu')
+        .addItem('Себестоимость по SKU (лист Cost_sku)', 'SkuCalc_openCostSheet')
+    )
+    .addSubMenu(
+      ui.createMenu('Контроль данных')
+        .addItem('Проверить пропуски', 'Gap_checkMenu')
+        .addItem('Дозагрузить пропуски', 'Gap_healMenu')
+        .addSeparator()
+        .addItem('Установить ежедневный триггер', 'installDailyTrigger')
     )
     .addSubMenu(
       ui.createMenu('Wildberries — доп. отчёты')
@@ -169,19 +207,51 @@ function openWebApp() {
 /**********************************************************************
  * ТОЧКИ ВХОДА (WB P&L)
  * Токен WB берётся из единого хранилища — см. Auth.gs → Auth_getWbToken().
+ * Все даты загрузчика — «день» в МСК, хранится как Date UTC-полдень
+ * (как и в Data_wb): не зависит от часового пояса проекта.
  **********************************************************************/
 function firstRun() {
-  const today = new Date();
-  const from = addDays(today, -FIRST_RUN_DAYS);
-  runReport(from, today, 'первый запуск (30 дней)');
+  const from = retentionStart_();
+  const to = mskToday_();
   ensureCalculationSheetExists();
   buildInfoSheet();
+  enqueueLoad_(from, to, `первый запуск (${MAX_MONTHS_BACK} мес.)`);
+  processLoadQueue_();
 }
 
+/**
+ * ЕЖЕДНЕВНОЕ ОБНОВЛЕНИЕ — на него ставится триггер (installDailyTrigger).
+ * 1) перезапрашивает последние DAILY_OVERLAP_DAYS дней;
+ * 2) если последние данные старше — догоняет с даты последних данных;
+ * 3) дозагружает пропуски раньше этого окна (Data_check.gs);
+ * 4) после загрузки: очистка, Calculation_sku, проверка + письмо.
+ */
+function dailyUpdate() {
+  const today = mskToday_();
+  const start = retentionStart_();
+  let from = dayAdd_(today, -DAILY_OVERLAP_DAYS);
+
+  const last = dataWbLastDate_();
+  if (!last) from = start;                               // данных нет — всё окно
+  else if (last < from) from = dayAdd_(last, -1);        // триггер «пропускал» дни
+  if (from < start) from = start;
+
+  enqueueLoad_(from, today, 'ежедневное обновление');
+
+  if (typeof Gap_findHealRanges_ === 'function') {
+    try {
+      Gap_findHealRanges_(dayKey_(from), true)
+        .forEach(r => enqueueLoad_(r.from, r.to, 'дозагрузка пропусков'));
+    } catch (e) {
+      logLoad_('проверка пропусков', '', '', 0, 'ОШИБКА', e.message);
+    }
+  }
+  processLoadQueue_();
+}
+
+/** Совместимость: старый пункт меню / старый триггер. */
 function loadYesterday() {
-  const today = new Date();
-  const from = addDays(today, -2);
-  runReport(from, today, 'ежедневное обновление');
+  dailyUpdate();
 }
 
 function loadCustomPeriod() {
@@ -196,78 +266,288 @@ function loadCustomPeriod() {
   if (!from || !to) { ui.alert('Неверный формат даты'); return; }
   if (from > to) { ui.alert('Дата начала больше даты окончания'); return; }
 
-  const cutoff = addDays(new Date(), -MAX_MONTHS_BACK * 30);
+  const cutoff = retentionStart_();
   const realFrom = from < cutoff ? cutoff : from;
   if (realFrom > to) {
-    ui.alert('Период вне допустимого окна (3 месяца).');
+    ui.alert(`Период вне допустимого окна (${MAX_MONTHS_BACK} месяца, с ${formatRu(cutoff)}).`);
     return;
   }
-  runReport(realFrom, to, 'ручной период');
+  enqueueLoad_(realFrom, to, 'ручной период');
+  processLoadQueue_();
+}
+
+/** Ставит ежедневный триггер dailyUpdate (старые триггеры загрузки удаляет). */
+function installDailyTrigger() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (['dailyUpdate', 'loadYesterday', 'cleanupOldRows', 'runReport'].includes(t.getHandlerFunction())) {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('dailyUpdate')
+    .timeBased()
+    .everyDays(1)
+    .atHour(DAILY_TRIGGER_HOUR)
+    .inTimezone(TZ_MSK)
+    .create();
+  const msg = `Триггер установлен: dailyUpdate ежедневно в ~${DAILY_TRIGGER_HOUR}:00 МСК ` +
+    '(от имени текущего пользователя — используется ЕГО токен WB).';
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
 }
 
 /**********************************************************************
- * ОСНОВНОЙ ЗАПУСК
+ * ОЧЕРЕДЬ ЗАГРУЗКИ
+ * Задание: { from, to, label, cur, rrdId, rows, errors, updatedAt }
+ * (даты — "yyyy-MM-dd"). cur/rrdId — курсор: откуда продолжать после
+ * таймаута. Очередь хранится в ScriptProperties и переживает перезапуски.
  **********************************************************************/
-function runReport(dateFrom, dateTo, label) {
-  const token = Auth_getWbToken();
-  const startTime = Date.now();
-  const chunks = splitByDays(dateFrom, dateTo, 30);
-  let total = 0;
+function enqueueLoad_(from, to, label) {
+  const f = dayKey_(from);
+  const t = dayKey_(to);
+  withQueue_(q => {
+    // Уже есть задание, покрывающее этот период — не дублируем
+    if (q.some(j => j.from <= f && j.to >= t && j.cur <= f)) return q;
+    q.push({
+      id: Date.now() + '_' + Math.floor(Math.random() * 1e6),
+      from: f, to: t, label: label, cur: f, rrdId: 0, rows: 0, errors: 0, updatedAt: Date.now()
+    });
+    return q;
+  });
+}
 
-  for (const chunk of chunks) {
-    if (Date.now() - startTime > MAX_RUNTIME_MS) {
-      SpreadsheetApp.getActive().toast(
-        'Остановлено по таймауту. Запустите ещё раз — данные допишутся.',
-        'WB', 10
-      );
-      break;
-    }
-    const rows = fetchAllPages(token, chunk.from, chunk.to);
-    if (rows.length) {
-      appendToDataSheet(rows);
-      total += rows.length;
-    }
+function getLoadQueue_() {
+  const raw = PropertiesService.getScriptProperties().getProperty(PROP_LOAD_QUEUE);
+  return raw ? JSON.parse(raw) : [];
+}
+
+/**
+ * Изменение очереди под короткой блокировкой документа. Обработчик
+ * держит ScriptLock всё время загрузки, поэтому для очереди нужна
+ * отдельная блокировка — иначе задание, добавленное во время загрузки
+ * (например, ручной «Загрузить за период»), затёрлось бы.
+ */
+function withQueue_(fn) {
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(20000);
+  try {
+    const q = fn(getLoadQueue_());
+    const props = PropertiesService.getScriptProperties();
+    if (q.length) props.setProperty(PROP_LOAD_QUEUE, JSON.stringify(q));
+    else props.deleteProperty(PROP_LOAD_QUEUE);
+  } finally {
+    lock.releaseLock();
   }
-  SpreadsheetApp.getActive().toast(`Загружено строк: ${total} (${label})`, 'WB', 10);
+}
+
+function updateJob_(job) {
+  withQueue_(q => q.map(j => (j.id === job.id ? job : j)));
+}
+
+function removeJob_(job) {
+  withQueue_(q => q.filter(j => j.id !== job.id));
+}
+
+/** Точка входа одноразового триггера-продолжения. */
+function continueLoadQueue() {
+  processLoadQueue_();
+}
+
+function processLoadQueue_() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    notify_('Загрузка уже выполняется — задание поставлено в очередь.');
+    return;
+  }
+  const startTime = Date.now();
+  const props = PropertiesService.getScriptProperties();
+  try {
+    deleteContinuationTriggers_();
+    let token = null;
+
+    while (true) {
+      const job = getLoadQueue_()[0];
+      if (!job) break;
+      let state;
+      try {
+        token = token || Auth_getWbToken();
+        state = runJob_(token, job, startTime, () => updateJob_(job));
+      } catch (e) {
+        job.errors = (job.errors || 0) + 1;
+        job.updatedAt = Date.now();
+        const fatal = /^(401|402|403)|не задан/.test(e.message);
+        if (fatal || job.errors >= LOAD_MAX_JOB_ERRORS) {
+          logLoad_(job.label, job.from, job.to, job.rows, 'ПРОПУЩЕНО',
+            `${e.message} (попыток: ${job.errors}). Пропуск будет найден проверкой.`);
+          removeJob_(job);
+          props.setProperty(PROP_AFTERLOAD, '1');
+          continue;
+        }
+        updateJob_(job);
+        logLoad_(job.label, job.from, job.to, job.rows, 'ОШИБКА',
+          `${e.message}. Повтор через ${LOAD_RETRY_DELAY_MS / 60000} мин (попытка ${job.errors}).`);
+        scheduleContinuation_(LOAD_RETRY_DELAY_MS);
+        return;
+      }
+
+      if (state === 'timeout') {
+        updateJob_(job);
+        logLoad_(job.label, job.from, job.to, job.rows, 'ПРОДОЛЖЕНИЕ',
+          `Лимит времени: продолжу с ${job.cur} через 1 мин.`);
+        scheduleContinuation_(60 * 1000);
+        notify_(`Загружено ${job.rows} строк, продолжение через минуту (автоматически).`);
+        return;
+      }
+
+      logLoad_(job.label, job.from, job.to, job.rows, 'OK', '');
+      removeJob_(job);
+      props.setProperty(PROP_AFTERLOAD, '1');
+    }
+
+    // Очередь пуста — пост-обработка (если осталось время, иначе в продолжении)
+    if (props.getProperty(PROP_AFTERLOAD)) {
+      if (Date.now() - startTime > MAX_RUNTIME_MS - 2 * 60 * 1000) {
+        scheduleContinuation_(60 * 1000);
+        return;
+      }
+      props.deleteProperty(PROP_AFTERLOAD);
+      afterLoad_();
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Выполняет одно задание. Пишет данные после КАЖДОЙ страницы и сохраняет
+ * курсор — при таймауте/ошибке уже загруженное не теряется.
+ * Возвращает 'done' | 'timeout'.
+ */
+function runJob_(token, job, startTime, persist) {
+  const to = isoDateToDate(job.to);
+  let cur = isoDateToDate(job.cur);
+
+  while (cur <= to) {
+    let end = dayAdd_(cur, CHUNK_DAYS - 1);
+    if (end > to) end = to;
+
+    while (true) {
+      if (!hasTimeForRequest_(startTime)) return 'timeout';
+      const page = fetchPage_(token, cur, end, job.rrdId);
+      if (!page.length) break;
+
+      appendToDataSheet(page);
+      job.rows += page.length;
+      job.rrdId = page[page.length - 1].rrdId;
+      job.updatedAt = Date.now();
+      persist();
+      if (page.length < PAGE_LIMIT) break;
+    }
+
+    cur = dayAdd_(end, 1);
+    job.cur = dayKey_(cur);
+    job.rrdId = 0;
+    job.errors = 0;
+    job.updatedAt = Date.now();
+    persist();
+  }
+  return 'done';
+}
+
+/** Хватит ли времени на паузу лимита + ещё один запрос с записью. */
+function hasTimeForRequest_(startTime) {
+  const wait = rateLimitWaitMs_();
+  return Date.now() - startTime + wait + REQUEST_BUDGET_MS < MAX_RUNTIME_MS;
+}
+
+function rateLimitWaitMs_() {
+  const last = +(PropertiesService.getScriptProperties().getProperty(PROP_LAST_REQUEST) || 0);
+  return Math.max(0, last + REQUEST_PAUSE_MS - Date.now());
+}
+
+function scheduleContinuation_(ms) {
+  deleteContinuationTriggers_();
+  ScriptApp.newTrigger('continueLoadQueue').timeBased().after(ms).create();
+}
+
+function deleteContinuationTriggers_() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'continueLoadQueue') ScriptApp.deleteTrigger(t);
+  });
+}
+
+/** После загрузки: очистка окна, P&L по SKU, контроль пропусков. */
+function afterLoad_() {
+  const steps = [
+    ['очистка', () => cleanupOldRows_(false)],
+    ['Calculation_sku', () => { if (typeof SkuCalc_rebuild === 'function') SkuCalc_rebuild(); }],
+    ['контроль данных', () => { if (typeof Gap_runCheck === 'function') Gap_runCheck({ notify: true }); }]
+  ];
+  steps.forEach(([name, fn]) => {
+    try { fn(); } catch (e) { logLoad_(name, '', '', 0, 'ОШИБКА', e.message); }
+  });
+}
+
+/**********************************************************************
+ * ЖУРНАЛ ЗАГРУЗОК (лист Load_log)
+ **********************************************************************/
+function logLoad_(label, from, to, rows, status, message) {
+  try {
+    const ss = SpreadsheetApp.getActive();
+    let sh = ss.getSheetByName(LOAD_LOG_SHEET);
+    if (!sh) {
+      sh = ss.insertSheet(LOAD_LOG_SHEET);
+      sh.getRange(1, 1, 1, 7).setValues([['Время', 'Операция', 'Период с', 'Период по', 'Строк', 'Статус', 'Сообщение']])
+        .setFontWeight('bold').setBackground('#efefef');
+      sh.setFrozenRows(1);
+      sh.setColumnWidth(1, 140);
+      sh.setColumnWidth(2, 190);
+      sh.setColumnWidth(7, 520);
+      sh.getRange('A:A').setNumberFormat('dd.MM.yyyy HH:mm');
+    }
+    sh.appendRow([new Date(), label, from, to, rows, status, message || '']);
+    const color = { OK: '#e6f4ea', 'ПРОДОЛЖЕНИЕ': '#eef3fb', 'ОШИБКА': '#fde8e1', 'ПРОПУЩЕНО': '#fde8e1' }[status];
+    if (color) sh.getRange(sh.getLastRow(), 6).setBackground(color);
+    if (sh.getLastRow() > LOAD_LOG_MAX_ROWS + 1) {
+      sh.deleteRows(2, sh.getLastRow() - LOAD_LOG_MAX_ROWS - 1);
+    }
+  } catch (e) {
+    Logger.log('Load_log: ' + e.message);
+  }
+  Logger.log(`[${status}] ${label} ${from}–${to}: ${rows} строк. ${message || ''}`);
+}
+
+/** Toast работает только при ручном запуске; в триггере — просто лог. */
+function notify_(msg) {
+  Logger.log(msg);
+  try { SpreadsheetApp.getActive().toast(msg, 'WB', 8); } catch (e) { /* триггер */ }
 }
 
 /**********************************************************************
  * API
  **********************************************************************/
-function fetchAllPages(token, dateFrom, dateTo) {
-  const all = [];
-  let rrdId = 0;
-  let first = true;
-
-  while (true) {
-    if (!first) Utilities.sleep(REQUEST_PAUSE_MS);
-    first = false;
-
-    const payload = {
-      dateFrom: formatDate(dateFrom),
-      dateTo: formatDate(dateTo),
-      limit: PAGE_LIMIT,
-      rrdId: rrdId,
-      period: 'daily'
-    };
-
-    const resp = fetchWithRetry(token, payload);
-    const code = resp.getResponseCode();
-    if (code === 204) break;
-    if (code !== 200) {
-      throw new Error(`WB API ${code}: ${resp.getContentText()}`);
-    }
-    const data = JSON.parse(resp.getContentText());
-    if (!Array.isArray(data) || data.length === 0) break;
-
-    all.push(...data);
-    rrdId = data[data.length - 1].rrdId;
-    if (data.length < PAGE_LIMIT) break;
+/** Одна страница отчёта (с учётом лимита 1 запрос/мин). */
+function fetchPage_(token, dateFrom, dateTo, rrdId) {
+  const payload = {
+    dateFrom: dayKey_(dateFrom),
+    dateTo: dayKey_(dateTo),
+    limit: PAGE_LIMIT,
+    rrdId: rrdId || 0,
+    period: 'daily'
+  };
+  const resp = fetchWithRetry(token, payload);
+  const code = resp.getResponseCode();
+  if (code === 204) return [];
+  if (code !== 200) {
+    throw new Error(`WB API ${code}: ${resp.getContentText().slice(0, 300)}`);
   }
-  return all;
+  const data = JSON.parse(resp.getContentText());
+  return Array.isArray(data) ? data : [];
 }
 
-function fetchWithRetry(token, payload, attempt = 1) {
+/**
+ * Запрос с повторами: 429 (ждём X-Ratelimit-Retry или паузу), 5xx и
+ * сетевые исключения (до 5 попыток). 401/402/403 — сразу ошибка.
+ */
+function fetchWithRetry(token, payload) {
   const options = {
     method: 'post',
     contentType: 'application/json',
@@ -275,18 +555,40 @@ function fetchWithRetry(token, payload, attempt = 1) {
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   };
-  const resp = UrlFetchApp.fetch(API_URL, options);
-  const code = resp.getResponseCode();
+  const props = PropertiesService.getScriptProperties();
+  let lastErr = '';
 
-  if (code === 429) {
-    if (attempt > 5) throw new Error('429: превышен лимит, попытки исчерпаны');
-    Utilities.sleep(REQUEST_PAUSE_MS);
-    return fetchWithRetry(token, payload, attempt + 1);
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const wait = rateLimitWaitMs_();
+    if (wait > 0) Utilities.sleep(wait);
+    props.setProperty(PROP_LAST_REQUEST, String(Date.now()));
+
+    let resp;
+    try {
+      resp = UrlFetchApp.fetch(API_URL, options);
+    } catch (e) {
+      lastErr = 'сеть: ' + e.message;
+      continue; // следующая попытка — после паузы лимита
+    }
+    const code = resp.getResponseCode();
+
+    if (code === 429) {
+      const h = resp.getHeaders() || {};
+      const retry = +(h['X-Ratelimit-Retry'] || h['x-ratelimit-retry'] || 0);
+      if (retry > 0) Utilities.sleep(Math.min(retry, 120) * 1000);
+      lastErr = '429: превышен лимит запросов';
+      continue;
+    }
+    if (code >= 500) {
+      lastErr = `${code}: ошибка сервера WB`;
+      continue;
+    }
+    if (code === 401) throw new Error('401: неверный или просроченный токен');
+    if (code === 403) throw new Error('403: у токена нет категории «Финансы»');
+    if (code === 402) throw new Error('402: недостаточно средств на балансе');
+    return resp;
   }
-  if (code === 401) throw new Error('401: неверный или просроченный токен');
-  if (code === 403) throw new Error('403: у токена нет категории «Финансы»');
-  if (code === 402) throw new Error('402: недостаточно средств на балансе');
-  return resp;
+  throw new Error(`Попытки исчерпаны (${lastErr})`);
 }
 
 /**********************************************************************
@@ -311,10 +613,14 @@ function appendToDataSheet(rows) {
     merged.length !== existingHeaders.length ||
     merged.some((h, i) => h !== existingHeaders[i]);
 
-  if (headersChanged && sh.getLastRow() > 1) {
-    migrateSheet(sh, existingHeaders, merged);
-  } else if (sh.getLastRow() === 0) {
-    sh.getRange(1, 1, 1, merged.length).setValues([merged]);
+  if (headersChanged) {
+    if (sh.getLastRow() > 1) {
+      migrateSheet(sh, existingHeaders, merged);
+    } else {
+      // Раньше при листе «только заголовок» новые поля не дописывались
+      // в шапку, и данные сдвигались относительно заголовков.
+      sh.getRange(1, 1, 1, merged.length).setValues([merged]);
+    }
   }
 
   const rrdIdx = merged.indexOf('rrdId');
@@ -329,7 +635,7 @@ function appendToDataSheet(rows) {
     : rows;
 
   if (!fresh.length) {
-    SpreadsheetApp.getActive().toast('Новых строк нет (все rrdId уже есть).', 'WB', 6);
+    notify_('Новых строк нет (все rrdId уже есть).');
     return;
   }
 
@@ -339,6 +645,28 @@ function appendToDataSheet(rows) {
 
   styleHeader(sh, merged.length);
   applyDateFormatToDateColumns(sh);
+  bumpDataVersion_();
+}
+
+/** Версия данных — по ней Calculation_sku и графики понимают, что кэш устарел. */
+function bumpDataVersion_() {
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty(PROP_DATA_VERSION, String(+(props.getProperty(PROP_DATA_VERSION) || 0) + 1));
+}
+
+/** Последняя дата rrDate в Data_wb (Date UTC-полдень) или null. */
+function dataWbLastDate_() {
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET_DATA);
+  if (!sh || sh.getLastRow() < 2) return null;
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const idx = headers.indexOf('rrDate');
+  if (idx < 0) return null;
+  let max = null;
+  sh.getRange(2, idx + 1, sh.getLastRow() - 1, 1).getValues().forEach(r => {
+    const v = r[0];
+    if (v instanceof Date && (!max || v > max)) max = v;
+  });
+  return max ? isoDateToDate(dayKey_(max)) : null;
 }
 
 function migrateSheet(sh, oldHeaders, newHeaders) {
@@ -601,40 +929,62 @@ function recalcNumbersInDataSheet() {
 
 /**********************************************************************
  * ОЧИСТКА СТАРШЕ 3 МЕСЯЦЕВ
+ * Граница = 1-е число месяца MAX_MONTHS_BACK месяцев назад (МСК), а не
+ * «90 дней»: иначе самый старый месяц в колонке M листа Calculation
+ * получался неполным (при 90 днях к концу месяца он пустел почти целиком).
+ * Строки удаляются блоками (deleteRows), а не по одной — быстрее в сотни
+ * раз и не упирается в лимит 6 минут.
  **********************************************************************/
 function cleanupOldRows() {
+  cleanupOldRows_(true);
+}
+
+function cleanupOldRows_(interactive) {
+  const say = msg => { if (interactive) notify_(msg); else Logger.log(msg); };
   const sh = SpreadsheetApp.getActive().getSheetByName(SHEET_DATA);
-  if (!sh) return;
+  if (!sh) return 0;
   const lastRow = sh.getLastRow();
-  if (lastRow < 2) return;
+  if (lastRow < 2) return 0;
 
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   const dateIdx = headers.indexOf('rrDate');
   if (dateIdx < 0) {
-    SpreadsheetApp.getActive().toast('Не найден столбец rrDate.', 'WB', 6);
-    return;
+    say('Не найден столбец rrDate.');
+    return 0;
   }
 
-  const cutoff = addDays(new Date(), -RETENTION_DAYS);
-  const cutoffKey = cutoff.getFullYear() * 10000 + (cutoff.getMonth() + 1) * 100 + cutoff.getDate();
+  const cutoffKey = dayKey_(retentionStart_());
 
   const values = sh.getRange(2, dateIdx + 1, lastRow - 1, 1).getValues();
   const drop = [];
   values.forEach((row, i) => {
     const v = row[0];
     if (v === '' || v === null) return;
-    let key = 0;
+    let key = '';
     if (v instanceof Date) {
-      key = v.getUTCFullYear() * 10000 + (v.getUTCMonth() + 1) * 100 + v.getUTCDate();
+      key = dayKey_(v);
     } else {
       const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(v).trim());
-      if (m) key = +m[3] * 10000 + +m[2] * 100 + +m[1];
+      if (m) key = `${m[3]}-${m[2]}-${m[1]}`;
     }
     if (key && key < cutoffKey) drop.push(i + 2);
   });
 
-  drop.sort((a, b) => b - a).forEach(r => sh.deleteRow(r));
-  SpreadsheetApp.getActive().toast(`Удалено строк: ${drop.length}`, 'WB', 6);
+  // Склеиваем подряд идущие строки в блоки и удаляем снизу вверх
+  const blocks = [];
+  drop.forEach(r => {
+    const last = blocks[blocks.length - 1];
+    if (last && last.start + last.count === r) last.count++;
+    else blocks.push({ start: r, count: 1 });
+  });
+  blocks.reverse().forEach(b => sh.deleteRows(b.start, b.count));
+
+  if (drop.length) {
+    bumpDataVersion_();
+    logLoad_('очистка', '', dayKey_(retentionStart_()), drop.length, 'ИНФО', 'удалено строк старше окна');
+  }
+  say(`Удалено строк: ${drop.length}`);
+  return drop.length;
 }
 
 /**********************************************************************
@@ -1002,7 +1352,7 @@ function buildInfoSheet() {
     ['', ''],
     ['ОБЩЕЕ', ''],
     ['Назначение', 'Загрузка данных Wildberries и Ozon в Google Sheets и расчёт P&L по WB.'],
-    ['Поток данных (P&L)', 'WB API → fetchAllPages → Data_wb → Calculation (P&L) → Web App.'],
+    ['Поток данных (P&L)', 'WB API → очередь загрузки (processLoadQueue_) → Data_wb → Calculation / Calculation_sku → Web App.'],
     ['', ''],
     ['ЕДИНОЕ МЕНЮ И КЛЮЧИ API', ''],
     ['Меню проекта', '«Отчёты МП» --- объединяет все методы (WB P&L, доп. отчёты WB, отчёты Ozon).'],
@@ -1010,8 +1360,12 @@ function buildInfoSheet() {
     ['Хранение ключей', 'Auth.gs, PropertiesService.getUserProperties() --- не в коде, привязаны к пользователю.'],
     ['', ''],
     ['ЛИСТЫ (загрузка данных)', ''],
-    ['Data_wb', 'Сырые данные WB API (реализация). Дедуп по rrdId, окно 90 дней.'],
+    ['Data_wb', 'Сырые данные WB API (реализация). Дедуп по rrdId, окно — с 1-го числа месяца 3 месяца назад.'],
     ['Calculation', 'P&L WB: строки --- статьи, колонки --- периоды (6 дней + 3 месяца). Формулы SUMIFS к Data_wb.'],
+    ['Calculation_sku', 'P&L в разрезе SKU (Calculation_sku.gs). Та же логика полей, что в Calculation; пересчитывается скриптом после загрузки и при смене периода в Web App.'],
+    ['Cost_sku', 'Себестоимость за единицу по SKU (ручной ввод). Новые SKU дописываются автоматически.'],
+    ['Data_check', 'Контроль полноты данных: пропущенные/неполные дни, структура колонок, типы операций (Data_check.gs).'],
+    ['Load_log', 'Журнал загрузок: время, период, строк, статус, ошибка.'],
     ['Report_finans_wb_2', 'WB: детализация по эквайрингу (Report_finans_wb_2.gs → WbAcq2_loadReport).'],
     ['Report_sku_wb', 'WB: список товаров с ценами (Get_sku_wb.gs → WbSku_loadGoods).'],
     ['Report_finans_oz_1', 'Ozon: финансовый отчёт Cash Flow (Report_finans_oz_1.gs → OzFin1_loadReport).'],
@@ -1025,6 +1379,12 @@ function buildInfoSheet() {
     ['ISO-дата', '"2026-03-16" → Date(16.03.2026).'],
     ['ISO-датавремя', '"2026-08-10T20:10:21Z" → Date(10.08.2026). Время отброшено, день в MSK.'],
     ['Формулы', 'SUMIFS/DATE работают --- это настоящие даты, а не текст.'],
+    ['', ''],
+    ['АВТОЗАГРУЗКА', ''],
+    ['Триггер', 'dailyUpdate раз в день (меню «Контроль данных» → «Установить ежедневный триггер»). Ставить от имени пользователя, чей токен WB сохранён.'],
+    ['Перекрытие', `Каждый день перезапрашиваются последние ${DAILY_OVERLAP_DAYS} дней; дубликаты отсекаются по rrdId.`],
+    ['Таймаут', 'Прогресс хранится в очереди (ScriptProperties), продолжение — автоматически через 1 мин.'],
+    ['Пропуски', 'После загрузки — проверка (лист Data_check), письмо при проблемах, авто-дозагрузка пропусков (до 3 попыток на день).'],
     ['', ''],
     ['ПРАВИЛА ПО CALCULATION', ''],
     ['Создание', 'Создаётся автоматически один раз --- при firstRun, если листа ещё нет.'],
@@ -1040,7 +1400,7 @@ function buildInfoSheet() {
     ['КАК РАСШИРЯТЬ', ''],
     ['Новый метод API', 'Отдельный .gs файл (1 метод = 1 скрипт), уникальный префикс имён, ключи --- через Auth.gs, пункт меню --- в onOpen() этого файла.'],
     ['Периоды P&L', 'CALC_PERIOD_COLS / CALC_MONTH_COLS в calcFormula() --- если нужно другое окно, чем 6 дней + 3 месяца.'],
-    ['Окно хранения', 'RETENTION_DAYS.'],
+    ['Окно хранения', 'MAX_MONTHS_BACK (месяцев, от 1-го числа).'],
     ['UI', 'Правки в Index.html.'],
     ['Часовой пояс', 'MSK_OFFSET_HOURS (сейчас 3).'],
     ['', ''],
@@ -1089,10 +1449,34 @@ function formatTime(d) {
   return `${hh}:${mi}`;
 }
 
+// "2026-03-16" → Date(16.03.2026 12:00 UTC) — тот же формат «дня», что в Data_wb.
 function parseDate(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) return null;
-  return new Date(+m[1], +m[2] - 1, +m[3]);
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12, 0, 0, 0));
+}
+
+/**********************************************************************
+ * «ДНИ» ЗАГРУЗЧИКА: Date UTC-полдень, календарь — МСК.
+ * Не зависят от часового пояса проекта (у нового проекта он может быть
+ * не Москва — тогда «сегодня» и «вчера» сдвигались бы на день).
+ **********************************************************************/
+function mskToday_() {
+  return isoDateToDate(Utilities.formatDate(new Date(), TZ_MSK, 'yyyy-MM-dd'));
+}
+
+function dayAdd_(d, n) {
+  return new Date(d.getTime() + n * 86400000);
+}
+
+function dayKey_(d) {
+  return Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
+}
+
+/** 1-е число месяца MAX_MONTHS_BACK месяцев назад (начало окна хранения). */
+function retentionStart_() {
+  const t = mskToday_();
+  return new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - MAX_MONTHS_BACK, 1, 12, 0, 0, 0));
 }
 
 function splitByDays(from, to, chunkDays) {

@@ -143,6 +143,84 @@
     transition:.25s;pointer-events:none;z-index:50}
   .toast.show{opacity:1;transform:translateY(0)}
   .toast.err{background:#c14a2a}
+  /* СТАТУС ДАННЫХ (контроль пропусков) */
+  .data-status{display:inline-flex;align-items:center;gap:5px;margin-left:8px;padding:1px 8px;
+    border-radius:999px;font-size:10.5px;font-weight:600;vertical-align:1px;white-space:nowrap}
+  .data-status:empty{display:none}
+  .data-status.ok{background:#e6f4ea;color:#1e6b43}
+  .data-status.warn{background:#fff4d6;color:#8a5a00}
+  .data-status.error{background:#fde8e1;color:#a63a1d}
+  /* ВКЛАДКИ */
+  .tabs{display:flex;align-items:flex-end;gap:2px;border-bottom:1px solid var(--line);margin:0 0 10px}
+  .tab{appearance:none;border:none;background:transparent;padding:8px 14px 9px;font-size:12.5px;
+    font-weight:700;color:var(--ink-4);cursor:pointer;border-bottom:2px solid transparent;
+    margin-bottom:-1px;transition:.15s;white-space:nowrap}
+  .tab:hover{color:var(--ink)}
+  .tab.active{color:var(--ink);border-bottom-color:var(--accent)}
+  .tabs .spacer{flex:1}
+  .switch{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);
+    padding:0 2px 9px;cursor:pointer;user-select:none}
+  .switch input{accent-color:var(--accent);margin:0}
+  .pane[hidden]{display:none}
+  /* ТАБЛИЦА SKU */
+  .sku-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px}
+  .sku-bar input[type=search]{appearance:none;border:1px solid var(--line);border-radius:8px;
+    padding:6px 10px;font-size:12.5px;min-width:220px;color:var(--ink-2);background:#fff}
+  .sku-bar input[type=search]:focus{outline:none;border-color:var(--accent)}
+  .chips{display:inline-flex;gap:4px}
+  .chip{appearance:none;border:1px solid var(--line);background:#fff;color:var(--ink-4);border-radius:999px;
+    padding:4px 10px;font-size:11.5px;font-weight:700;cursor:pointer}
+  .chip.on{border-color:var(--ink-3);color:var(--ink)}
+  .sku-summary{color:var(--muted);font-size:11.5px}
+  .sku-summary b{color:var(--ink-3)}
+  .sku-summary .warn-cost{color:#a63a1d}
+  table.pnl.sku{min-width:1180px}
+  table.pnl.sku th:nth-child(2), table.pnl.sku td:nth-child(2){width:150px;left:40px}
+  table.pnl.sku th:nth-child(3), table.pnl.sku td:nth-child(3){width:210px;left:190px;
+    overflow:hidden;text-overflow:ellipsis;box-shadow:2px 0 4px -2px rgba(0,0,0,.15)}
+  table.pnl.sku th:nth-child(4), table.pnl.sku td:nth-child(4){width:120px;position:static;box-shadow:none}
+  table.pnl.sku th:nth-child(n+5), table.pnl.sku td:nth-child(n+5){width:110px}
+  table.pnl.sku th:nth-child(6), table.pnl.sku td:nth-child(6){width:70px}
+  table.pnl.sku th:nth-child(12), table.pnl.sku td:nth-child(12),
+  table.pnl.sku th:nth-child(13), table.pnl.sku td:nth-child(13){width:58px;text-align:center}
+  table.pnl.sku thead th[data-sort]{cursor:pointer;user-select:none}
+  table.pnl.sku thead th[data-sort]:hover{color:var(--accent)}
+  table.pnl.sku thead th .sort{color:var(--accent);font-size:9px;margin-left:3px}
+  .sku-id{font-weight:600;color:var(--ink-2)}
+  .sku-art{display:block;font-size:10.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+  .no-cost{color:#c14a2a}
+  .badge{display:inline-block;min-width:20px;padding:1px 6px;border-radius:5px;font-weight:700;font-size:11px;text-align:center}
+  .badge.g{background:#e6f4ea;color:#1e6b43}
+  .badge.y{background:#fff4d6;color:#8a5a00}
+  .badge.r{background:#fde8e1;color:#a63a1d}
+  .badge.n{color:var(--muted)}
+  /* ГРАФИК ПРИ НАВЕДЕНИИ */
+  table.pnl tbody tr.hovered td{background:#fff6f2}
+  table.pnl tbody tr.lvl1.hovered td{background:#fbeee8}
+  table.pnl tbody td.hover-col{box-shadow:inset 0 -2px 0 var(--accent)}
+  .chart-card{position:fixed;z-index:60;left:0;top:0;width:560px;max-width:calc(100vw - 24px);
+    background:var(--bg);border:1px solid var(--line);border-radius:14px;
+    box-shadow:0 14px 36px rgba(19,25,37,.16),0 2px 6px rgba(19,25,37,.06);
+    padding:12px 14px 8px;pointer-events:none;opacity:0;transform:translateY(6px);
+    transition:opacity .14s ease,transform .14s ease;visibility:hidden}
+  .chart-card.show{opacity:1;transform:none;visibility:visible}
+  .cc-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .cc-title{font-weight:700;font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cc-sub{color:var(--muted);font-size:11px;white-space:nowrap}
+  .cc-kpis{display:flex;gap:22px;margin:8px 0 2px;flex-wrap:wrap}
+  .cc-kpi .k{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+  .cc-kpi .v{font-size:14px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;margin-top:1px}
+  .cc-kpi .v small{font-size:11px;font-weight:600;color:var(--ink-4)}
+  .trend-up{color:#1e6b43}
+  .trend-down{color:#a63a1d}
+  .cc-svg{display:block;width:100%;height:auto;margin-top:4px}
+  .cc-svg text{font-size:10px;fill:var(--muted);font-family:inherit;font-variant-numeric:tabular-nums}
+  .cc-svg .tip{fill:var(--ink);font-weight:700;font-size:10.5px}
+  .cc-legend{display:flex;gap:14px;font-size:10.5px;color:var(--muted);margin-top:2px}
+  .cc-legend i{display:inline-block;width:14px;height:0;border-top:2px solid var(--accent);vertical-align:3px;margin-right:5px}
+  .cc-legend i.ma{border-top:2px dashed var(--ink-4)}
+  .cc-legend i.bar{height:8px;border:none;background:var(--accent);border-radius:2px 2px 0 0;vertical-align:0}
+  .cc-note{font-size:10.5px;color:var(--muted);margin-top:4px}
   /* Адаптив */
   @media (max-width:720px){
     .wrap{padding:14px 10px 32px}
@@ -161,7 +239,7 @@
       <h1 class="rpt-title"><span class="accent">P&amp;L Report</span> Wildberries</h1>
       <p class="rpt-sub">Отчёт о прибылях и убытках</p>
       <p class="rpt-seller" id="seller">—</p>
-      <p class="rpt-period" id="periodLine">Загрузка…</p>
+      <p class="rpt-period"><span id="periodLine">Загрузка…</span><span class="data-status" id="dataStatus"></span></p>
     </div>
     <div class="actions">
       <button class="btn-text" id="btnPdf" title="Скачать PDF">PDF</button>
@@ -186,7 +264,17 @@
     <div class="spacer"></div>
     <div class="hint" id="hint">По умолчанию: <span id="hintDefault">—</span></div>
   </section>
-  <!-- TABLE -->
+  <!-- TABS -->
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-tab="pnl">P&amp;L по периодам</button>
+    <button class="tab" data-tab="sku">P&amp;L по SKU</button>
+    <div class="spacer"></div>
+    <label class="switch" title="Показывать график строки при наведении мыши">
+      <input type="checkbox" id="hoverCharts" checked> Графики при наведении
+    </label>
+  </nav>
+  <!-- TAB 1: P&L по периодам -->
+  <div class="pane" id="panePnl">
   <div class="tbl-wrap" id="tblWrap">
     <div class="state" id="state">
       <div class="spinner"></div>
@@ -199,7 +287,38 @@
       <tbody id="tbody"></tbody>
     </table>
   </div>
-  <div class="legend">✎ — строка ручного ввода (OPEX: реклама, налог, зарплата, прочее). Остальное считается автоматически.</div>
+  <div class="legend">✎ — строка ручного ввода (OPEX: реклама, налог, зарплата, прочее). Остальное считается автоматически.
+    Наведите на строку — появится график; наведите на ячейку дня/месяца — он подсветится на графике.</div>
+  </div>
+  <!-- TAB 2: P&L по SKU -->
+  <div class="pane" id="paneSku" hidden>
+    <div class="sku-bar">
+      <input type="search" id="skuSearch" placeholder="Поиск: SKU, артикул, категория">
+      <div class="chips" id="abcChips">
+        <button class="chip on" data-abc="">Все</button>
+        <button class="chip" data-abc="A">A</button>
+        <button class="chip" data-abc="B">B</button>
+        <button class="chip" data-abc="C">C</button>
+      </div>
+      <div class="sku-summary" id="skuSummary"></div>
+    </div>
+    <div class="tbl-wrap" id="skuWrap">
+      <div class="state" id="skuState">
+        <div class="spinner"></div>
+        Загружаю данные…
+      </div>
+      <table class="pnl sku" id="skuTable" style="display:none">
+        <thead>
+          <tr id="skuThead"></tr>
+        </thead>
+        <tbody id="skuBody"></tbody>
+      </table>
+    </div>
+    <div class="legend">Логика полей — как в листе Calculation: <b>Выручка</b> = продажи − возвраты; <b>Расходы</b> = комиссия WB + логистика + хранение + штрафы/удержания;
+      <b>ВП</b> = выручка + доход СПП − себестоимость − расходы; <b>Маржа</b> = ВП / (выручка + доход СПП).
+      Себестоимость за единицу — лист <b>Cost_sku</b>. <b>ABC</b> — по выручке (A ≤ 80%, B ≤ 95%), <b>XYZ</b> — стабильность недельных продаж (X ≤ 10%, Y ≤ 25%).
+      Клик по заголовку — сортировка.</div>
+  </div>
   <!-- FOOTER -->
   <footer class="rpt">
     <div>© <span id="year"></span> P&amp;L Report Wildberries</div>
@@ -211,6 +330,7 @@
   </footer>
 </div>
 <div class="toast" id="toast"></div>
+<div class="chart-card" id="chartCard" aria-hidden="true"></div>
 <script>
   const state = { data:null, busy:false };
   const $ = id => document.getElementById(id);
@@ -404,6 +524,8 @@
         $('to').value   = toISO(data.header.periodTo);
         render();
         setBusy(false);
+        loadSeries();
+        loadStatus();
       })
       .withFailureHandler(err=>{
         $('state').innerHTML = `Ошибка: ${err.message}`;
@@ -431,32 +553,35 @@
     if (!from || !to) { toast('Укажите обе даты', true); return; }
     setBusy(true);
     google.script.run
-      .withSuccessHandler(data=>{ state.data=data; render(); setBusy(false); toast('Период применён'); })
+      .withSuccessHandler(data=>{ state.data=data; render(); setBusy(false); afterPeriodChange(); toast('Период применён'); })
       .withFailureHandler(err=>{ toast(err.message,true); setBusy(false); })
       .applyPeriod(from, to);
   });
   $('btnReset').addEventListener('click', ()=>{
     setBusy(true);
     google.script.run
-      .withSuccessHandler(data=>{ state.data=data; render(); setBusy(false); toast('Сброшено к периоду по умолчанию'); })
+      .withSuccessHandler(data=>{ state.data=data; render(); setBusy(false); afterPeriodChange(); toast('Сброшено к периоду по умолчанию'); })
       .withFailureHandler(err=>{ toast(err.message,true); setBusy(false); })
       .resetPeriod();
   });
   // Экспорт
   function tableHTML(){
-    const t = document.getElementById('pnl');
+    const t = document.getElementById(state.tab === 'sku' ? 'skuTable' : 'pnl');
     const clone = t.cloneNode(true);
     clone.style.display = 'table';
     // Раскрываем все разделы в клоне
     clone.querySelectorAll('tr[style*="display: none"]').forEach(tr=>tr.style.display='');
     clone.querySelectorAll('tr.collapsible').forEach(tr=>tr.classList.remove('collapsed'));
+    clone.querySelectorAll('.hovered').forEach(el=>el.classList.remove('hovered'));
+    clone.querySelectorAll('.hover-col').forEach(el=>el.classList.remove('hover-col'));
+    clone.querySelectorAll('.sort').forEach(el=>el.remove());
     return clone.outerHTML;
   }
   function reportHeaderHTML(){
     const h = state.data.header;
     return `
       <h1 style="font-size:20px;margin:0 0 2px">P&amp;L Report Wildberries</h1>
-      <div style="color:#737272;font-size:11.5px">Отчёт о прибылях и убытках</div>
+      <div style="color:#737272;font-size:11.5px">Отчёт о прибылях и убытках${state.tab === 'sku' ? ' · в разрезе SKU' : ''}</div>
       <div style="font-weight:700;margin:4px 0 0">${h.seller||''}</div>
       <div style="color:#686f7d;font-size:11.5px;margin:2px 0 10px">
         Период отчёта ${h.periodFrom||''} — ${h.periodTo||''} · в рублях
@@ -475,6 +600,8 @@
       tr.lvl3 td.left{padding-left:18px;font-style:italic;color:#686f7d}
       tr.row-params td{background:#fbfbfb;color:#737272;font-size:10px}
       .master-toggle{display:none}
+      .sku-art{display:block;font-size:9px;color:#737272}
+      .badge{font-weight:700}
       .neg{color:#c14a2a}
       footer{margin-top:14px;padding-top:8px;border-top:1px solid #e5e5e5;
         color:#737272;font-size:10px;display:flex;justify-content:space-between}
@@ -506,12 +633,494 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `PnL_Wildberries_${state.data.header.periodFrom}_${state.data.header.periodTo}.xls`;
+    a.download = `PnL_${state.tab === 'sku' ? 'SKU_' : ''}Wildberries_${state.data.header.periodFrom}_${state.data.header.periodTo}.xls`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   });
+  /* =====================================================================
+   * ВКЛАДКИ: «P&L по периодам» / «P&L по SKU»
+   * ===================================================================== */
+  Object.assign(state, {
+    tab: 'pnl', sku: null, skuReq: 0, skuLoading: false,
+    skuSort: { key: 'revenue', dir: -1 }, skuFilter: { q: '', abc: '' },
+    series: null, seriesReq: 0, hoverOn: true
+  });
+  try { state.hoverOn = localStorage.getItem('pnl.hoverCharts') !== '0'; } catch (e) {}
+  $('hoverCharts').checked = state.hoverOn;
+  $('hoverCharts').addEventListener('change', e => {
+    state.hoverOn = e.target.checked;
+    try { localStorage.setItem('pnl.hoverCharts', state.hoverOn ? '1' : '0'); } catch (err) {}
+    if (!state.hoverOn) hideChart();
+  });
+  document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+  function setTab(tab){
+    state.tab = tab;
+    document.querySelectorAll('#tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    $('panePnl').hidden = tab !== 'pnl';
+    $('paneSku').hidden = tab !== 'sku';
+    hideChart();
+    if (tab === 'sku' && !state.sku && !state.skuLoading) loadSku();
+  }
+  // Период поменялся (Применить / Сбросить) — обновляем всё зависимое
+  function afterPeriodChange(){
+    loadSeries();
+    state.sku = null;
+    state.skuReq++;
+    state.skuLoading = false;
+    if (state.tab === 'sku') loadSku();
+  }
+  function loadStatus(){
+    google.script.run
+      .withSuccessHandler(st => {
+        const el = $('dataStatus');
+        if (!st) { el.textContent = ''; return; }
+        el.className = 'data-status ' + st.status;
+        el.textContent = (st.status === 'ok' ? '✓ ' : '⚠ ') + st.text +
+          (st.lastDate ? ` · данные по ${st.lastDate}` : '');
+        el.title = 'Контроль данных. Проверено: ' + (st.checkedAt || '—') + '. Подробности — лист Data_check.';
+      })
+      .withFailureHandler(() => {})
+      .Gap_getStatus();
+  }
+
+  /* =====================================================================
+   * P&L ПО SKU
+   * ===================================================================== */
+  const SKU_COLS = [
+    { key:'num', label:'№', left:true },
+    { key:'sku', label:'SKU', left:true, sort:true },
+    { key:'category', label:'Категория товара', left:true, sort:true },
+    { key:'revenue', label:'Выручка', sort:true, total:true },
+    { key:'logistics', label:'Логистика', sort:true },
+    { key:'logisticsPct', label:'%', sort:true },
+    { key:'expenses', label:'Расходы', sort:true },
+    { key:'cogs', label:'Себестоимость', sort:true },
+    { key:'mg', label:'ВП (MG)', sort:true },
+    { key:'margin', label:'Маржа, %', sort:true },
+    { key:'share', label:'Доля, %', sort:true },
+    { key:'xyz', label:'XYZ', sort:true },
+    { key:'abc', label:'ABC', sort:true }
+  ];
+  function loadSku(){
+    const req = ++state.skuReq;
+    state.skuLoading = true;
+    $('skuState').style.display = 'block';
+    $('skuTable').style.display = 'none';
+    $('skuState').innerHTML = '<div class="spinner"></div>Считаю P&amp;L по SKU…';
+    google.script.run
+      .withSuccessHandler(d => {
+        if (req !== state.skuReq) return;
+        state.skuLoading = false;
+        state.sku = d;
+        renderSku();
+      })
+      .withFailureHandler(err => {
+        if (req !== state.skuReq) return;
+        state.skuLoading = false;
+        $('skuState').innerHTML = `Ошибка: ${escapeHtml(err.message)}`;
+        toast(err.message, true);
+      })
+      .SkuCalc_getReportData();
+  }
+  function skuVisibleRows(){
+    const qq = state.skuFilter.q.trim().toLowerCase();
+    const abc = state.skuFilter.abc;
+    const {key, dir} = state.skuSort;
+    return state.sku.rows
+      .filter(r => (!abc || r.abc === abc) &&
+        (!qq || [r.sku, r.article, r.category].some(v => String(v || '').toLowerCase().includes(qq))))
+      .sort((a, b) => {
+        const x = a[key], y = b[key];
+        if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
+        return String(x == null ? '' : x).localeCompare(String(y == null ? '' : y), 'ru') * dir;
+      });
+  }
+  function badge(v){
+    const cls = { A:'g', X:'g', B:'y', Y:'y', C:'r', Z:'r' }[v] || 'n';
+    return `<span class="badge ${cls}">${escapeHtml(v || '—')}</span>`;
+  }
+  function skuTr(r, id, service){
+    const money = (v, total) => `<td class="${total ? 'total-col ' : ''}${numClass(v)}">${fmtNum(v)}</td>`;
+    const pct = v => `<td class="num">${fmtShare(v)}</td>`;
+    const skuCell = service
+      ? `<td class="left">${escapeHtml(r._label)}</td><td class="left"></td>`
+      : `<td class="left"><span class="sku-id">${escapeHtml(r.sku)}</span>` +
+          (r.article ? `<span class="sku-art" title="${escapeHtml(r.article)}">${escapeHtml(r.article)}</span>` : '') +
+        `</td><td class="left" title="${escapeHtml(r.category || '')}">${escapeHtml(r.category || '—')}</td>`;
+    const cogs = (!service && !r.hasCost)
+      ? `<td class="num no-cost" title="Себестоимость не заполнена (лист Cost_sku)">—</td>`
+      : money(r.cogs);
+    return `<tr class="${service ? 'lvl1' : ''}" data-sku="${id}">` +
+      `<td class="left num-col">${service ? '' : r.num}</td>` + skuCell +
+      money(r.revenue, true) + money(r.logistics) + pct(r.logisticsPct) + money(r.expenses) +
+      cogs + money(r.mg) + pct(r.margin) + pct(r.share) +
+      `<td>${service ? '' : badge(r.xyz)}</td><td>${service ? '' : badge(r.abc)}</td></tr>`;
+  }
+  function renderSku(){
+    const d = state.sku;
+    if (!d) return;
+    $('skuThead').innerHTML = SKU_COLS.map(c => {
+      const arrow = state.skuSort.key === c.key ? `<span class="sort">${state.skuSort.dir < 0 ? '▼' : '▲'}</span>` : '';
+      const cls = [c.left ? 'left' : '', c.total ? 'total-col' : '', c.key === 'num' ? 'num-col' : ''].join(' ').trim();
+      return `<th class="${cls}"${c.sort ? ` data-sort="${c.key}"` : ''}>${c.label}${arrow}</th>`;
+    }).join('');
+
+    const rows = skuVisibleRows();
+    state.skuVisible = rows;
+    let html = rows.map((r, i) => skuTr(r, i, false)).join('');
+    if (d.noSku) html += skuTr(Object.assign({}, d.noSku, { _label: 'Без SKU (общие начисления)' }), 'noSku', true);
+    html += skuTr(Object.assign({}, d.total, { _label: 'Итого' }), 'total', true);
+    $('skuBody').innerHTML = html;
+
+    const cnt = { A:0, B:0, C:0 };
+    d.rows.forEach(r => { cnt[r.abc] = (cnt[r.abc] || 0) + 1; });
+    $('skuSummary').innerHTML =
+      `SKU: <b>${d.rows.length}</b> · A <b>${cnt.A}</b> · B <b>${cnt.B}</b> · C <b>${cnt.C}</b>` +
+      ` · период ${escapeHtml(d.period.from)} — ${escapeHtml(d.period.to)} (полных недель: ${d.period.fullWeeks})` +
+      (d.missingCost ? ` · <span class="warn-cost">без себестоимости: ${d.missingCost} SKU — лист Cost_sku</span>` : '') +
+      (rows.length !== d.rows.length ? ` · показано: <b>${rows.length}</b>` : '');
+    $('skuState').style.display = 'none';
+    $('skuTable').style.display = 'table';
+  }
+  $('skuThead').addEventListener('click', e => {
+    const th = e.target.closest('th[data-sort]');
+    if (!th || !state.sku) return;
+    const key = th.dataset.sort;
+    state.skuSort = state.skuSort.key === key
+      ? { key, dir: -state.skuSort.dir }
+      : { key, dir: ['sku', 'category', 'xyz', 'abc'].includes(key) ? 1 : -1 };
+    renderSku();
+  });
+  $('skuSearch').addEventListener('input', e => { state.skuFilter.q = e.target.value; if (state.sku) renderSku(); });
+  $('abcChips').addEventListener('click', e => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    state.skuFilter.abc = b.dataset.abc;
+    document.querySelectorAll('#abcChips .chip').forEach(c => c.classList.toggle('on', c === b));
+    if (state.sku) renderSku();
+  });
+
+  /* =====================================================================
+   * ГРАФИК ПРИ НАВЕДЕНИИ
+   * P&L: для строк из Data_wb — дневной ряд за весь период (сервер,
+   *      PnlChart_getDailySeries) + скользящее среднее 7 дней; наведение
+   *      на ячейку дня/месяца подсвечивает этот день/месяц на графике.
+   *      Для строк с ручным вводом — 2 мини-графика по колонкам отчёта
+   *      (3 месяца и 6 дней — у каждого своя шкала).
+   * SKU: выручка по неделям.
+   * ===================================================================== */
+  const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+  const COST_RE = /расход|возврат|комисси|логистик|хранени|штраф|удержан|себестоим|cogs|реклам|налог|зарплат|opex/i;
+  const hover = { tr:null, col:-1, timer:null, hideTimer:null, x:0 };
+
+  function loadSeries(){
+    const req = ++state.seriesReq;
+    state.series = null;
+    google.script.run
+      .withSuccessHandler(s => { if (req === state.seriesReq) state.series = prepSeries(s); })
+      .withFailureHandler(err => console.warn('Дневные ряды недоступны:', err && err.message))
+      .PnlChart_getDailySeries();
+  }
+  // Отрезаем хвост без данных (сегодня/вчера ещё не загружены)
+  function prepSeries(s){
+    let last = -1;
+    Object.values(s.series).forEach(se => {
+      const arr = se.den || se.values;
+      for (let i = arr.length - 1; i > last; i--) if (arr[i] || se.values[i]) { last = i; break; }
+    });
+    if (last < 0) return s;
+    const cut = a => a && a.slice(0, last + 1);
+    s.dates = cut(s.dates);
+    Object.values(s.series).forEach(se => { se.values = cut(se.values); se.num = cut(se.num); se.den = cut(se.den); });
+    return s;
+  }
+
+  function attachHover(tbody, kind){
+    tbody.addEventListener('mousemove', e => { hover.x = e.clientX; });
+    tbody.addEventListener('mouseover', e => {
+      if (!state.hoverOn) return;
+      const tr = e.target.closest('tr');
+      if (!tr || !tbody.contains(tr)) return;
+      const td = e.target.closest('td');
+      const col = td ? Array.prototype.indexOf.call(tr.children, td) : -1;
+      hover.x = e.clientX;
+      if (tr === hover.tr && col === hover.col) return;
+      clearTimeout(hover.hideTimer);
+      clearTimeout(hover.timer);
+      const visible = $('chartCard').classList.contains('show');
+      hover.timer = setTimeout(() => showChart(tr, col, kind), visible ? 0 : 200);
+      hover.tr = tr; hover.col = col;
+    });
+    tbody.addEventListener('mouseleave', () => {
+      clearTimeout(hover.timer);
+      hover.hideTimer = setTimeout(hideChart, 120);
+    });
+  }
+  attachHover($('tbody'), 'pnl');
+  attachHover($('skuBody'), 'sku');
+  window.addEventListener('scroll', () => hideChart(), { passive:true });
+  $('tblWrap').addEventListener('scroll', () => hideChart(), { passive:true });
+  $('skuWrap').addEventListener('scroll', () => hideChart(), { passive:true });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hideChart(); });
+
+  function clearHoverMarks(){
+    document.querySelectorAll('tr.hovered').forEach(x => x.classList.remove('hovered'));
+    document.querySelectorAll('td.hover-col').forEach(x => x.classList.remove('hover-col'));
+  }
+  function hideChart(){
+    clearTimeout(hover.timer);
+    hover.tr = null; hover.col = -1;
+    $('chartCard').classList.remove('show');
+    clearHoverMarks();
+  }
+  function showChart(tr, col, kind){
+    const html = kind === 'pnl' ? pnlChartHTML(tr, col) : skuChartHTML(tr);
+    if (!html) { hideChart(); return; }
+    clearHoverMarks();
+    tr.classList.add('hovered');
+    if (kind === 'pnl' && col >= 4 && tr.children[col]) tr.children[col].classList.add('hover-col');
+    const card = $('chartCard');
+    card.innerHTML = html;
+    placeCard(card, tr);
+    card.classList.add('show');
+  }
+  // Карточка — над строкой (если не помещается — под ней), по горизонтали у курсора
+  function placeCard(card, tr){
+    const r = tr.getBoundingClientRect();
+    const cw = card.offsetWidth, ch = card.offsetHeight;
+    const left = Math.min(Math.max(12, hover.x - cw / 2), window.innerWidth - cw - 12);
+    let top = r.top - ch - 10;
+    if (top < 8) top = r.bottom + 10;
+    if (top + ch > window.innerHeight - 8) top = Math.max(8, window.innerHeight - ch - 8);
+    card.style.left = left + 'px';
+    card.style.top = top + 'px';
+  }
+
+  /* ---------- содержимое карточки: P&L ---------- */
+  function pnlChartHTML(tr, col){
+    const row = state.data && state.data.rows[+tr.dataset.idx];
+    if (!row || row._type === 'row-params') return '';
+    const ser = state.series && state.series.series[row.name];
+    const pi = col - 4; // индекс колонки-периода (0..5 — дни, 6..8 — месяцы)
+    return ser && ser.values.length > 1 ? dailyCard(row, ser, state.series.dates, pi) : periodsCard(row, pi);
+  }
+
+  function dailyCard(row, ser, dates, pi){
+    const vals = ser.values;
+    const n = vals.length;
+    const isPct = !!ser.isPercent;
+    const sum = (a, f, t) => a.slice(Math.max(0, f), t).reduce((s, v) => s + v, 0);
+    const ratio = (f, t) => { const d = sum(ser.den, f, t); return d ? sum(ser.num, f, t) / d : 0; };
+    const total = isPct ? ratio(0, n) : sum(vals, 0, n);
+    const last7 = isPct ? ratio(n - 7, n) : sum(vals, n - 7, n);
+    const prev7 = isPct ? ratio(n - 14, n - 7) : sum(vals, n - 14, n - 7);
+    const fmt = v => isPct ? fmtShare(v) : fmtNum(Math.round(v));
+
+    // Подсветка: день или месяц из колонки, на которую наведена мышь
+    let hi = null;
+    const label = pi >= 0 ? String(state.data.periods[pi] || '') : '';
+    if (label && pi < 6) {
+      const i = dates.indexOf(label);
+      if (i >= 0) hi = { type:'day', i };
+    } else if (label) {
+      const mm = label.slice(3);
+      const idx = dates.map((d, i) => d.slice(3) === mm ? i : -1).filter(i => i >= 0);
+      if (idx.length) hi = { type:'month', from: idx[0], to: idx[idx.length - 1], label: monthName(mm) };
+    }
+
+    const kpis = [
+      { k: isPct ? 'За период' : 'Итого за период', v: fmt(total) },
+      isPct ? null : { k: 'Среднее в день', v: fmt(total / n) },
+      { k: '7 дней к пред. 7', v: trendHTML(last7, prev7, isPct, row.name) }
+    ].filter(Boolean);
+    if (hi && hi.type === 'day') kpis.push({ k: dates[hi.i], v: fmt(vals[hi.i]) });
+    if (hi && hi.type === 'month') {
+      const v = isPct ? ratio(hi.from, hi.to + 1) : sum(vals, hi.from, hi.to + 1);
+      const full = dates[hi.from].slice(0, 2) === '01' && hi.to < n - 1;
+      kpis.push({ k: hi.label + (full ? '' : ' (неполный)'), v: fmt(v) });
+    }
+
+    return cardHead(row.name, `${dates[0]} — ${dates[n - 1]} · по дням`) + kpiHTML(kpis) +
+      lineSVG(vals, dates, hi, isPct) +
+      `<div class="cc-legend"><span><i></i>по дням</span><span><i class="ma"></i>среднее за 7 дней</span></div>`;
+  }
+
+  function periodsCard(row, pi){
+    const labels = state.data.periods;
+    const v = row.values.map(x => typeof x === 'number' ? x : parseFloat(String(x).replace(/\s/g, '').replace(',', '.')) || 0);
+    const months = [8, 7, 6].map(i => ({ v: v[i], l: monthName(String(labels[i] || '').slice(3)), hi: pi === i }));
+    const days = [5, 4, 3, 2, 1, 0].map(i => ({ v: v[i], l: String(labels[i] || '').slice(0, 5), hi: pi === i }));
+    const isPct = row.isPercent;
+    const fmt = x => isPct ? fmtShare(x) : fmtNum(Math.round(x));
+    const kpis = [
+      { k: 'Сумма', v: fmtPeriodVal(row.sum, isPct) },
+      isPct ? null : { k: 'Доля', v: fmtShare(row.share) },
+      { k: `${months[2].l} к ${months[1].l}`, v: trendHTML(months[2].v, months[1].v, isPct, row.name) }
+    ].filter(Boolean);
+    return cardHead(row.name, 'по колонкам отчёта') + kpiHTML(kpis) +
+      `<div style="display:flex;gap:14px">` +
+        `<div style="flex:3">${barsSVG(months, fmt, 'Месяцы', 230, isPct)}</div>` +
+        `<div style="flex:5">${barsSVG(days, fmt, 'Дни', 300, isPct)}</div>` +
+      `</div>` +
+      `<div class="cc-note">${row.isManual ? 'Строка ручного ввода — по дням не детализируется.' : 'Зависит от строк ручного ввода — по дням не детализируется.'}</div>`;
+  }
+
+  /* ---------- содержимое карточки: SKU ---------- */
+  function skuChartHTML(tr){
+    const d = state.sku;
+    if (!d) return '';
+    const id = tr.dataset.sku;
+    const r = id === 'total' ? Object.assign({}, d.total, { sku:'Итого' })
+      : id === 'noSku' ? Object.assign({}, d.noSku, { sku:'Без SKU' })
+      : state.skuVisible[+id];
+    if (!r || !r.weekRev) return '';
+    const partial = d.period.days % 7 !== 0;
+    const bars = r.weekRev.map((v, i) => ({
+      v, l: String(d.weeks[i] || '').slice(0, 5),
+      dim: partial && i === r.weekRev.length - 1
+    }));
+    const kpis = [
+      { k: 'Выручка', v: fmtNum(r.revenue) },
+      { k: 'ВП (MG)', v: `${fmtNum(r.mg)} <small>${fmtShare(r.margin)}</small>` },
+      r.abc ? { k: 'ABC / XYZ', v: `${badge(r.abc)} ${badge(r.xyz)}` +
+        (r.cv != null ? ` <small>CV ${(r.cv * 100).toFixed(0)}%</small>` : '') } : null
+    ].filter(Boolean);
+    const title = r.sku + (r.article ? ' · ' + r.article : '') + (r.category ? ' · ' + r.category : '');
+    return cardHead(title, `${d.period.from} — ${d.period.to} · по неделям`) + kpiHTML(kpis) +
+      barsSVG(bars, x => fmtNum(Math.round(x)), '', 532, false) +
+      `<div class="cc-legend"><span><i class="bar"></i>выручка за неделю (с ${bars.length ? bars[0].l : '—'})</span>` +
+      (partial ? `<span>светлый столбец — неполная неделя</span>` : '') + `</div>`;
+  }
+
+  /* ---------- элементы карточки ---------- */
+  function cardHead(title, sub){
+    return `<div class="cc-head"><div class="cc-title">${escapeHtml(title)}</div><div class="cc-sub">${escapeHtml(sub)}</div></div>`;
+  }
+  function kpiHTML(list){
+    return `<div class="cc-kpis">${list.map(x => `<div class="cc-kpi"><div class="k">${escapeHtml(x.k)}</div><div class="v">${x.v}</div></div>`).join('')}</div>`;
+  }
+  // Направление «хорошо/плохо» учитывает смысл строки: рост расходов — плохо
+  function trendHTML(cur, prev, isPct, name){
+    if (isPct) {
+      const dpp = (cur - prev) * 100;
+      if (!isFinite(dpp) || (!cur && !prev)) return '—';
+      const good = COST_RE.test(name) ? dpp <= 0 : dpp >= 0;
+      return `<span class="${good ? 'trend-up' : 'trend-down'}">${dpp >= 0 ? '▲' : '▼'} ${Math.abs(dpp).toLocaleString('ru-RU', { maximumFractionDigits:1 })} п.п.</span>`;
+    }
+    if (!prev) return '—';
+    const d = (cur - prev) / Math.abs(prev);
+    const good = COST_RE.test(name) ? d <= 0 : d >= 0;
+    return `<span class="${good ? 'trend-up' : 'trend-down'}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d * 100).toLocaleString('ru-RU', { maximumFractionDigits:1 })}%</span>`;
+  }
+  function monthName(mmYYYY){
+    const m = /^(\d{2})\.(\d{4})$/.exec(mmYYYY);
+    return m ? `${MONTHS[+m[1] - 1]} ${m[2]}` : mmYYYY;
+  }
+  function compact(v, isPct){
+    if (isPct) return (v * 100).toLocaleString('ru-RU', { maximumFractionDigits:0 }) + '%';
+    const a = Math.abs(v);
+    if (a >= 1e6) return (v / 1e6).toLocaleString('ru-RU', { maximumFractionDigits:1 }) + ' млн';
+    if (a >= 1e3) return (v / 1e3).toLocaleString('ru-RU', { maximumFractionDigits:0 }) + ' тыс';
+    return v.toLocaleString('ru-RU', { maximumFractionDigits:0 });
+  }
+  // «Круглые» деления шкалы, включая 0
+  function niceScale(min, max, count){
+    min = Math.min(0, min); max = Math.max(0, max);
+    if (min === max) max = min + 1;
+    const raw = (max - min) / count;
+    const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map(m => m * pow).find(s => s >= raw) || raw;
+    const lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step;
+    const ticks = [];
+    for (let t = lo; t <= hi + step / 2; t += step) ticks.push(+t.toFixed(10));
+    return { lo, hi, ticks };
+  }
+
+  // Линия по дням + заливка + скользящее среднее 7 дней + подсветка
+  function lineSVG(vals, dates, hi, isPct){
+    const W = 532, H = 168, ml = 46, mr = 10, mt = 12, mb = 20;
+    const iw = W - ml - mr, ih = H - mt - mb, n = vals.length;
+    const sc = niceScale(Math.min(...vals), Math.max(...vals), 3);
+    const x = i => ml + (n === 1 ? iw / 2 : i * iw / (n - 1));
+    const y = v => mt + ih - (v - sc.lo) / (sc.hi - sc.lo) * ih;
+    const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+    const ma = vals.map((v, i) => {
+      const f = Math.max(0, i - 6), part = vals.slice(f, i + 1);
+      return part.reduce((s, q) => s + q, 0) / part.length;
+    });
+    let s = `<svg class="cc-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="График по дням">` +
+      `<defs><linearGradient id="ccGrad" x1="0" y1="0" x2="0" y2="1">` +
+      `<stop offset="0" stop-color="#ff7f57" stop-opacity=".22"/><stop offset="1" stop-color="#ff7f57" stop-opacity="0"/></linearGradient></defs>`;
+    if (hi && hi.type === 'month') {
+      s += `<rect x="${x(hi.from) - 2}" y="${mt}" width="${Math.max(4, x(hi.to) - x(hi.from) + 4)}" height="${ih}" fill="#ff7f57" opacity=".08" rx="4"/>`;
+    }
+    sc.ticks.forEach(t => {
+      s += `<line x1="${ml}" x2="${W - mr}" y1="${y(t)}" y2="${y(t)}" stroke="${t === 0 ? '#cfcfcf' : '#efefef'}" stroke-width="1"/>` +
+        `<text x="${ml - 6}" y="${y(t) + 3}" text-anchor="end">${compact(t, isPct)}</text>`;
+    });
+    // Подписи месяцев на оси X
+    const firstStart = dates.findIndex(d => d.slice(0, 2) === '01');
+    dates.forEach((d, i) => {
+      // первую (неполную) дату подписываем, только если до 1-го числа далеко
+      if (d.slice(0, 2) === '01' || (i === 0 && (firstStart < 0 || firstStart > 10))) {
+        if (i > 0) s += `<line x1="${x(i)}" x2="${x(i)}" y1="${mt}" y2="${mt + ih}" stroke="#f1f1f1"/>`;
+        if (i < n - 4) s += `<text x="${x(i) + (i === 0 ? 0 : 3)}" y="${H - 5}">${monthName(d.slice(3))}</text>`;
+      }
+    });
+    const base = y(Math.max(sc.lo, 0));
+    s += `<path d="M${x(0)},${base} L${pts.join(' L')} L${x(n - 1)},${base} Z" fill="url(#ccGrad)"/>`;
+    s += `<polyline points="${ma.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="#686f7d" stroke-width="1.5" stroke-dasharray="4 3" stroke-linejoin="round"/>`;
+    s += `<polyline points="${pts.join(' ')}" fill="none" stroke="#ff7f57" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    // Последнее значение — точка с подписью
+    s += `<circle cx="${x(n - 1)}" cy="${y(vals[n - 1])}" r="4" fill="#ff7f57" stroke="#fff" stroke-width="2"/>`;
+    if (hi && hi.type === 'day') {
+      const cx = x(hi.i), cy = y(vals[hi.i]);
+      const anchor = cx > W - 80 ? 'end' : (cx < ml + 40 ? 'start' : 'middle');
+      s += `<line x1="${cx}" x2="${cx}" y1="${mt}" y2="${mt + ih}" stroke="#131925" stroke-opacity=".25" stroke-dasharray="2 2"/>` +
+        `<circle cx="${cx}" cy="${cy}" r="5" fill="#ff7f57" stroke="#fff" stroke-width="2"/>` +
+        `<text class="tip" x="${cx}" y="${Math.max(mt + 9, cy - 10)}" text-anchor="${anchor}">${compact(vals[hi.i], isPct)}</text>`;
+    }
+    return s + `</svg>`;
+  }
+
+  // Столбцы (месяцы / дни / недели): 4px скругление на конце, от базовой линии
+  function barsSVG(items, fmt, caption, W, isPct){
+    const H = 150, ml = 52, mr = 4, mt = caption ? 18 : 12, mb = 18;
+    const iw = W - ml - mr, ih = H - mt - mb, n = items.length || 1;
+    const vals = items.map(b => b.v || 0);
+    const sc = niceScale(Math.min(...vals), Math.max(...vals), 3);
+    const y = v => mt + ih - (v - sc.lo) / (sc.hi - sc.lo) * ih;
+    const slot = iw / n, bw = Math.max(4, Math.min(34, slot - 6));
+    let s = `<svg class="cc-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(caption || 'Столбцы')}">`;
+    if (caption) s += `<text x="${ml}" y="10" style="font-weight:700">${caption}</text>`;
+    sc.ticks.forEach(t => {
+      s += `<line x1="${ml}" x2="${W - mr}" y1="${y(t)}" y2="${y(t)}" stroke="${t === 0 ? '#cfcfcf' : '#efefef'}"/>` +
+        `<text x="${ml - 5}" y="${y(t) + 3}" text-anchor="end">${compact(t, isPct)}</text>`;
+    });
+    const labelEvery = Math.ceil(n / 8);
+    items.forEach((b, i) => {
+      const cx = ml + slot * i + slot / 2;
+      const v = b.v || 0, y0 = y(0), y1 = y(v);
+      const h = Math.abs(y1 - y0), top = Math.min(y0, y1), r = Math.min(4, h / 2, bw / 2);
+      const fill = v < 0 ? '#c14a2a' : '#ff7f57';
+      const op = b.dim ? .45 : (items.some(q => q.hi) && !b.hi ? .55 : 1);
+      if (h > 0.5) {
+        // скругляем только «данные»-конец столбца
+        const d = v >= 0
+          ? `M${cx - bw / 2},${y0} V${top + r} Q${cx - bw / 2},${top} ${cx - bw / 2 + r},${top} H${cx + bw / 2 - r} Q${cx + bw / 2},${top} ${cx + bw / 2},${top + r} V${y0} Z`
+          : `M${cx - bw / 2},${y0} V${top + h - r} Q${cx - bw / 2},${top + h} ${cx - bw / 2 + r},${top + h} H${cx + bw / 2 - r} Q${cx + bw / 2},${top + h} ${cx + bw / 2},${top + h - r} V${y0} Z`;
+        s += `<path d="${d}" fill="${fill}" opacity="${op}"><title>${escapeHtml(b.l)}: ${fmt(v)}</title></path>`;
+      }
+      if (b.hi || (!items.some(q => q.hi) && i === n - 1)) {
+        s += `<text class="tip" x="${cx}" y="${v >= 0 ? top - 4 : top + h + 11}" text-anchor="middle">${compact(v, isPct)}</text>`;
+      }
+      if (i % labelEvery === 0 || i === n - 1) s += `<text x="${cx}" y="${H - 4}" text-anchor="middle">${escapeHtml(b.l)}</text>`;
+    });
+    return s + `</svg>`;
+  }
+
   load();
 </script>
 </body>
