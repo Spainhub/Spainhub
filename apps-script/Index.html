@@ -173,7 +173,6 @@
   .chip.on{border-color:var(--ink-3);color:var(--ink)}
   .sku-summary{color:var(--muted);font-size:11.5px}
   .sku-summary b{color:var(--ink-3)}
-  .sku-summary .warn-cost{color:#a63a1d}
   table.pnl.sku{min-width:1180px}
   table.pnl.sku th:nth-child(2), table.pnl.sku td:nth-child(2){width:150px;left:40px}
   table.pnl.sku th:nth-child(3), table.pnl.sku td:nth-child(3){width:210px;left:190px;
@@ -188,7 +187,6 @@
   table.pnl.sku thead th .sort{color:var(--accent);font-size:9px;margin-left:3px}
   .sku-id{font-weight:600;color:var(--ink-2)}
   .sku-art{display:block;font-size:10.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
-  .no-cost{color:#c14a2a}
   .badge{display:inline-block;min-width:20px;padding:1px 6px;border-radius:5px;font-weight:700;font-size:11px;text-align:center}
   .badge.g{background:#e6f4ea;color:#1e6b43}
   .badge.y{background:#fff4d6;color:#8a5a00}
@@ -314,10 +312,6 @@
         <tbody id="skuBody"></tbody>
       </table>
     </div>
-    <div class="legend">Логика полей — как в листе Calculation: <b>Выручка</b> = продажи − возвраты; <b>Расходы</b> = комиссия WB + логистика + хранение + штрафы/удержания;
-      <b>ВП</b> = выручка + доход СПП − себестоимость − расходы; <b>Маржа</b> = ВП / (выручка + доход СПП).
-      Себестоимость за единицу — лист <b>Cost_sku</b>. <b>ABC</b> — по выручке (A ≤ 80%, B ≤ 95%), <b>XYZ</b> — стабильность недельных продаж (X ≤ 10%, Y ≤ 25%).
-      Клик по заголовку — сортировка.</div>
   </div>
   <!-- FOOTER -->
   <footer class="rpt">
@@ -745,41 +739,38 @@
     const money = (v, total) => `<td class="${total ? 'total-col ' : ''}${numClass(v)}">${fmtNum(v)}</td>`;
     const pct = v => `<td class="num">${fmtShare(v)}</td>`;
     const skuCell = service
-      ? `<td class="left">${escapeHtml(r._label)}</td><td class="left"></td>`
+      ? `<td class="left">${escapeHtml(r.sku)}</td><td class="left">${escapeHtml(r.category || '')}</td>`
       : `<td class="left"><span class="sku-id">${escapeHtml(r.sku)}</span>` +
           (r.article ? `<span class="sku-art" title="${escapeHtml(r.article)}">${escapeHtml(r.article)}</span>` : '') +
         `</td><td class="left" title="${escapeHtml(r.category || '')}">${escapeHtml(r.category || '—')}</td>`;
-    const cogs = (!service && !r.hasCost)
-      ? `<td class="num no-cost" title="Себестоимость не заполнена (лист Cost_sku)">—</td>`
-      : money(r.cogs);
     return `<tr class="${service ? 'lvl1' : ''}" data-sku="${id}">` +
       `<td class="left num-col">${service ? '' : r.num}</td>` + skuCell +
       money(r.revenue, true) + money(r.logistics) + pct(r.logisticsPct) + money(r.expenses) +
-      cogs + money(r.mg) + pct(r.margin) + pct(r.share) +
-      `<td>${service ? '' : badge(r.xyz)}</td><td>${service ? '' : badge(r.abc)}</td></tr>`;
+      money(r.cogs) + money(r.mg) + pct(r.margin) + pct(r.share) +
+      `<td>${r.xyz ? badge(r.xyz) : ''}</td><td>${r.abc ? badge(r.abc) : ''}</td></tr>`;
   }
   function renderSku(){
     const d = state.sku;
     if (!d) return;
-    $('skuThead').innerHTML = SKU_COLS.map(c => {
+    $('skuThead').innerHTML = SKU_COLS.map((c, i) => {
       const arrow = state.skuSort.key === c.key ? `<span class="sort">${state.skuSort.dir < 0 ? '▼' : '▲'}</span>` : '';
       const cls = [c.left ? 'left' : '', c.total ? 'total-col' : '', c.key === 'num' ? 'num-col' : ''].join(' ').trim();
-      return `<th class="${cls}"${c.sort ? ` data-sort="${c.key}"` : ''}>${c.label}${arrow}</th>`;
+      const label = (d.headers && d.headers[i]) || c.label;
+      return `<th class="${cls}"${c.sort ? ` data-sort="${c.key}"` : ''}>${escapeHtml(label)}${arrow}</th>`;
     }).join('');
 
     const rows = skuVisibleRows();
     state.skuVisible = rows;
     let html = rows.map((r, i) => skuTr(r, i, false)).join('');
-    if (d.noSku) html += skuTr(Object.assign({}, d.noSku, { _label: 'Без SKU (общие начисления)' }), 'noSku', true);
-    html += skuTr(Object.assign({}, d.total, { _label: 'Итого' }), 'total', true);
+    // Строки листа без № (например, «Итого») — внизу, в порядке листа
+    html += (d.service || []).map((r, i) => skuTr(r, 's' + i, true)).join('');
     $('skuBody').innerHTML = html;
 
     const cnt = { A:0, B:0, C:0 };
     d.rows.forEach(r => { cnt[r.abc] = (cnt[r.abc] || 0) + 1; });
     $('skuSummary').innerHTML =
       `SKU: <b>${d.rows.length}</b> · A <b>${cnt.A}</b> · B <b>${cnt.B}</b> · C <b>${cnt.C}</b>` +
-      ` · период ${escapeHtml(d.period.from)} — ${escapeHtml(d.period.to)} (полных недель: ${d.period.fullWeeks})` +
-      (d.missingCost ? ` · <span class="warn-cost">без себестоимости: ${d.missingCost} SKU — лист Cost_sku</span>` : '') +
+      ` · данные листа Calculation_sku` +
       (rows.length !== d.rows.length ? ` · показано: <b>${rows.length}</b>` : '');
     $('skuState').style.display = 'none';
     $('skuTable').style.display = 'table';
@@ -972,9 +963,7 @@
     const d = state.sku;
     if (!d) return '';
     const id = tr.dataset.sku;
-    const r = id === 'total' ? Object.assign({}, d.total, { sku:'Итого' })
-      : id === 'noSku' ? Object.assign({}, d.noSku, { sku:'Без SKU' })
-      : state.skuVisible[+id];
+    const r = id.charAt(0) === 's' ? (d.service || [])[+id.slice(1)] : state.skuVisible[+id];
     if (!r || !r.weekRev) return '';
     const partial = d.period.days % 7 !== 0;
     const bars = r.weekRev.map((v, i) => ({
@@ -984,13 +973,12 @@
     const kpis = [
       { k: 'Выручка', v: fmtNum(r.revenue) },
       { k: 'ВП (MG)', v: `${fmtNum(r.mg)} <small>${fmtShare(r.margin)}</small>` },
-      r.abc ? { k: 'ABC / XYZ', v: `${badge(r.abc)} ${badge(r.xyz)}` +
-        (r.cv != null ? ` <small>CV ${(r.cv * 100).toFixed(0)}%</small>` : '') } : null
+      (r.abc || r.xyz) ? { k: 'ABC / XYZ', v: `${badge(r.abc)} ${badge(r.xyz)}` } : null
     ].filter(Boolean);
     const title = r.sku + (r.article ? ' · ' + r.article : '') + (r.category ? ' · ' + r.category : '');
     return cardHead(title, `${d.period.from} — ${d.period.to} · по неделям`) + kpiHTML(kpis) +
       barsSVG(bars, x => fmtNum(Math.round(x)), '', 532, false) +
-      `<div class="cc-legend"><span><i class="bar"></i>выручка за неделю (с ${bars.length ? bars[0].l : '—'})</span>` +
+      `<div class="cc-legend"><span><i class="bar"></i>продажи за неделю по Data_wb (с ${bars.length ? bars[0].l : '—'})</span>` +
       (partial ? `<span>светлый столбец — неполная неделя</span>` : '') + `</div>`;
   }
 

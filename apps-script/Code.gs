@@ -4,7 +4,8 @@
  *
  * Шаг 1: загрузка данных в "Data_wb"
  * Шаг 2: P&L считается АВТОМАТИЧЕСКИ в "Calculation" по формулам
- * (SUMIFS к Data_wb). Вручную заполняются только 5 строк:
+ * (СУММЕСЛИМН к Data_wb). Формулы пишутся на русском (СУММЕСЛИМН,
+ * ЕСЛИ, ЕСЛИОШИБКА…, разделитель «;»), см. раздел «ФОРМУЛЫ НА РУССКОМ». Вручную заполняются только 5 строк:
  * COGS (020), Реклама (040), Налог (045), Зарплата (050),
  * Прочие OPEX (055) — эти данные WB API не отдаёт.
  * Шаг 3: Web App (doGet + Index.html)
@@ -56,8 +57,11 @@
  *   времени (лимит 6 мин) прогресс сохраняется и скрипт сам
  *   продолжает через минуту. Данные пишутся после каждой страницы.
  * - 429/5xx/сетевые ошибки повторяются; каждый запуск пишется в лист
- *   Load_log. После загрузки: очистка окна, пересчёт Calculation_sku,
- *   проверка пропусков (письмо при проблемах).
+ *   Load_log. После загрузки: очистка окна и проверка пропусков
+ *   (письмо при проблемах).
+ *
+ * ЛИСТ Calculation_sku заполняется ВРУЧНУЮ (свои формулы). Скрипт только
+ * создаёт шапку и читает лист для вкладки «P&L по SKU» в Web App.
  **********************************************************************/
 
 /**********************************************************************
@@ -162,8 +166,8 @@ function onOpen() {
         .addItem('Загрузить за период...', 'loadCustomPeriod')
         .addItem('Очистить старше 3 месяцев', 'cleanupOldRows')
         .addSeparator()
-        .addItem('Пересчитать P&L по SKU', 'SkuCalc_rebuildMenu')
-        .addItem('Себестоимость по SKU (лист Cost_sku)', 'SkuCalc_openCostSheet')
+        .addItem('Создать лист Calculation_sku (шапка)', 'SkuCalc_setupSheet')
+        .addItem('Формулы активного листа → на русском', 'Formulas_activeSheetToRussian')
     )
     .addSubMenu(
       ui.createMenu('Контроль данных')
@@ -224,7 +228,7 @@ function firstRun() {
  * 1) перезапрашивает последние DAILY_OVERLAP_DAYS дней;
  * 2) если последние данные старше — догоняет с даты последних данных;
  * 3) дозагружает пропуски раньше этого окна (Data_check.gs);
- * 4) после загрузки: очистка, Calculation_sku, проверка + письмо.
+ * 4) после загрузки: очистка, проверка + письмо.
  */
 function dailyUpdate() {
   const today = mskToday_();
@@ -478,7 +482,6 @@ function deleteContinuationTriggers_() {
 function afterLoad_() {
   const steps = [
     ['очистка', () => cleanupOldRows_(false)],
-    ['Calculation_sku', () => { if (typeof SkuCalc_rebuild === 'function') SkuCalc_rebuild(); }],
     ['контроль данных', () => { if (typeof Gap_runCheck === 'function') Gap_runCheck({ notify: true }); }]
   ];
   steps.forEach(([name, fn]) => {
@@ -648,7 +651,7 @@ function appendToDataSheet(rows) {
   bumpDataVersion_();
 }
 
-/** Версия данных — по ней Calculation_sku и графики понимают, что кэш устарел. */
+/** Версия данных — по ней графики понимают, что кэш устарел. */
 function bumpDataVersion_() {
   const props = PropertiesService.getScriptProperties();
   props.setProperty(PROP_DATA_VERSION, String(+(props.getProperty(PROP_DATA_VERSION) || 0) + 1));
@@ -1041,11 +1044,11 @@ function initCalculationSheet(sh) {
   sh.getRange(CALC_ROW_SUBTITLE, 3).setValue('Установка даты:');
   sh.getRange(CALC_ROW_SELLER, 1).setValue(`Продавец — ${SELLER_NAME}`);
   sh.getRange(CALC_ROW_CONTROLS, 1).setValue('Период отчёта (в рублях) Сформирован:');
-  sh.getRange(CALC_ROW_CONTROLS, 3).setFormula('=E4');
+  setFormulaRu_(sh.getRange(CALC_ROW_CONTROLS, 3), '=E4');
   sh.getRange(CALC_ROW_CONTROLS, 4).setValue('Дата от:');
-  sh.getRange(CALC_ROW_CONTROLS, 5).setFormula('=IF(E2="",TODAY(),E2)');
+  setFormulaRu_(sh.getRange(CALC_ROW_CONTROLS, 5), '=ЕСЛИ(E2="";СЕГОДНЯ();E2)');
   sh.getRange(CALC_ROW_CONTROLS, 6).setValue('Дата до:');
-  sh.getRange(CALC_ROW_CONTROLS, 7).setFormula('=IF(G2="",EDATE(E4,-3),G2)');
+  setFormulaRu_(sh.getRange(CALC_ROW_CONTROLS, 7), '=ЕСЛИ(G2="";ДАТАМЕС(E4;-3);G2)');
   sh.getRange('D2').setValue('Дата от (фильтр):');
   sh.getRange('F2').setValue('Дата до (фильтр):');
   sh.getRange('E2').setValue('');
@@ -1073,13 +1076,13 @@ function initCalculationSheet(sh) {
       // Якорь на E4 (а не TODAY()) --- чтобы фильтр периода в Web App
       // двигал не только месяцы, но и дневное окно.
       const formula = (col === 'E') ? '=$E$4' : `=${prevCol(col)}${CALC_HEADER_ROW}-1`;
-      sh.getRange(`${col}${CALC_HEADER_ROW}`).setFormula(formula);
-      sh.getRange(`${col}${CALC_ROW_PARAMS}`).setFormula(`=TEXT(${col}${CALC_HEADER_ROW}, "dddd")`);
+      setFormulaRu_(sh.getRange(`${col}${CALC_HEADER_ROW}`), formula);
+      setFormulaRu_(sh.getRange(`${col}${CALC_ROW_PARAMS}`), `=ТЕКСТ(${col}${CALC_HEADER_ROW};"dddd")`);
       sh.getRange(`${col}${CALC_ROW_PARAMS}`).setNumberFormat('@');
     } else {
       const back = i - 5; // K = 1 месяц назад, L = 2, M = 3
-      sh.getRange(`${col}${CALC_HEADER_ROW}`).setFormula(`=DATE(YEAR($E$4),MONTH($E$4)-${back},1)`);
-      sh.getRange(`${col}${CALC_ROW_PARAMS}`).setFormula(`=EOMONTH($E$4,-${back})`);
+      setFormulaRu_(sh.getRange(`${col}${CALC_HEADER_ROW}`), `=ДАТА(ГОД($E$4);МЕСЯЦ($E$4)-${back};1)`);
+      setFormulaRu_(sh.getRange(`${col}${CALC_ROW_PARAMS}`), `=КОНМЕСЯЦА($E$4;-${back})`);
       sh.getRange(`${col}${CALC_ROW_PARAMS}`).setNumberFormat('dd.MM.yyyy');
     }
     sh.getRange(`${col}${CALC_HEADER_ROW}`).setNumberFormat('dd.MM.yyyy');
@@ -1092,12 +1095,12 @@ function initCalculationSheet(sh) {
 
     CALC_PERIOD_COLS.forEach(col => {
       const f = calcFormula(def.row, col);
-      if (f) sh.getRange(`${col}${def.row}`).setFormula(f);
+      if (f) setFormulaRu_(sh.getRange(`${col}${def.row}`), f);
     });
 
     const cd = calcSumShareFormula(def);
-    if (cd.sum) sh.getRange(`C${def.row}`).setFormula(cd.sum);
-    if (cd.share) sh.getRange(`D${def.row}`).setFormula(cd.share);
+    if (cd.sum) setFormulaRu_(sh.getRange(`C${def.row}`), cd.sum);
+    if (cd.share) setFormulaRu_(sh.getRange(`D${def.row}`), cd.share);
 
     styleCalcRow(sh, def);
   });
@@ -1106,6 +1109,10 @@ function initCalculationSheet(sh) {
   sh.setColumnWidth(3, 120);
   sh.setColumnWidth(4, 90);
   for (let c = 5; c <= 13; c++) sh.setColumnWidth(c, 110);
+
+  // Если таблица не приняла русские названия функций — переписываем
+  // такие ячейки английским эквивалентом (формулы продолжат считать).
+  Formulas_fixRejected_(sh);
 }
 
 function prevCol(col) {
@@ -1122,28 +1129,28 @@ function calcFormula(row, col) {
   const upper = isMonth ? `(${col}${CALC_ROW_PARAMS}+1)` : `(${col}${CALC_HEADER_ROW}+1)`;
 
   const sumifs = (colLetter, extra) =>
-    `SUMIFS(Data_wb!$${colLetter}:$${colLetter},${extra ? extra + ',' : ''}` +
-    `Data_wb!$AB:$AB,">="&${lower},Data_wb!$AB:$AB,"<"&${upper})`;
+    `СУММЕСЛИМН(Data_wb!$${colLetter}:$${colLetter};${extra ? extra + ';' : ''}` +
+    `Data_wb!$AB:$AB;">="&${lower};Data_wb!$AB:$AB;"<"&${upper})`;
 
   switch (row) {
     case 8: return `=${col}9+${col}12`;
-    case 9: return `=${sumifs('V', 'Data_wb!$Z:$Z,"Продажа"')}-${col}10`;
-    case 10: return `=${sumifs('V', 'Data_wb!$Z:$Z,"Возвраты"')}`;
-    case 11: return `=${sumifs('AR', 'Data_wb!$Z:$Z,"Продажа"')}`;
-    case 12: return `=IF((${col}11-${col}9)<0,0,${col}11-${col}9)`;
+    case 9: return `=${sumifs('V', 'Data_wb!$Z:$Z;"Продажа"')}-${col}10`;
+    case 10: return `=${sumifs('V', 'Data_wb!$Z:$Z;"Возвраты"')}`;
+    case 11: return `=${sumifs('AR', 'Data_wb!$Z:$Z;"Продажа"')}`;
+    case 12: return `=ЕСЛИ((${col}11-${col}9)<0;0;${col}11-${col}9)`;
     case 13: return `=${col}14+${col}15`;
     case 14: return null; // COGS --- вручную
     case 15: return `=${col}21+${col}20+${col}18+${col}16`;
     case 16: return `=${col}9-${col}11`;
-    case 17: return `=IFERROR(${col}16/${col}9,0)`;
-    case 18: return `=${sumifs('AH', 'Data_wb!$Z:$Z,"Логистика"')}`;
-    case 19: return `=IFERROR(${col}18/${col}9,0)`;
+    case 17: return `=ЕСЛИОШИБКА(${col}16/${col}9;0)`;
+    case 18: return `=${sumifs('AH', 'Data_wb!$Z:$Z;"Логистика"')}`;
+    case 19: return `=ЕСЛИОШИБКА(${col}18/${col}9;0)`;
     case 20: return `=${sumifs('BL')}`;
     case 21: return `=${sumifs('BI')}+${sumifs('BM')}`;
     case 22: return `=${col}23`;
     case 23: return `=${col}8-${col}13`;
-    case 24: return `=IFERROR(${col}23/${col}8,0)`;
-    case 25: return `=SUM(${col}26:${col}29)`;
+    case 24: return `=ЕСЛИОШИБКА(${col}23/${col}8;0)`;
+    case 25: return `=СУММ(${col}26:${col}29)`;
     case 26: case 27: case 28: case 29: return null; // OPEX --- вручную
     case 30: return `=${col}23-${col}25`;
     default: return null;
@@ -1157,9 +1164,9 @@ function calcSumShareFormula(def) {
     // Проценты пересчитываем из уже просуммированных базовых строк,
     // а не усредняем по периодам --- точнее для месяцев разной длины.
     const map = { 17: 'C16/C9', 19: 'C18/C9', 24: 'C23/C8' };
-    return { sum: `=IFERROR(${map[r]},0)`, share: null };
+    return { sum: `=ЕСЛИОШИБКА(${map[r]};0)`, share: null };
   }
-  return { sum: `=SUM(E${r}:M${r})`, share: `=IFERROR(C${r}/$C$9,0)` };
+  return { sum: `=СУММ(E${r}:M${r})`, share: `=ЕСЛИОШИБКА(C${r}/$C$9;0)` };
 }
 
 function styleCalcRow(sh, def) {
@@ -1314,6 +1321,7 @@ function applyPeriod(from, to) {
   if (!sh) throw new Error('Лист Calculation не найден.');
   sh.getRange('E2').setValue(from || '');
   sh.getRange('G2').setValue(to || '');
+  setSkuPeriod_(from || '', to || '');
   SpreadsheetApp.flush();
   return getReportData();
 }
@@ -1323,8 +1331,21 @@ function resetPeriod() {
   if (!sh) throw new Error('Лист Calculation не найден.');
   sh.getRange('E2').setValue('');
   sh.getRange('G2').setValue('');
+  setSkuPeriod_('', '');
   SpreadsheetApp.flush();
   return getReportData();
+}
+
+/**
+ * Фильтр периода Web App пишется и в Calculation_sku!E2:G2 — чтобы ваши
+ * формулы на этом листе могли брать период со своего листа ($E$4/$G$4),
+ * без ссылок на Calculation.
+ */
+function setSkuPeriod_(from, to) {
+  const sku = SpreadsheetApp.getActive().getSheetByName(typeof SKUCALC_SHEET === 'string' ? SKUCALC_SHEET : 'Calculation_sku');
+  if (!sku) return;
+  sku.getRange('E2').setValue(from);
+  sku.getRange('G2').setValue(to);
 }
 
 function getMeta() {
@@ -1361,9 +1382,8 @@ function buildInfoSheet() {
     ['', ''],
     ['ЛИСТЫ (загрузка данных)', ''],
     ['Data_wb', 'Сырые данные WB API (реализация). Дедуп по rrdId, окно — с 1-го числа месяца 3 месяца назад.'],
-    ['Calculation', 'P&L WB: строки --- статьи, колонки --- периоды (6 дней + 3 месяца). Формулы SUMIFS к Data_wb.'],
-    ['Calculation_sku', 'P&L в разрезе SKU (Calculation_sku.gs). Та же логика полей, что в Calculation; пересчитывается скриптом после загрузки и при смене периода в Web App.'],
-    ['Cost_sku', 'Себестоимость за единицу по SKU (ручной ввод). Новые SKU дописываются автоматически.'],
+    ['Calculation', 'P&L WB: строки --- статьи, колонки --- периоды (6 дней + 3 месяца). Формулы СУММЕСЛИМН к Data_wb (на русском).'],
+    ['Calculation_sku', 'P&L в разрезе SKU. Формулы с A7 пишутся вручную; скрипт создаёт только шапку и читает лист во вкладку «P&L по SKU» Web App.'],
     ['Data_check', 'Контроль полноты данных: пропущенные/неполные дни, структура колонок, типы операций (Data_check.gs).'],
     ['Load_log', 'Журнал загрузок: время, период, строк, статус, ошибка.'],
     ['Report_finans_wb_2', 'WB: детализация по эквайрингу (Report_finans_wb_2.gs → WbAcq2_loadReport).'],
@@ -1378,7 +1398,8 @@ function buildInfoSheet() {
     ['Формат ячеек', '"dd.MM.yyyy" → видна только дата, без времени.'],
     ['ISO-дата', '"2026-03-16" → Date(16.03.2026).'],
     ['ISO-датавремя', '"2026-08-10T20:10:21Z" → Date(10.08.2026). Время отброшено, день в MSK.'],
-    ['Формулы', 'SUMIFS/DATE работают --- это настоящие даты, а не текст.'],
+    ['Формулы', 'СУММЕСЛИМН/ДАТА работают --- это настоящие даты, а не текст.'],
+    ['Язык формул', 'Скрипт пишет формулы на русском. Если в ячейках видны английские названия: Файл → Настройки → снять «Всегда использовать английские названия функций». Меню: «Формулы активного листа → на русском».'],
     ['', ''],
     ['АВТОЗАГРУЗКА', ''],
     ['Триггер', 'dailyUpdate раз в день (меню «Контроль данных» → «Установить ежедневный триггер»). Ставить от имени пользователя, чей токен WB сохранён.'],
@@ -1388,7 +1409,7 @@ function buildInfoSheet() {
     ['', ''],
     ['ПРАВИЛА ПО CALCULATION', ''],
     ['Создание', 'Создаётся автоматически один раз --- при firstRun, если листа ещё нет.'],
-    ['Изменения', 'Ни одна команда меню не трогает формулы. Вручную заполняются только 5 строк: COGS (020), Реклама (040), Налог (045), Зарплата (050), Прочие OPEX (055).'],
+    ['Изменения', 'Ни одна команда меню не трогает формулы (кроме перевода на русский). Вручную заполняются только 5 строк: COGS (020), Реклама (040), Налог (045), Зарплата (050), Прочие OPEX (055).'],
     ['Исключение 1', 'applyPeriod / resetPeriod --- при нажатии «Применить» / «Сбросить» в Web App.'],
     ['Исключение 2', 'forceRebuildCalculationSheet --- аварийная, вызывается вручную из редактора.'],
     ['Защита', 'protectCalculationSheet --- вручную из редактора (в меню не выведена).'],
@@ -1489,4 +1510,142 @@ function splitByDays(from, to, chunkDays) {
     cur = addDays(end, 1);
   }
   return chunks;
+}
+
+/**********************************************************************
+ * ФОРМУЛЫ НА РУССКОМ
+ * Скрипт пишет формулы с русскими названиями функций и «;» между
+ * аргументами (как их набирают в таблице с русской локалью).
+ *
+ * Как Google Таблицы показывают формулы, зависит от настройки таблицы:
+ *   Файл → Настройки → Язык: Россия, флажок «Всегда использовать
+ *   английские названия функций» — СНЯТЬ.
+ * Если таблица не приняла русскую формулу (ячейка показывает #ИМЯ? /
+ * #NAME? / #ОШИБКА!), Formulas_fixRejected_ перепишет её английским
+ * эквивалентом — расчёт не сломается.
+ **********************************************************************/
+const FORMULA_RU = {
+  SUMIFS: 'СУММЕСЛИМН', SUMIF: 'СУММЕСЛИ', SUM: 'СУММ', SUMPRODUCT: 'СУММПРОИЗВ',
+  COUNTIFS: 'СЧЁТЕСЛИМН', COUNTIF: 'СЧЁТЕСЛИ', COUNT: 'СЧЁТ', COUNTA: 'СЧЁТЗ',
+  AVERAGEIFS: 'СРЗНАЧЕСЛИМН', AVERAGEIF: 'СРЗНАЧЕСЛИ', AVERAGE: 'СРЗНАЧ',
+  MAX: 'МАКС', MIN: 'МИН', ROUND: 'ОКРУГЛ', ABS: 'ABS',
+  IFERROR: 'ЕСЛИОШИБКА', IFNA: 'ЕСНД', IF: 'ЕСЛИ', AND: 'И', OR: 'ИЛИ', NOT: 'НЕ',
+  ISBLANK: 'ЕПУСТО', ISNUMBER: 'ЕЧИСЛО', ISERROR: 'ЕОШИБКА',
+  DATE: 'ДАТА', YEAR: 'ГОД', MONTH: 'МЕСЯЦ', DAY: 'ДЕНЬ', WEEKDAY: 'ДЕНЬНЕД',
+  EOMONTH: 'КОНМЕСЯЦА', EDATE: 'ДАТАМЕС', TODAY: 'СЕГОДНЯ', NOW: 'ТДАТА', TEXT: 'ТЕКСТ',
+  VLOOKUP: 'ВПР', HLOOKUP: 'ГПР', INDEX: 'ИНДЕКС', MATCH: 'ПОИСКПОЗ'
+};
+const FORMULA_EN = Object.keys(FORMULA_RU).reduce((o, k) => { o[FORMULA_RU[k]] = k; return o; }, {});
+const FORMULA_CONST_RU = { TRUE: 'ИСТИНА', FALSE: 'ЛОЖЬ' };
+const FORMULA_CONST_EN = { 'ИСТИНА': 'TRUE', 'ЛОЖЬ': 'FALSE' };
+const FORMULA_ERR = /^#(NAME\?|ИМЯ\?|ERROR!|ОШИБКА!)/;
+
+/** Пишет формулу (на русском); при исключении — английский вариант. */
+function setFormulaRu_(range, formula) {
+  try {
+    range.setFormula(formula);
+  } catch (e) {
+    range.setFormula(Formulas_convert_(formula, false));
+  }
+}
+
+/**
+ * Перевод формулы: toRu = true — EN → RU (функции, «,» → «;», 1.5 → 1,5),
+ * toRu = false — обратно. Строки в кавычках и имена листов не трогаются.
+ */
+function Formulas_convert_(f, toRu) {
+  const dict = toRu ? FORMULA_RU : FORMULA_EN;
+  const consts = toRu ? FORMULA_CONST_RU : FORMULA_CONST_EN;
+  const isDigit = c => c >= '0' && c <= '9';
+  let out = '';
+  let i = 0;
+  while (i < f.length) {
+    const ch = f[i];
+    if (ch === '"' || ch === "'") {           // "текст" или 'Имя листа'
+      let j = i + 1;
+      while (j < f.length) {
+        if (f[j] === ch) { if (f[j + 1] === ch) { j += 2; continue; } break; }
+        j++;
+      }
+      out += f.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+    if (/[A-Za-zА-Яа-яЁё_]/.test(ch)) {       // имя функции / ссылка
+      let j = i;
+      while (j < f.length && /[A-Za-zА-Яа-яЁё0-9_.]/.test(f[j])) j++;
+      const word = f.slice(i, j);
+      const k = word.toUpperCase();
+      const tr = dict[k];
+      if (f[j] === '(' && tr) out += tr;
+      else if (f[j] !== '(' && f[j] !== '!' && consts[k]) out += consts[k]; // ИСТИНА / ЛОЖЬ
+      else out += word;
+      i = j;
+      continue;
+    }
+    if (toRu && ch === ',') { out += ';'; i++; continue; }
+    if (toRu && ch === '.' && isDigit(f[i - 1] || '') && isDigit(f[i + 1] || '')) { out += ','; i++; continue; }
+    if (!toRu && ch === ';') { out += ','; i++; continue; }
+    if (!toRu && ch === ',' && isDigit(f[i - 1] || '') && isDigit(f[i + 1] || '')) { out += '.'; i++; continue; }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/** Ячейки с русской формулой, которую таблица не приняла, → английский вариант. */
+function Formulas_fixRejected_(sh) {
+  SpreadsheetApp.flush();
+  const rng = sh.getDataRange();
+  const formulas = rng.getFormulas();
+  const disp = rng.getDisplayValues();
+  let fixed = 0;
+  formulas.forEach((row, r) => row.forEach((f, c) => {
+    if (!f || !FORMULA_ERR.test(disp[r][c])) return;
+    const en = Formulas_convert_(f, false);
+    if (en !== f) { rng.getCell(r + 1, c + 1).setFormula(en); fixed++; }
+  }));
+  if (fixed) Logger.log(`Лист ${sh.getName()}: русские формулы не приняты в ${fixed} ячейках — записаны на английском.`);
+  return fixed;
+}
+
+/**
+ * Пункт меню: перевести все формулы АКТИВНОГО листа на русский (ваши
+ * формулы тоже). Значения и ручные ячейки не трогаются. Ячейка, которая
+ * после перевода стала ошибкой, возвращается к исходной формуле.
+ */
+function Formulas_activeSheetToRussian() {
+  const ui = SpreadsheetApp.getUi();
+  const sh = SpreadsheetApp.getActiveSheet();
+  const ok = ui.alert('Формулы на русском',
+    `Перевести формулы листа «${sh.getName()}» на русские названия функций?`, ui.ButtonSet.YES_NO);
+  if (ok !== ui.Button.YES) return;
+
+  const rng = sh.getDataRange();
+  const before = rng.getFormulas();
+  const errBefore = rng.getDisplayValues().map(r => r.map(v => FORMULA_ERR.test(v)));
+  let changed = 0;
+  before.forEach((row, r) => row.forEach((f, c) => {
+    if (!f) return;
+    const ru = Formulas_convert_(f, true);
+    if (ru === f) return;
+    try { rng.getCell(r + 1, c + 1).setFormula(ru); changed++; } catch (e) { /* оставляем как было */ }
+  }));
+
+  SpreadsheetApp.flush();
+  const after = rng.getDisplayValues();
+  let reverted = 0;
+  before.forEach((row, r) => row.forEach((f, c) => {
+    if (f && !errBefore[r][c] && FORMULA_ERR.test(after[r][c])) {
+      rng.getCell(r + 1, c + 1).setFormula(f);
+      reverted++;
+    }
+  }));
+
+  ui.alert('Формулы на русском',
+    `Переведено формул: ${changed - reverted}.` +
+    (reverted ? `\nНе приняты таблицей и оставлены как были: ${reverted}.` : '') +
+    '\n\nЕсли в ячейках всё ещё английские названия: Файл → Настройки → ' +
+    'снимите флажок «Всегда использовать английские названия функций» (язык — Россия).',
+    ui.ButtonSet.OK);
 }
