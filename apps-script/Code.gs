@@ -1277,6 +1277,19 @@ function getReportData() {
   const headers = sh.getRange(headerRow, 1, 1, lastCol).getValues()[0];
   const periodLabels = headers.slice(4).filter(h => h !== '').map(fmtCell);
 
+  // Тип каждой колонки-периода — по строке «Параметры» (CALC_ROW_PARAMS):
+  // у месяцев там дата конца месяца, у дней — день недели (текст). Так график
+  // «Месяцы» не зависит от того, сколько дневных колонок в отчёте.
+  const params = sh.getRange(CALC_ROW_PARAMS, 1, 1, lastCol).getValues()[0];
+  const periodMeta = [];
+  headers.forEach((h, i) => {
+    if (i < 4 || h === '') return;
+    const p = params[i];
+    const isMonth = p instanceof Date || /^\d{2}\.\d{2}\.\d{4}$/.test(String(p).trim());
+    const key = cellDateKey_(h);
+    periodMeta.push({ type: isMonth ? 'month' : 'day', key: key, ym: key.slice(0, 7) });
+  });
+
   const values = sh.getRange(headerRow + 1, 1, lastRow - headerRow, lastCol).getValues();
   const rows = values
     .filter(r => r[1] !== '')
@@ -1305,15 +1318,29 @@ function getReportData() {
       defaultTo: fmtCell(defTo)
     },
     periods: periodLabels,
+    periodMeta: periodMeta,
     rows
   };
 }
 
 // Date → "dd.MM.yyyy" строкой (для показа в Web App); число/строку не трогает.
+// Дата форматируется в часовом поясе ТАБЛИЦЫ (не скрипта): иначе при разных
+// поясах «1 августа» превращалось в «31 июля».
 function fmtCell(v) {
   if (v === '' || v === null || v === undefined) return '';
-  if (v instanceof Date) return formatRu(v);
+  if (v instanceof Date) {
+    return Utilities.formatDate(v, SpreadsheetApp.getActive().getSpreadsheetTimeZone(), 'dd.MM.yyyy');
+  }
   return v; // числа остаются числами --- фронтенд сам их форматирует
+}
+
+// Ячейка-дата (Date или "dd.MM.yyyy") → "yyyy-MM-dd" ('' если не дата).
+function cellDateKey_(v) {
+  if (v instanceof Date) {
+    return Utilities.formatDate(v, SpreadsheetApp.getActive().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+  }
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(v).trim());
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
 }
 
 function applyPeriod(from, to) {

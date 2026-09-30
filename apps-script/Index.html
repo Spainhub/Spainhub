@@ -158,6 +158,8 @@
   .tab:hover{color:var(--ink)}
   .tab.active{color:var(--ink);border-bottom-color:var(--accent)}
   .tabs .spacer{flex:1}
+  .sync{display:inline-flex;align-items:center;gap:8px;padding:0 6px 9px;font-size:11px;color:var(--muted)}
+  .sync .btn-text{padding:2px 6px;font-size:11.5px}
   .switch{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);
     padding:0 2px 9px;cursor:pointer;user-select:none}
   .switch input{accent-color:var(--accent);margin:0}
@@ -173,20 +175,20 @@
   .chip.on{border-color:var(--ink-3);color:var(--ink)}
   .sku-summary{color:var(--muted);font-size:11.5px}
   .sku-summary b{color:var(--ink-3)}
+  /* Колонки таблицы SKU строятся из заголовков листа: ширины и «липкие»
+     левые колонки задаются инлайном (см. renderSku), здесь — сброс правил P&L */
   table.pnl.sku{min-width:1180px}
-  table.pnl.sku th:nth-child(2), table.pnl.sku td:nth-child(2){width:150px;left:40px}
-  table.pnl.sku th:nth-child(3), table.pnl.sku td:nth-child(3){width:210px;left:190px;
-    overflow:hidden;text-overflow:ellipsis;box-shadow:2px 0 4px -2px rgba(0,0,0,.15)}
-  table.pnl.sku th:nth-child(4), table.pnl.sku td:nth-child(4){width:120px;position:static;box-shadow:none}
-  table.pnl.sku th:nth-child(n+5), table.pnl.sku td:nth-child(n+5){width:110px}
-  table.pnl.sku th:nth-child(6), table.pnl.sku td:nth-child(6){width:70px}
-  table.pnl.sku th:nth-child(12), table.pnl.sku td:nth-child(12),
-  table.pnl.sku th:nth-child(13), table.pnl.sku td:nth-child(13){width:58px;text-align:center}
+  table.pnl.sku th, table.pnl.sku td{position:static;box-shadow:none;left:auto;width:auto;
+    overflow:hidden;text-overflow:ellipsis}
+  table.pnl.sku thead th{position:sticky;top:0;z-index:2}
+  table.pnl.sku th.stk, table.pnl.sku td.stk{position:sticky;z-index:3}
+  table.pnl.sku thead th.stk{z-index:4}
+  table.pnl.sku th.stk-last, table.pnl.sku td.stk-last{box-shadow:2px 0 4px -2px rgba(0,0,0,.15)}
+  table.pnl.sku th.ctr, table.pnl.sku td.ctr{text-align:center}
   table.pnl.sku thead th[data-sort]{cursor:pointer;user-select:none}
   table.pnl.sku thead th[data-sort]:hover{color:var(--accent)}
   table.pnl.sku thead th .sort{color:var(--accent);font-size:9px;margin-left:3px}
   .sku-id{font-weight:600;color:var(--ink-2)}
-  .sku-art{display:block;font-size:10.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
   .badge{display:inline-block;min-width:20px;padding:1px 6px;border-radius:5px;font-weight:700;font-size:11px;text-align:center}
   .badge.g{background:#e6f4ea;color:#1e6b43}
   .badge.y{background:#fff4d6;color:#8a5a00}
@@ -267,6 +269,7 @@
     <button class="tab active" data-tab="pnl">P&amp;L по периодам</button>
     <button class="tab" data-tab="sku">P&amp;L по SKU</button>
     <div class="spacer"></div>
+    <span class="sync"><button class="btn-text" id="btnSync" title="Перечитать данные из Google Таблицы">↻ Обновить</button><span id="syncInfo"></span></span>
     <label class="switch" title="Показывать график строки при наведении мыши">
       <input type="checkbox" id="hoverCharts" checked> Графики при наведении
     </label>
@@ -397,7 +400,9 @@
   }
   function render(){
     if (!state.data) return;
+    state.dataJson = JSON.stringify(state.data); // для сравнения при обновлении из листа
     const {header, periods, rows} = state.data;
+    const collapsedBefore = [...document.querySelectorAll('#tbody tr.collapsed')].map(t => t.dataset.secIdx);
     markSubRows(rows);
     $('seller').textContent = header.seller || '';
     $('periodLine').textContent =
@@ -470,6 +475,11 @@
         allCollapsed ? expandAll() : collapseAll();
       });
     }
+    // Сохраняем свёрнутые разделы при перерисовке (обновление из листа)
+    collapsedBefore.forEach(idx => {
+      const tr = tbody.querySelector(`tr.collapsible[data-sec-idx="${idx}"]`);
+      if (tr) tr.click();
+    });
     updateMasterToggle();
   }
   function updateMasterToggle(){
@@ -594,7 +604,6 @@
       tr.lvl3 td.left{padding-left:18px;font-style:italic;color:#686f7d}
       tr.row-params td{background:#fbfbfb;color:#737272;font-size:10px}
       .master-toggle{display:none}
-      .sku-art{display:block;font-size:9px;color:#737272}
       .badge{font-weight:700}
       .neg{color:#c14a2a}
       footer{margin-top:14px;padding-top:8px;border-top:1px solid #e5e5e5;
@@ -638,7 +647,7 @@
    * ===================================================================== */
   Object.assign(state, {
     tab: 'pnl', sku: null, skuReq: 0, skuLoading: false,
-    skuSort: { key: 'revenue', dir: -1 }, skuFilter: { q: '', abc: '' },
+    skuSort: { col: -1, dir: 1 }, skuFilter: { q: '', abc: '' }, skuJson: '', dataJson: '',
     series: null, seriesReq: 0, hoverOn: true
   });
   try { state.hoverOn = localStorage.getItem('pnl.hoverCharts') !== '0'; } catch (e) {}
@@ -655,8 +664,35 @@
     $('panePnl').hidden = tab !== 'pnl';
     $('paneSku').hidden = tab !== 'sku';
     hideChart();
-    if (tab === 'sku' && !state.sku && !state.skuLoading) loadSku();
+    refreshActive(!!(tab === 'sku' ? state.sku : state.data)); // есть что показать — обновляем тихо
   }
+  /* ---- Синхронизация с Google Таблицей ----
+     Данные вкладки перечитываются из листа: при открытии вкладки, каждые
+     ~40 с (пока страница открыта), по кнопке «Обновить» и при возврате на
+     страницу. Если значения в листе не менялись — таблица не перерисовывается. */
+  const REFRESH_MS = 40000;
+  function stampSync(){
+    const d = new Date(), z = n => String(n).padStart(2, '0');
+    $('syncInfo').textContent = `обновлено ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+  }
+  function refreshActive(silent){
+    if (state.tab === 'sku') { loadSku(silent); return; }
+    if (state.busy || state.pnlSyncing) return;
+    state.pnlSyncing = true;
+    google.script.run
+      .withSuccessHandler(data => {
+        state.pnlSyncing = false;
+        stampSync();
+        if (JSON.stringify(data) === state.dataJson) return;
+        state.data = data;
+        render();
+      })
+      .withFailureHandler(err => { state.pnlSyncing = false; if (!silent) toast(err.message, true); })
+      .getReportData();
+  }
+  $('btnSync').addEventListener('click', () => { refreshActive(false); toast('Данные перечитываются из таблицы…'); });
+  setInterval(() => { if (!document.hidden) refreshActive(true); }, REFRESH_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshActive(true); });
   // Период поменялся (Применить / Сбросить) — обновляем всё зависимое
   function afterPeriodChange(){
     loadSeries();
@@ -682,106 +718,147 @@
   /* =====================================================================
    * P&L ПО SKU
    * ===================================================================== */
-  const SKU_COLS = [
-    { key:'num', label:'№', left:true },
-    { key:'sku', label:'SKU', left:true, sort:true },
-    { key:'category', label:'Категория товара', left:true, sort:true },
-    { key:'revenue', label:'Выручка', sort:true, total:true },
-    { key:'logistics', label:'Логистика', sort:true },
-    { key:'logisticsPct', label:'%', sort:true },
-    { key:'expenses', label:'Расходы', sort:true },
-    { key:'cogs', label:'Себестоимость', sort:true },
-    { key:'mg', label:'ВП (MG)', sort:true },
-    { key:'margin', label:'Маржа, %', sort:true },
-    { key:'share', label:'Доля, %', sort:true },
-    { key:'xyz', label:'XYZ', sort:true },
-    { key:'abc', label:'ABC', sort:true }
-  ];
-  function loadSku(){
+  // Ширины колонок по типу (тип определяет сервер по заголовку листа)
+  const SKU_W = { num:44, id:105, art:150, text:160, pct:86, xyz:58, abc:58, money:104 };
+  const SKU_LEFT = new Set(['num', 'id', 'art', 'text']);
+  const SKU_STICKY = new Set(['num', 'id', 'art']);
+  const skuIdx = type => state.sku ? state.sku.columns.findIndex(c => c.type === type) : -1;
+  const skuIdxByTitle = re => state.sku ? state.sku.columns.findIndex(c => re.test(c.title.toLowerCase())) : -1;
+
+  // silent = true — тихое обновление: без спиннера, перерисовка только если лист изменился
+  function loadSku(silent){
+    if (state.skuLoading) return;
+    const quiet = !!silent && !!state.sku;
     const req = ++state.skuReq;
     state.skuLoading = true;
-    $('skuState').style.display = 'block';
-    $('skuTable').style.display = 'none';
-    $('skuState').innerHTML = '<div class="spinner"></div>Считаю P&amp;L по SKU…';
+    if (!quiet) {
+      $('skuState').style.display = 'block';
+      $('skuTable').style.display = 'none';
+      $('skuState').innerHTML = '<div class="spinner"></div>Читаю Calculation_sku…';
+    }
     google.script.run
       .withSuccessHandler(d => {
-        if (req !== state.skuReq) return;
+        if (req !== state.skuReq) { state.skuLoading = false; return; }
         state.skuLoading = false;
+        stampSync();
+        const json = JSON.stringify(d);
+        if (quiet && json === state.skuJson) return;
+        state.skuJson = json;
         state.sku = d;
         renderSku();
       })
       .withFailureHandler(err => {
-        if (req !== state.skuReq) return;
         state.skuLoading = false;
+        if (quiet) return;
+        $('skuState').style.display = 'block';
         $('skuState').innerHTML = `Ошибка: ${escapeHtml(err.message)}`;
         toast(err.message, true);
       })
       .SkuCalc_getReportData();
   }
   function skuVisibleRows(){
+    const d = state.sku;
     const qq = state.skuFilter.q.trim().toLowerCase();
     const abc = state.skuFilter.abc;
-    const {key, dir} = state.skuSort;
-    return state.sku.rows
-      .filter(r => (!abc || r.abc === abc) &&
-        (!qq || [r.sku, r.article, r.category].some(v => String(v || '').toLowerCase().includes(qq))))
-      .sort((a, b) => {
-        const x = a[key], y = b[key];
-        if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
-        return String(x == null ? '' : x).localeCompare(String(y == null ? '' : y), 'ru') * dir;
+    const abcI = skuIdx('abc');
+    const textI = d.columns.map((c, i) => ['id', 'art', 'text', 'num'].includes(c.type) ? i : -1).filter(i => i >= 0);
+    const {col, dir} = state.skuSort;
+    const rows = d.rows.filter(r =>
+      (!abc || abcI < 0 || r.cells[abcI] === abc) &&
+      (!qq || textI.some(i => String(r.cells[i] == null ? '' : r.cells[i]).toLowerCase().includes(qq))));
+    if (col >= 0 && col < d.columns.length) {
+      rows.sort((a, b) => {
+        const x = a.cells[col], y = b.cells[col];
+        const nx = typeof x === 'number', ny = typeof y === 'number';
+        if (nx && ny) return (x - y) * dir;
+        if (nx !== ny) return nx ? -1 : 1; // числа выше текста/ошибок
+        return String(x == null ? '' : x).localeCompare(String(y == null ? '' : y), 'ru', {numeric:true}) * dir;
       });
+    }
+    return rows;
   }
   function badge(v){
     const cls = { A:'g', X:'g', B:'y', Y:'y', C:'r', Z:'r' }[v] || 'n';
     return `<span class="badge ${cls}">${escapeHtml(v || '—')}</span>`;
   }
-  function skuTr(r, id, service){
-    const money = (v, total) => `<td class="${total ? 'total-col ' : ''}${numClass(v)}">${fmtNum(v)}</td>`;
-    const pct = v => `<td class="num">${fmtShare(v)}</td>`;
-    const skuCell = service
-      ? `<td class="left">${escapeHtml(r.sku)}</td><td class="left">${escapeHtml(r.category || '')}</td>`
-      : `<td class="left"><span class="sku-id">${escapeHtml(r.sku)}</span>` +
-          (r.article ? `<span class="sku-art" title="${escapeHtml(r.article)}">${escapeHtml(r.article)}</span>` : '') +
-        `</td><td class="left" title="${escapeHtml(r.category || '')}">${escapeHtml(r.category || '—')}</td>`;
-    return `<tr class="${service ? 'lvl1' : ''}" data-sku="${id}">` +
-      `<td class="left num-col">${service ? '' : r.num}</td>` + skuCell +
-      money(r.revenue, true) + money(r.logistics) + pct(r.logisticsPct) + money(r.expenses) +
-      money(r.cogs) + money(r.mg) + pct(r.margin) + pct(r.share) +
-      `<td>${r.xyz ? badge(r.xyz) : ''}</td><td>${r.abc ? badge(r.abc) : ''}</td></tr>`;
+  function skuCell(c, v, cs, service){
+    const cls = cs.cls ? ' ' + cs.cls : '';
+    const st = cs.style ? ` style="${cs.style}"` : '';
+    const empty = v === '' || v === null || v === undefined;
+    switch (c.type) {
+      case 'num':  return `<td class="left num-col${cls}"${st}>${escapeHtml(empty ? '' : v)}</td>`;
+      case 'id':   return `<td class="left${cls}"${st}><span class="sku-id">${escapeHtml(empty ? '' : v)}</span></td>`;
+      case 'art':
+      case 'text': return `<td class="left${cls}"${st} title="${escapeHtml(empty ? '' : v)}">${escapeHtml(empty ? (service ? '' : '—') : v)}</td>`;
+      case 'xyz':
+      case 'abc':  return `<td class="ctr${cls}"${st}>${empty ? '' : badge(v)}</td>`;
+      case 'pct':  return `<td class="num${cls}"${st}>${empty && service ? '' : fmtShare(v)}</td>`;
+      default: {
+        const total = /^выручка/i.test(c.title) ? ' total-col' : '';
+        return `<td class="${numClass(v)}${total}${cls}"${st}>${empty && service ? '' : fmtNum(v)}</td>`;
+      }
+    }
   }
   function renderSku(){
     const d = state.sku;
     if (!d) return;
-    $('skuThead').innerHTML = SKU_COLS.map((c, i) => {
-      const arrow = state.skuSort.key === c.key ? `<span class="sort">${state.skuSort.dir < 0 ? '▼' : '▲'}</span>` : '';
-      const cls = [c.left ? 'left' : '', c.total ? 'total-col' : '', c.key === 'num' ? 'num-col' : ''].join(' ').trim();
-      const label = (d.headers && d.headers[i]) || c.label;
-      return `<th class="${cls}"${c.sort ? ` data-sort="${c.key}"` : ''}>${escapeHtml(label)}${arrow}</th>`;
+    const cols = d.columns;
+    if (state.skuSort.col >= cols.length) state.skuSort = { col: -1, dir: 1 };
+
+    // Геометрия: ширины и «липкие» левые колонки (№, Артикул WB, Артикул)
+    let left = 0, total = 0, stickyOpen = true;
+    const cs = cols.map((c, i) => {
+      const w = SKU_W[c.type] || 118;
+      const o = { style: `width:${w}px;`, cls: '' };
+      total += w;
+      stickyOpen = stickyOpen && SKU_STICKY.has(c.type);
+      if (stickyOpen) {
+        o.cls = 'stk'; o.style += `left:${left}px;`;
+        left += w;
+        if (!cols[i + 1] || !SKU_STICKY.has(cols[i + 1].type)) o.cls += ' stk-last';
+      }
+      return o;
+    });
+    $('skuTable').style.minWidth = total + 'px';
+
+    $('skuThead').innerHTML = cols.map((c, i) => {
+      const arrow = state.skuSort.col === i ? `<span class="sort">${state.skuSort.dir < 0 ? '▼' : '▲'}</span>` : '';
+      const klass = [SKU_LEFT.has(c.type) ? 'left' : '', ['xyz', 'abc'].includes(c.type) ? 'ctr' : '',
+        /^выручка/i.test(c.title) ? 'total-col' : '', c.type === 'num' ? 'num-col' : '', cs[i].cls].join(' ').replace(/\s+/g, ' ').trim();
+      return `<th class="${klass}" style="${cs[i].style}" data-sort="${i}">${escapeHtml(c.title)}${arrow}</th>`;
     }).join('');
 
     const rows = skuVisibleRows();
     state.skuVisible = rows;
-    let html = rows.map((r, i) => skuTr(r, i, false)).join('');
+    const tr = (r, id, service) => `<tr class="${service ? 'lvl1' : ''}" data-sku="${id}">` +
+      cols.map((c, i) => skuCell(c, r.cells[i], cs[i], service)).join('') + '</tr>';
     // Строки листа без № (например, «Итого») — внизу, в порядке листа
-    html += (d.service || []).map((r, i) => skuTr(r, 's' + i, true)).join('');
-    $('skuBody').innerHTML = html;
+    $('skuBody').innerHTML = rows.map((r, i) => tr(r, i, false)).join('') +
+      (d.service || []).map((r, i) => tr(r, 's' + i, true)).join('');
 
+    const abcI = skuIdx('abc');
+    $('abcChips').style.display = abcI >= 0 ? '' : 'none';
     const cnt = { A:0, B:0, C:0 };
-    d.rows.forEach(r => { cnt[r.abc] = (cnt[r.abc] || 0) + 1; });
-    $('skuSummary').innerHTML =
-      `SKU: <b>${d.rows.length}</b> · A <b>${cnt.A}</b> · B <b>${cnt.B}</b> · C <b>${cnt.C}</b>` +
+    if (abcI >= 0) d.rows.forEach(r => { const k = r.cells[abcI]; cnt[k] = (cnt[k] || 0) + 1; });
+    $('skuSummary').innerHTML = `SKU: <b>${d.rows.length}</b>` +
+      (abcI >= 0 ? ` · A <b>${cnt.A}</b> · B <b>${cnt.B}</b> · C <b>${cnt.C}</b>` : '') +
       ` · данные листа Calculation_sku` +
       (rows.length !== d.rows.length ? ` · показано: <b>${rows.length}</b>` : '');
-    $('skuState').style.display = 'none';
+    $('skuState').style.display = d.rows.length || (d.service || []).length ? 'none' : 'block';
+    if (!d.rows.length && !(d.service || []).length) {
+      $('skuState').textContent = 'В листе Calculation_sku нет строк (данные — с 7-й строки).';
+    }
     $('skuTable').style.display = 'table';
+    hideChart();
   }
   $('skuThead').addEventListener('click', e => {
     const th = e.target.closest('th[data-sort]');
     if (!th || !state.sku) return;
-    const key = th.dataset.sort;
-    state.skuSort = state.skuSort.key === key
-      ? { key, dir: -state.skuSort.dir }
-      : { key, dir: ['sku', 'category', 'xyz', 'abc'].includes(key) ? 1 : -1 };
+    const col = +th.dataset.sort;
+    const t = state.sku.columns[col].type;
+    state.skuSort = state.skuSort.col === col
+      ? { col, dir: -state.skuSort.dir }
+      : { col, dir: ['id', 'art', 'text', 'xyz', 'abc'].includes(t) ? 1 : -1 };
     renderSku();
   });
   $('skuSearch').addEventListener('input', e => { state.skuFilter.q = e.target.value; if (state.sku) renderSku(); });
@@ -890,11 +967,28 @@
   }
 
   /* ---------- содержимое карточки: P&L ---------- */
+  // Колонки-периоды отчёта: тип (день / месяц) и дата — по данным листа
+  // (строка «Параметры»), а не по номеру колонки.
+  function periodCols(){
+    const labels = state.data.periods || [], meta = state.data.periodMeta || [];
+    return labels.map((l, i) => {
+      const m = meta[i];
+      const key = (m && m.key) || toISO(l);
+      return { i, label: l, key, ym: key ? key.slice(0, 7) : '',
+        type: m ? m.type : (i >= 6 ? 'month' : 'day') };
+    });
+  }
+  function monthLabel(ym){
+    const m = /^(\d{4})-(\d{2})$/.exec(ym || '');
+    return m ? `${MONTHS[+m[2] - 1]} ${m[1]}` : String(ym || '');
+  }
+  const byKey = (a, b) => a.key < b.key ? -1 : (a.key > b.key ? 1 : 0);
+
   function pnlChartHTML(tr, col){
     const row = state.data && state.data.rows[+tr.dataset.idx];
     if (!row || row._type === 'row-params') return '';
     const ser = state.series && state.series.series[row.name];
-    const pi = col - 4; // индекс колонки-периода (0..5 — дни, 6..8 — месяцы)
+    const pi = col - 4; // индекс колонки-периода (тип — по periodCols())
     return ser && ser.values.length > 1 ? dailyCard(row, ser, state.series.dates, pi) : periodsCard(row, pi);
   }
 
@@ -911,14 +1005,13 @@
 
     // Подсветка: день или месяц из колонки, на которую наведена мышь
     let hi = null;
-    const label = pi >= 0 ? String(state.data.periods[pi] || '') : '';
-    if (label && pi < 6) {
-      const i = dates.indexOf(label);
+    const pc = pi >= 0 ? periodCols()[pi] : null;
+    if (pc && pc.type === 'day') {
+      const i = dates.indexOf(toRU(pc.key));
       if (i >= 0) hi = { type:'day', i };
-    } else if (label) {
-      const mm = label.slice(3);
-      const idx = dates.map((d, i) => d.slice(3) === mm ? i : -1).filter(i => i >= 0);
-      if (idx.length) hi = { type:'month', from: idx[0], to: idx[idx.length - 1], label: monthName(mm) };
+    } else if (pc && pc.type === 'month') {
+      const idx = dates.map((d, i) => (d.slice(6) + '-' + d.slice(3, 5)) === pc.ym ? i : -1).filter(i => i >= 0);
+      if (idx.length) hi = { type:'month', from: idx[0], to: idx[idx.length - 1], label: monthLabel(pc.ym) };
     }
 
     const kpis = [
@@ -939,21 +1032,29 @@
   }
 
   function periodsCard(row, pi){
-    const labels = state.data.periods;
     const v = row.values.map(x => typeof x === 'number' ? x : parseFloat(String(x).replace(/\s/g, '').replace(',', '.')) || 0);
-    const months = [8, 7, 6].map(i => ({ v: v[i], l: monthName(String(labels[i] || '').slice(3)), hi: pi === i }));
-    const days = [5, 4, 3, 2, 1, 0].map(i => ({ v: v[i], l: String(labels[i] || '').slice(0, 5), hi: pi === i }));
+    const pcs = periodCols();
+    // Месяцы и дни — по типу колонки, от старых к новым (слева направо)
+    const months = pcs.filter(c => c.type === 'month').sort(byKey)
+      .map(c => ({ v: v[c.i], l: monthLabel(c.ym), hi: pi === c.i }));
+    const days = pcs.filter(c => c.type === 'day').sort(byKey)
+      .map(c => ({ v: v[c.i], l: c.key ? c.key.slice(8) + '.' + c.key.slice(5, 7) : String(c.label).slice(0, 5), hi: pi === c.i }));
     const isPct = row.isPercent;
     const fmt = x => isPct ? fmtShare(x) : fmtNum(Math.round(x));
     const kpis = [
       { k: 'Сумма', v: fmtPeriodVal(row.sum, isPct) },
       isPct ? null : { k: 'Доля', v: fmtShare(row.share) },
-      { k: `${months[2].l} к ${months[1].l}`, v: trendHTML(months[2].v, months[1].v, isPct, row.name) }
+      months.length > 1
+        ? { k: `${months[months.length - 1].l} к ${months[months.length - 2].l}`,
+            v: trendHTML(months[months.length - 1].v, months[months.length - 2].v, isPct, row.name) }
+        : null
     ].filter(Boolean);
+    // ширина графика пропорциональна числу столбцов; flex = ширине → одинаковый масштаб
+    const monW = 70 * months.length + 20, dayW = 40 * days.length + 20;
     return cardHead(row.name, 'по колонкам отчёта') + kpiHTML(kpis) +
       `<div style="display:flex;gap:14px">` +
-        `<div style="flex:3">${barsSVG(months, fmt, 'Месяцы', 230, isPct)}</div>` +
-        `<div style="flex:5">${barsSVG(days, fmt, 'Дни', 300, isPct)}</div>` +
+        (months.length ? `<div style="flex:${monW} 1 0">${barsSVG(months, fmt, 'Месяцы', monW, isPct)}</div>` : '') +
+        (days.length ? `<div style="flex:${dayW} 1 0">${barsSVG(days, fmt, 'Дни', dayW, isPct)}</div>` : '') +
       `</div>` +
       `<div class="cc-note">${row.isManual ? 'Строка ручного ввода — по дням не детализируется.' : 'Зависит от строк ручного ввода — по дням не детализируется.'}</div>`;
   }
@@ -970,12 +1071,18 @@
       v, l: String(d.weeks[i] || '').slice(0, 5),
       dim: partial && i === r.weekRev.length - 1
     }));
+    // Показатели карточки — из СТРОКИ ЛИСТА (по заголовкам колонок)
+    const cell = re => { const i = skuIdxByTitle(re); return i >= 0 ? r.cells[i] : undefined; };
+    const rev = cell(/^выручка/), mg = cell(/^вп(\s|$)|валов/), margin = cell(/^маржа/);
+    const abc = cell(/^abc$/), xyz = cell(/^xyz$/);
     const kpis = [
-      { k: 'Выручка', v: fmtNum(r.revenue) },
-      { k: 'ВП (MG)', v: `${fmtNum(r.mg)} <small>${fmtShare(r.margin)}</small>` },
-      (r.abc || r.xyz) ? { k: 'ABC / XYZ', v: `${badge(r.abc)} ${badge(r.xyz)}` } : null
+      rev !== undefined ? { k: 'Выручка', v: fmtNum(rev) } : null,
+      mg !== undefined ? { k: 'ВП', v: fmtNum(mg) + (margin !== undefined ? ` <small>${fmtShare(margin)}</small>` : '') } : null,
+      (abc || xyz) ? { k: 'ABC / XYZ', v: `${abc ? badge(abc) : ''} ${xyz ? badge(xyz) : ''}` } : null
     ].filter(Boolean);
-    const title = r.sku + (r.article ? ' · ' + r.article : '') + (r.category ? ' · ' + r.category : '');
+    const catI = state.sku.columns.findIndex(c => c.type === 'text');
+    const cat = catI >= 0 ? r.cells[catI] : '';
+    const title = (r.id || r.cells.map(String).join(' ').trim()) + (r.article ? ' · ' + r.article : '') + (cat ? ' · ' + cat : '');
     return cardHead(title, `${d.period.from} — ${d.period.to} · по неделям`) + kpiHTML(kpis) +
       barsSVG(bars, x => fmtNum(Math.round(x)), '', 532, false) +
       `<div class="cc-legend"><span><i class="bar"></i>продажи за неделю по Data_wb (с ${bars.length ? bars[0].l : '—'})</span>` +

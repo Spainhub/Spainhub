@@ -15,11 +15,16 @@
  * В своих формулах берите период с этого листа: $G$4 … $E$4.
  *
  * Таблица начинается с A6:
- *   № | SKU | Категория товара | Выручка | Логистика | % | Расходы |
- *   Себестоимость | ВП (MG) | Маржа, % | Доля, % | XYZ | ABC
- * Строки с числом в колонке A (№) — товары; строки без номера, но с
- * текстом в B (например, «Итого») — выводятся в Web App итоговыми внизу.
- * Проценты (F, J, K) — числом в формате % (0,125 → 12,5%).
+ *   № | Артикул WB | Артикул | Категория товара | Выручка | Логистика |
+ *   Логистика % | Расходы | Себестоимость | ВП | Маржа, % | Доля, % | XYZ | ABC
+ *
+ * Web App читает лист ПО ЗАГОЛОВКАМ строки 6 — порядок и количество колонок
+ * можно менять (добавили колонку — она появится во вкладке сама). Формат
+ * колонки определяется по названию: «…%» — проценты (число 0,125 → 12,5%),
+ * XYZ/ABC — цветные метки, «Артикул WB» — числовой код WB (nmId), «Артикул» и
+ * «Категория» — текст, остальное — деньги.
+ * Строки с числом в колонке «№» — товары; строки без номера, но с текстом
+ * (например, «Итого») — выводятся итоговыми внизу.
  *
  * Для графика при наведении на строку SKU скрипт дополнительно берёт
  * продажи SKU по неделям из Data_wb (Продажа − Возвраты) за период
@@ -34,13 +39,8 @@ const SKUCALC_FIRST_ROW = 7;
 const SKUCALC_CACHE_PREFIX = 'SKUCALC_W2_';
 
 const SKUCALC_HEADERS = [
-  '№', 'SKU', 'Категория товара', 'Выручка', 'Логистика', '%', 'Расходы',
-  'Себестоимость', 'ВП (MG)', 'Маржа, %', 'Доля, %', 'XYZ', 'ABC'
-];
-// Ключи колонок A…M для Web App (порядок = SKUCALC_HEADERS)
-const SKUCALC_KEYS = [
-  'num', 'sku', 'category', 'revenue', 'logistics', 'logisticsPct', 'expenses',
-  'cogs', 'mg', 'margin', 'share', 'xyz', 'abc'
+  '№', 'Артикул WB', 'Артикул', 'Категория товара', 'Выручка', 'Логистика',
+  'Логистика %', 'Расходы', 'Себестоимость', 'ВП', 'Маржа, %', 'Доля, %', 'XYZ', 'ABC'
 ];
 
 // Колонки Data_wb — ровно те же буквы, что в calcFormula() (Code.gs).
@@ -103,7 +103,7 @@ function SkuCalc_initHeader_(sh) {
     return v === '' || v === null ? def : v;
   };
 
-  sh.getRange(1, 1, SKUCALC_HEADER_ROW - 1, 13).clearContent();
+  sh.getRange(1, 1, SKUCALC_HEADER_ROW - 1, SKUCALC_HEADERS.length).clearContent();
   sh.getRange('A1').setValue(val('A1', 'P&L REPORT Wildberries'));
   sh.getRange('A2').setValue(val('A2', 'Отчёт о прибылях и убытках'));
   sh.getRange('C2').setValue('Установка даты:');
@@ -126,13 +126,14 @@ function SkuCalc_initHeader_(sh) {
   sh.getRange(SKUCALC_HEADER_ROW, 1, 1, SKUCALC_HEADERS.length).setValues([SKUCALC_HEADERS])
     .setFontWeight('bold').setBackground('#efefef').setHorizontalAlignment('center');
   sh.setFrozenRows(SKUCALC_HEADER_ROW);
-  sh.setFrozenColumns(2);
+  sh.setFrozenColumns(3);
   sh.setColumnWidth(1, 45);
-  sh.setColumnWidth(2, 150);
-  sh.setColumnWidth(3, 200);
-  for (let c = 4; c <= 11; c++) sh.setColumnWidth(c, 110);
-  sh.setColumnWidth(12, 55);
+  sh.setColumnWidth(2, 110);
+  sh.setColumnWidth(3, 170);
+  sh.setColumnWidth(4, 190);
+  for (let c = 5; c <= 12; c++) sh.setColumnWidth(c, 110);
   sh.setColumnWidth(13, 55);
+  sh.setColumnWidth(14, 55);
 
   Formulas_fixRejected_(sh);
 }
@@ -140,8 +141,27 @@ function SkuCalc_initHeader_(sh) {
 /* =================== ДАННЫЕ ДЛЯ WEB APP =================== */
 
 /**
- * Серверный вызов для Web App (вкладка «P&L по SKU»): значения листа
- * Calculation_sku как есть + недельные продажи SKU для графиков.
+ * Тип колонки по её заголовку (строка 6 листа) — от него зависит формат
+ * в Web App. Названия можно менять: распознаются по ключевым словам.
+ */
+function SkuCalc_colType_(title) {
+  const t = String(title).toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+  if (t === '№' || t === 'no' || t === 'n' || t === '#') return 'num';
+  if (t.indexOf('%') >= 0) return 'pct';
+  if (t === 'xyz') return 'xyz';
+  if (t === 'abc') return 'abc';
+  if (t === 'артикул wb' || t === 'артикул вб' || t === 'nmid' || t === 'nm id' || t === 'sku') return 'id';
+  if (t === 'артикул' || t === 'артикул продавца') return 'art';
+  if (/категор|наимен|назван|бренд|предмет/.test(t)) return 'text';
+  return 'money';
+}
+
+/**
+ * Серверный вызов для Web App (вкладка «P&L по SKU»). Каждый вызов читает
+ * лист заново — изменили ячейку/формулу в Calculation_sku, и при
+ * следующем обновлении вкладки (автоматически раз в ~40 с, кнопка
+ * «Обновить») значение изменится и в приложении.
+ * Колонки берутся из заголовков строки 6, значения — как в листе.
  */
 function SkuCalc_getReportData() {
   const ss = SpreadsheetApp.getActive();
@@ -150,25 +170,47 @@ function SkuCalc_getReportData() {
     throw new Error('Лист Calculation_sku не найден. Меню «Отчёты МП» → «Wildberries — P&L» → «Создать лист Calculation_sku (шапка)».');
   }
 
-  const headersRow = sh.getRange(SKUCALC_HEADER_ROW, 1, 1, SKUCALC_HEADERS.length).getValues()[0];
-  const headers = SKUCALC_HEADERS.map((h, i) => String(headersRow[i] || h));
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  const headerVals = sh.getRange(SKUCALC_HEADER_ROW, 1, 1, lastCol).getValues()[0];
+  let n = lastCol;
+  while (n > 0 && String(headerVals[n - 1]).trim() === '') n--;
+
+  const columns = [];
+  for (let i = 0; i < n; i++) {
+    const title = String(headerVals[i]).trim();
+    if (title === '') continue;
+    columns.push({ i: i, title: title, type: SkuCalc_colType_(title) });
+  }
+  const colOf = type => columns.find(c => c.type === type);
+  const numCol = colOf('num'), idCol = colOf('id'), artCol = colOf('art');
+
+  const cellOut = (v, type) => {
+    if (v instanceof Date) return fmtCell(v);
+    if (typeof v === 'string') v = v.trim();
+    if (type === 'xyz' || type === 'abc') return String(v).toUpperCase();
+    if (type === 'id' && typeof v === 'number') return String(v);
+    return v;
+  };
 
   const rows = [];
   const service = [];
   const last = sh.getLastRow();
-  if (last >= SKUCALC_FIRST_ROW) {
-    const n = last - SKUCALC_FIRST_ROW + 1;
-    const values = sh.getRange(SKUCALC_FIRST_ROW, 1, n, SKUCALC_HEADERS.length).getValues();
+  if (last >= SKUCALC_FIRST_ROW && columns.length) {
+    const cnt = last - SKUCALC_FIRST_ROW + 1;
+    const values = sh.getRange(SKUCALC_FIRST_ROW, 1, cnt, n).getValues();
     values.forEach(v => {
-      const a = v[0], b = v[1];
-      if ((a === '' || a === null) && (b === '' || b === null)) return;
-      const r = {};
-      SKUCALC_KEYS.forEach((k, i) => { r[k] = v[i] instanceof Date ? fmtCell(v[i]) : v[i]; });
-      r.sku = String(b === null ? '' : b).trim();
-      r.category = String(r.category === null ? '' : r.category);
-      r.xyz = String(r.xyz || '').trim().toUpperCase();
-      r.abc = String(r.abc || '').trim().toUpperCase();
-      const isItem = typeof a === 'number' || /^\d+$/.test(String(a).trim());
+      const cells = columns.map(c => cellOut(v[c.i], c.type));
+      if (cells.every(x => x === '' || x === null)) return;
+      const numVal = numCol ? v[numCol.i] : '';
+      const idVal = idCol ? String(v[idCol.i] === null ? '' : v[idCol.i]).trim() : '';
+      const isItem = numCol
+        ? (typeof numVal === 'number' || /^\d+$/.test(String(numVal).trim()))
+        : idVal !== '';
+      const r = {
+        cells: cells,
+        id: isItem ? idVal : '',
+        article: artCol && isItem ? String(v[artCol.i] === null ? '' : v[artCol.i]).trim() : ''
+      };
       (isItem ? rows : service).push(r);
     });
   }
@@ -176,17 +218,18 @@ function SkuCalc_getReportData() {
   const period = SkuCalc_sheetPeriod_(sh);
   const weekly = SkuCalc_weekly_(period);
   rows.forEach(r => {
-    const w = weekly.bySku[r.sku];
+    const w = weekly.bySku[r.id];
     r.weekRev = w ? w.rev : null;
-    r.article = w ? w.article : '';
+    if (!r.article && w) r.article = w.article;
   });
   service.forEach(r => {
-    r.weekRev = /итог/i.test(r.sku) ? weekly.total : null;
+    const label = r.cells.map(x => String(x)).join(' ');
+    r.weekRev = /итог/i.test(label) ? weekly.total : null;
   });
 
   return {
     header: SkuCalc_header_(),
-    headers: headers,
+    columns: columns.map(c => ({ title: c.title, type: c.type })),
     period: {
       from: SkuCalc_keyToRu_(period.fromKey),
       to: SkuCalc_keyToRu_(period.toKey),
