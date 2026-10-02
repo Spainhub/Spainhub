@@ -18,6 +18,7 @@
  *   Report_finans_wb_2.gs — WB, эквайринг (детализация)
  *   Get_sku_wb.gs         — WB, список товаров
  *   Get_sku_oz.gs         — Ozon, список товаров
+ *   Unit.gs               — лист Unit → вкладка «P&L Unit» Web App
  *
  * РЕШЕНИЕ ПО ДАТАМ:
  * Даты сохраняем как нативный Date БЕЗ времени (UTC-полдень).
@@ -1364,15 +1365,19 @@ function resetPeriod() {
 }
 
 /**
- * Фильтр периода Web App пишется и в Calculation_sku!E2:G2 — чтобы ваши
+ * Фильтр периода Web App пишется и в Calculation_sku!E2:G2 и Unit!E2:G2 — чтобы ваши
  * формулы на этом листе могли брать период со своего листа ($E$4/$G$4),
  * без ссылок на Calculation.
  */
 function setSkuPeriod_(from, to) {
-  const sku = SpreadsheetApp.getActive().getSheetByName(typeof SKUCALC_SHEET === 'string' ? SKUCALC_SHEET : 'Calculation_sku');
-  if (!sku) return;
-  sku.getRange('E2').setValue(from);
-  sku.getRange('G2').setValue(to);
+  const ss = SpreadsheetApp.getActive();
+  [typeof SKUCALC_SHEET === 'string' ? SKUCALC_SHEET : 'Calculation_sku',
+   typeof UNIT_SHEET === 'string' ? UNIT_SHEET : 'Unit'].forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (!sh) return;
+    sh.getRange('E2').setValue(from);
+    sh.getRange('G2').setValue(to);
+  });
 }
 
 function getMeta() {
@@ -1411,6 +1416,7 @@ function buildInfoSheet() {
     ['Data_wb', 'Сырые данные WB API (реализация). Дедуп по rrdId, окно — с 1-го числа месяца 3 месяца назад.'],
     ['Calculation', 'P&L WB: строки --- статьи, колонки --- периоды (6 дней + 3 месяца). Формулы СУММЕСЛИМН к Data_wb (на русском).'],
     ['Calculation_sku', 'P&L в разрезе SKU. Формулы с A7 пишутся вручную; скрипт создаёт только шапку и читает лист во вкладку «P&L по SKU» Web App.'],
+    ['Unit', 'Unit-экономика одного артикула. Артикул — в C5 (выпадающий список), формулы на листе уже есть; скрипт читает лист во вкладку «P&L Unit» Web App (Unit.gs), колонки E:CR без даты в строке 6 скрываются.'],
     ['Data_check', 'Контроль полноты данных: пропущенные/неполные дни, структура колонок, типы операций (Data_check.gs).'],
     ['Load_log', 'Журнал загрузок: время, период, строк, статус, ошибка.'],
     ['Report_finans_wb_2', 'WB: детализация по эквайрингу (Report_finans_wb_2.gs → WbAcq2_loadReport).'],

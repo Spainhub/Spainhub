@@ -193,6 +193,15 @@
   .badge.y{background:#fff4d6;color:#8a5a00}
   .badge.r{background:#fde8e1;color:#a63a1d}
   .badge.n{color:var(--muted)}
+  /* P&L UNIT */
+  .unit-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px}
+  .unit-bar label{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+  .unit-bar select{appearance:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px;
+    font-size:12.5px;min-width:260px;max-width:100%;color:var(--ink-2);background:#fff}
+  .unit-bar select:focus{outline:none;border-color:var(--accent)}
+  .unit-bar select:disabled{opacity:.6}
+  .unit-info{color:var(--muted);font-size:11.5px}
+  .unit-info b{color:var(--ink-3)}
   /* ГРАФИК ПРИ НАВЕДЕНИИ */
   table.pnl tbody tr.hovered td{background:#fff6f2}
   table.pnl tbody tr.lvl1.hovered td{background:#fbeee8}
@@ -268,6 +277,7 @@
   <nav class="tabs" id="tabs">
     <button class="tab active" data-tab="pnl">P&amp;L по периодам</button>
     <button class="tab" data-tab="sku">P&amp;L по SKU</button>
+    <button class="tab" data-tab="unit">P&amp;L Unit</button>
     <div class="spacer"></div>
     <span class="sync"><span id="syncInfo"></span></span>
     <label class="switch" title="Показывать график строки при наведении мыши">
@@ -315,6 +325,27 @@
         <tbody id="skuBody"></tbody>
       </table>
     </div>
+  </div>
+  <!-- TAB 3: P&L Unit -->
+  <div class="pane" id="paneUnit" hidden>
+    <div class="unit-bar">
+      <label for="unitSku">Артикул WB</label>
+      <select id="unitSku" title="Выберите артикул — лист Unit пересчитается"></select>
+      <div class="unit-info" id="unitInfo"></div>
+    </div>
+    <div class="tbl-wrap" id="unitWrap">
+      <div class="state" id="unitState">
+        <div class="spinner"></div>
+        Загружаю данные…
+      </div>
+      <table class="pnl unit" id="unitTable" style="display:none">
+        <thead>
+          <tr id="unitThead"></tr>
+        </thead>
+        <tbody id="unitBody"></tbody>
+      </table>
+    </div>
+    <div class="legend">Выберите артикул в списке — все показатели листа Unit пересчитаются. Наведите на строку — появится график по дням; наведите на ячейку дня — он подсветится на графике. Колонки без даты скрыты.</div>
   </div>
   <!-- FOOTER -->
   <footer class="rpt">
@@ -570,7 +601,7 @@
   });
   // Экспорт
   function tableHTML(){
-    const t = document.getElementById(state.tab === 'sku' ? 'skuTable' : 'pnl');
+    const t = document.getElementById(state.tab === 'sku' ? 'skuTable' : (state.tab === 'unit' ? 'unitTable' : 'pnl'));
     const clone = t.cloneNode(true);
     clone.style.display = 'table';
     // Раскрываем все разделы в клоне
@@ -585,7 +616,7 @@
     const h = state.data.header;
     return `
       <h1 style="font-size:20px;margin:0 0 2px">P&amp;L Report Wildberries</h1>
-      <div style="color:#737272;font-size:11.5px">Отчёт о прибылях и убытках${state.tab === 'sku' ? ' · в разрезе SKU' : ''}</div>
+      <div style="color:#737272;font-size:11.5px">Отчёт о прибылях и убытках${state.tab === 'sku' ? ' · в разрезе SKU' : (state.tab === 'unit' && state.unit ? ` · Unit: ${escapeHtml(state.unit.sku)} ${escapeHtml(state.unit.article)}` : '')}</div>
       <div style="font-weight:700;margin:4px 0 0">${h.seller||''}</div>
       <div style="color:#686f7d;font-size:11.5px;margin:2px 0 10px">
         Период отчёта ${h.periodFrom||''} — ${h.periodTo||''} · в рублях
@@ -636,7 +667,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `PnL_${state.tab === 'sku' ? 'SKU_' : ''}Wildberries_${state.data.header.periodFrom}_${state.data.header.periodTo}.xls`;
+    a.download = `PnL_${state.tab === 'sku' ? 'SKU_' : (state.tab === 'unit' ? 'Unit_' + (state.unit ? state.unit.sku + '_' : '') : '')}Wildberries_${state.data.header.periodFrom}_${state.data.header.periodTo}.xls`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -647,6 +678,7 @@
    * ===================================================================== */
   Object.assign(state, {
     tab: 'pnl', sku: null, skuReq: 0, skuLoading: false,
+    unit: null, unitReq: 0, unitLoading: false, unitJson: '', unitSkuJson: '',
     skuSort: { col: -1, dir: 1 }, skuFilter: { q: '', abc: '' }, skuJson: '', dataJson: '',
     series: null, seriesReq: 0, hoverOn: true
   });
@@ -663,8 +695,9 @@
     document.querySelectorAll('#tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     $('panePnl').hidden = tab !== 'pnl';
     $('paneSku').hidden = tab !== 'sku';
+    $('paneUnit').hidden = tab !== 'unit';
     hideChart();
-    refreshActive(!!(tab === 'sku' ? state.sku : state.data)); // есть что показать — обновляем тихо
+    refreshActive(!!(tab === 'sku' ? state.sku : (tab === 'unit' ? state.unit : state.data))); // есть что показать — обновляем тихо
   }
   /* ---- Синхронизация с Google Таблицей ----
      Данные вкладки перечитываются из листа: при открытии вкладки, каждые
@@ -677,6 +710,7 @@
   }
   function refreshActive(silent){
     if (state.tab === 'sku') { loadSku(silent); return; }
+    if (state.tab === 'unit') { loadUnit(silent); return; }
     if (state.busy || state.pnlSyncing) return;
     state.pnlSyncing = true;
     google.script.run
@@ -701,6 +735,10 @@
     state.skuReq++;
     state.skuLoading = false;
     if (state.tab === 'sku') loadSku();
+    state.unit = null;
+    state.unitReq++;
+    state.unitLoading = false;
+    if (state.tab === 'unit') loadUnit();
   }
   function loadStatus(){
     google.script.run
@@ -929,9 +967,11 @@
   }
   attachHover($('tbody'), 'pnl');
   attachHover($('skuBody'), 'sku');
+  attachHover($('unitBody'), 'unit');
   window.addEventListener('scroll', () => hideChart(), { passive:true });
   $('tblWrap').addEventListener('scroll', () => hideChart(), { passive:true });
   $('skuWrap').addEventListener('scroll', () => hideChart(), { passive:true });
+  $('unitWrap').addEventListener('scroll', () => hideChart(), { passive:true });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') hideChart(); });
 
   function clearHoverMarks(){
@@ -945,11 +985,11 @@
     clearHoverMarks();
   }
   function showChart(tr, col, kind){
-    const html = kind === 'pnl' ? pnlChartHTML(tr, col) : skuChartHTML(tr);
+    const html = kind === 'pnl' ? pnlChartHTML(tr, col) : (kind === 'unit' ? unitChartHTML(tr, col) : skuChartHTML(tr));
     if (!html) { hideChart(); return; }
     clearHoverMarks();
     tr.classList.add('hovered');
-    if (kind === 'pnl' && col >= 4 && tr.children[col]) tr.children[col].classList.add('hover-col');
+    if ((kind === 'pnl' || kind === 'unit') && col >= 4 && tr.children[col]) tr.children[col].classList.add('hover-col');
     const card = $('chartCard');
     card.innerHTML = html;
     placeCard(card, tr);
@@ -1028,6 +1068,44 @@
     }
 
     return cardHead(row.name, `${dates[0]} — ${dates[n - 1]} · по дням`) + kpiHTML(kpis) +
+      lineSVG(vals, dates, hi, isPct) +
+      `<div class="cc-legend"><span><i></i>по дням</span><span><i class="ma"></i>среднее за 7 дней</span></div>`;
+  }
+
+  /* ---------- содержимое карточки: Unit ---------- */
+  // Дневной ряд — сами значения строки листа Unit (колонки E:CR идут от новой даты к старой,
+  // для графика разворачиваем в хронологический порядок). Пустые/текстовые ячейки = 0.
+  function unitChartHTML(tr, col){
+    const d = state.unit;
+    const row = d && d.rows[+tr.dataset.idx];
+    if (!row) return '';
+    const toN = v => {
+      const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+      return isFinite(n) ? n : 0;
+    };
+    const dates = d.periods.map(p => p.label).reverse();
+    const vals = row.values.map(toN).reverse();
+    const n = vals.length;
+    if (n < 2 || !vals.some(v => v)) return '';
+    const isPct = !!row.isPercent;
+    const sum = (f, t) => vals.slice(Math.max(0, f), t).reduce((s, v) => s + v, 0);
+    // Для процентов — среднее значение, для денег/штук — сумма
+    const agg = (f, t) => { const len = Math.max(0, t - Math.max(0, f)); return isPct ? (len ? sum(f, t) / len : 0) : sum(f, t); };
+    const fmt = v => isPct ? fmtShare(v) : fmtNum(Math.round(v * 100) / 100);
+    const totalNum = toN(row.sum);
+    const kpis = [
+      { k: 'Итого за период', v: row.sum !== '' ? fmtPeriodVal(row.sum, isPct) : fmt(agg(0, n)) },
+      isPct ? { k: 'Среднее за день', v: fmt(agg(0, n)) } : { k: 'Среднее в день', v: fmt(totalNum && row.sum !== '' ? totalNum / n : sum(0, n) / n) },
+      { k: '7 дней к пред. 7', v: trendHTML(agg(n - 7, n), agg(n - 14, n - 7), isPct, row.name) }
+    ];
+    let hi = null;
+    const pi = col - 4;
+    if (pi >= 0 && pi < d.periods.length) {
+      const i = n - 1 - pi;
+      hi = { type: 'day', i };
+      kpis.push({ k: dates[i], v: fmt(vals[i]) });
+    }
+    return cardHead(row.name + (d.sku ? ' · ' + d.sku : ''), `${dates[0]} — ${dates[n - 1]} · по дням`) + kpiHTML(kpis) +
       lineSVG(vals, dates, hi, isPct) +
       `<div class="cc-legend"><span><i></i>по дням</span><span><i class="ma"></i>среднее за 7 дней</span></div>`;
   }
@@ -1187,6 +1265,117 @@
       if (i % labelEvery === 0 || i === n - 1) s += `<text x="${cx}" y="${H - 4}" text-anchor="middle">${escapeHtml(b.l)}</text>`;
     });
     return s + `</svg>`;
+  }
+
+  /* =====================================================================
+   * P&L UNIT
+   * Артикул выбирается в списке → Unit_setSku пишет его в C5 листа Unit,
+   * лист пересчитывается, приходят свежие значения. Колонки без даты
+   * (прочерк в строке 6) сервер отбрасывает.
+   * ===================================================================== */
+  const WEEKDAYS = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+  function unitWeekday(key){
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || '');
+    return m ? WEEKDAYS[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()] : '';
+  }
+  function loadUnit(silent){
+    if (state.unitLoading) return;
+    const quiet = !!silent && !!state.unit;
+    const req = ++state.unitReq;
+    state.unitLoading = true;
+    if (!quiet) {
+      $('unitState').style.display = 'block';
+      $('unitTable').style.display = 'none';
+      $('unitState').innerHTML = '<div class="spinner"></div>Загружаю данные …';
+    }
+    google.script.run
+      .withSuccessHandler(d => {
+        state.unitLoading = false;
+        if (req !== state.unitReq) return;
+        stampSync();
+        if (!silent) toast('Данные обновлены');
+        const json = JSON.stringify(d);
+        if (quiet && json === state.unitJson) return;
+        applyUnit(d, json);
+      })
+      .withFailureHandler(err => {
+        state.unitLoading = false;
+        if (quiet) return;
+        $('unitState').style.display = 'block';
+        $('unitState').innerHTML = `Ошибка: ${escapeHtml(err.message)}`;
+        toast(err.message, true);
+      })
+      .Unit_getReportData();
+  }
+  function applyUnit(d, json){
+    state.unit = d;
+    state.unitJson = json || JSON.stringify(d);
+    renderUnit();
+  }
+  $('unitSku').addEventListener('change', e => {
+    const sel = e.target, id = sel.value, prev = state.unit ? state.unit.sku : '';
+    if (!id) return;
+    const req = ++state.unitReq;
+    state.unitLoading = false;
+    sel.disabled = true;
+    $('unitState').style.display = 'block';
+    $('unitTable').style.display = 'none';
+    $('unitState').innerHTML = '<div class="spinner"></div>Пересчитываю лист …';
+    hideChart();
+    google.script.run
+      .withSuccessHandler(d => {
+        sel.disabled = false;
+        if (req !== state.unitReq) return;
+        stampSync();
+        applyUnit(d);
+        toast('Артикул ' + id + ': данные пересчитаны');
+      })
+      .withFailureHandler(err => {
+        sel.disabled = false;
+        if (req !== state.unitReq) return;
+        toast(err.message, true);
+        sel.value = prev;
+        if (state.unit) renderUnit();
+      })
+      .Unit_setSku(id);
+  });
+  function renderUnit(){
+    const d = state.unit;
+    if (!d) return;
+    // Выпадающий список: перестраиваем, только если изменился состав
+    const skuJson = JSON.stringify(d.skus);
+    const sel = $('unitSku');
+    if (skuJson !== state.unitSkuJson) {
+      state.unitSkuJson = skuJson;
+      sel.innerHTML = d.skus.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.label)}</option>`).join('');
+    }
+    sel.value = d.sku;
+    $('unitInfo').innerHTML = [
+      d.article ? `Артикул: <b>${escapeHtml(d.article)}</b>` : '',
+      d.category ? `Категория: <b>${escapeHtml(d.category)}</b>` : ''
+    ].filter(Boolean).join(' · ');
+
+    const th = [
+      `<th class="left num-col">№</th>`,
+      `<th class="left">Данные за период</th>`,
+      `<th class="total-col">Итого</th>`,
+      `<th class="total-col">Доля, %</th>`,
+      ...d.periods.map(p => `<th>${p.label}<span class="th-sub">${unitWeekday(p.key)}</span></th>`)
+    ];
+    $('unitThead').innerHTML = th.join('');
+    $('unitBody').innerHTML = d.rows.map((r, idx) => {
+      const cls = r.level === 1 ? 'lvl1' : '';
+      return `<tr${cls ? ` class="${cls}"` : ''} data-idx="${idx}">` +
+        `<td class="left num-col">${escapeHtml(r.num)}</td>` +
+        `<td class="left">${escapeHtml(r.name)}</td>` +
+        `<td class="total-col ${numClass(r.sum)}">${fmtPeriodVal(r.sum, r.isPercent)}</td>` +
+        `<td class="total-col num">${fmtShare(r.share)}</td>` +
+        r.values.map(v => `<td class="${numClass(v)}">${fmtPeriodVal(v, r.isPercent)}</td>`).join('') +
+        `</tr>`;
+    }).join('');
+    $('unitTable').style.minWidth = (510 + d.periods.length * 100) + 'px';
+    $('unitState').style.display = 'none';
+    $('unitTable').style.display = 'table';
   }
 
   load();
