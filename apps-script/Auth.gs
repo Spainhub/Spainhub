@@ -4,7 +4,7 @@
  *
  * Все методы проекта (WB P&L, WB-доп.отчёты, Ozon-отчёты) берут ключи
  * ТОЛЬКО отсюда. Ввод и просмотр — только через меню:
- *   "Отчёты МП" → "1. Добавить API-ключ" → ...
+ *   "Отчёты МП" → "Wildberries" / "Ozon" → «Добавить …» / «Удалить …»
  *
  * Хранение: PropertiesService.getUserProperties() — ключ привязан к
  * пользователю, который его ввёл (у каждого пользователя таблицы —
@@ -62,7 +62,7 @@ function Auth_getWbToken() {
   const t = PropertiesService.getUserProperties().getProperty(AUTH_PROP_WB_TOKEN);
   if (!t) {
     throw new Error(
-      'Токен Wildberries не задан. Меню «Отчёты МП» → «1. Добавить API-ключ» → «1.1 Добавить токен Wildberries API».'
+      'Токен Wildberries не задан. Меню «Отчёты МП» → «Wildberries» → «Добавить API-ключ».'
     );
   }
   return t;
@@ -124,7 +124,7 @@ function Auth_getOzonCredentials() {
   const apiKey = props.getProperty(AUTH_PROP_OZON_APIKEY);
   if (!clientId || !apiKey) {
     throw new Error(
-      'Ключи Ozon не заданы. Меню «Отчёты МП» → «1. Добавить API-ключ» → «1.3 Добавить Ozon: Client-ID и API-ключ».'
+      'Ключи Ozon не заданы. Меню «Отчёты МП» → «Ozon» → «Добавить Ozon Client ID».'
     );
   }
   return { clientId: clientId, apiKey: apiKey };

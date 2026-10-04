@@ -12,7 +12,7 @@
  *
  * ЕДИНОЕ МЕНЮ ПРОЕКТА: пункт "Отчёты МП" в этом файле объединяет все
  * методы проекта (WB P&L, доп. отчёты WB и Ozon). Ключи API вводятся
- * в ОДНОМ месте — подменю "1. Добавить API-ключ" (см. Auth.gs). Сами загрузчики
+ * в ОДНОМ месте — подменю «Wildberries» / «Ozon» (см. Auth.gs). Сами загрузчики
  * данных других методов лежат каждый в своём файле:
  *   Report_finans_oz_1.gs — Ozon, финансовый отчёт (Cash Flow)
  *   Report_finans_wb_2.gs — WB, эквайринг (детализация)
@@ -155,21 +155,18 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('Отчёты МП')
     .addSubMenu(
-      ui.createMenu('1. Добавить API-ключ')
-        .addItem('1.1 Добавить токен Wildberries API', 'Auth_setWbToken')
-        .addItem('1.2 Удалить токен Wildberries API', 'Auth_removeWbToken')
-        .addItem('1.3 Добавить Ozon: Client-ID и API-ключ', 'Auth_setOzonCredentials')
-        .addItem('1.4 Удалить токен и ID Ozon', 'Auth_removeOzonCredentials')
+      ui.createMenu('Wildberries')
+        .addItem('Добавить API-ключ', 'Auth_setWbToken')
+        .addItem('Удалить токен Wildberries API', 'Auth_removeWbToken')
+        .addItem('Загрузить данные за 3 месяца (первый запуск)', 'firstRun')
+        .addItem('Включить ежедневную автозагрузку (6:00 МСК)', 'installDailyTrigger')
     )
     .addSubMenu(
-      ui.createMenu('2. Wildberries')
-        .addItem('2.1 Загрузить данные за 3 месяца (первый запуск)', 'firstRun')
-        .addItem('2.2 Включить ежедневную автозагрузку (6:00 МСК)', 'installDailyTrigger')
-    )
-    .addSubMenu(
-      ui.createMenu('3. Ozon')
-        .addItem('3.1 Загрузить данные за 3 месяца (первый запуск)', 'OzFin1_firstRun')
-        .addItem('3.2 Включить ежемесячную автозагрузку (10-го числа)', 'OzFin1_installMonthlyTrigger')
+      ui.createMenu('Ozon')
+        .addItem('Добавить Ozon Client ID', 'Auth_setOzonCredentials')
+        .addItem('Удалить токен и ID Ozon', 'Auth_removeOzonCredentials')
+        .addItem('Загрузить данные за 3 месяца (первый запуск)', 'OzFin1_firstRun')
+        .addItem('Включить ежемесячную автозагрузку (10-го числа)', 'OzFin1_installMonthlyTrigger')
     )
     .addSeparator()
     .addItem('Открыть отчёт', 'openWebApp')
@@ -215,12 +212,43 @@ function openWebApp() {
  * (как и в Data_wb): не зависит от часового пояса проекта.
  **********************************************************************/
 function firstRun() {
+  // Первый запуск — «с чистого листа»: старые данные Data_wb удаляются.
+  if (!confirmClear_('Data_wb', Data_wbRowCount_())) return;
+  clearDataSheet_();
   const from = retentionStart_();
   const to = mskToday_();
   ensureCalculationSheetExists();
   buildInfoSheet();
   enqueueLoad_(from, to, `первый запуск (${MAX_MONTHS_BACK} мес.)`);
   processLoadQueue_();
+}
+
+/** Число строк данных в Data_wb (без шапки). */
+function Data_wbRowCount_() {
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET_DATA);
+  return sh ? Math.max(0, sh.getLastRow() - 1) : 0;
+}
+
+/** Спрашивает подтверждение, если на листе уже есть данные. true — можно продолжать. */
+function confirmClear_(sheetName, rows) {
+  if (!rows) return true;
+  const ui = SpreadsheetApp.getUi();
+  const res = ui.alert('Первый запуск',
+    `Лист ${sheetName} содержит ${rows} строк данных. При первом запуске они будут удалены ` +
+    'и загружены заново. Продолжить?', ui.ButtonSet.YES_NO);
+  return res === ui.Button.YES;
+}
+
+/** Очищает данные Data_wb (шапка остаётся) и сбрасывает очередь загрузки. */
+function clearDataSheet_() {
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET_DATA);
+  if (sh && sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(sh.getLastColumn(), 1)).clearContent();
+  }
+  withQueue_(() => []);
+  deleteContinuationTriggers_();
+  bumpDataVersion_();
+  SpreadsheetApp.flush();
 }
 
 /**
@@ -1416,7 +1444,7 @@ function buildInfoSheet() {
     ['', ''],
     ['ЕДИНОЕ МЕНЮ И КЛЮЧИ API', ''],
     ['Меню проекта', '«Отчёты МП» --- объединяет все методы (WB P&L, доп. отчёты WB, отчёты Ozon).'],
-    ['Ключи API', 'Вводятся ОДИН РАЗ в меню «1. Добавить API-ключ»: токен WB (Финансы, Цены и скидки, Маркетплейс), Client-Id/Api-Key Ozon; там же удаление.'],
+    ['Ключи API', 'Вводятся ОДИН РАЗ в меню «Wildberries» / «Ozon»: токен WB (Финансы, Цены и скидки, Маркетплейс), Client-Id/Api-Key Ozon; там же удаление.'],
     ['Хранение ключей', 'Auth.gs, PropertiesService.getUserProperties() --- не в коде, привязаны к пользователю.'],
     ['', ''],
     ['ЛИСТЫ (загрузка данных)', ''],
@@ -1455,8 +1483,8 @@ function buildInfoSheet() {
     ['Защита', 'protectCalculationSheet --- вручную из редактора (в меню не выведена).'],
     ['', ''],
     ['ТОКЕН / КЛЮЧИ', ''],
-    ['WB', 'Меню «Отчёты МП» → «1. Добавить API-ключ» → «1.1 Добавить токен Wildberries API». Категория «Финансы» --- иначе 403 у WB P&L.'],
-    ['Ozon', 'Меню «Отчёты МП» → «1. Добавить API-ключ» → «1.3 Добавить Ozon: Client-ID и API-ключ». Автозагрузка: «3. Ozon» → 3.1 (3 месяца) и 3.2 (10-го числа за прошлый месяц).'],
+    ['WB', 'Меню «Отчёты МП» → «Wildberries» → «Добавить API-ключ». Категория «Финансы» --- иначе 403 у WB P&L.'],
+    ['Ozon', 'Меню «Отчёты МП» → «Ozon» → «Добавить Ozon Client ID». Загрузка за 3 месяца (с очисткой листа) и автозагрузка 10-го числа за прошлый месяц — там же.'],
     ['', ''],
     ['КАК РАСШИРЯТЬ', ''],
     ['Новый метод API', 'Отдельный .gs файл (1 метод = 1 скрипт), уникальный префикс имён, ключи --- через Auth.gs, пункт меню --- в onOpen() этого файла.'],

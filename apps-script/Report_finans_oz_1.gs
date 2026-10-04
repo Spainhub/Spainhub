@@ -56,7 +56,19 @@ const OZFIN1_HEADERS = [
  */
 function OzFin1_firstRun() {
   const creds = Auth_getOzonCredentials();
-  OzFin1_loadRange_(creds, dayKey_(retentionStart_()), dayKey_(mskToday_()));
+  if (!OzFin1_confirmClear_()) return;
+  OzFin1_loadRange_(creds, dayKey_(retentionStart_()), dayKey_(mskToday_()), true);
+}
+
+/** Первый запуск очищает лист от старых данных — спрашиваем, если они там есть. */
+function OzFin1_confirmClear_() {
+  const sh = SpreadsheetApp.getActive().getSheetByName(OZFIN1_SHEET_NAME);
+  const rows = sh ? Math.max(0, sh.getLastRow() - 1) : 0;
+  if (!rows) return true;
+  const ui = SpreadsheetApp.getUi();
+  return ui.alert('Первый запуск',
+    `Лист ${OZFIN1_SHEET_NAME} содержит ${rows} строк данных. При первом запуске они будут удалены ` +
+    'и загружены заново. Продолжить?', ui.ButtonSet.YES_NO) === ui.Button.YES;
 }
 
 /** Совместимость: старое имя точки входа. */
@@ -82,6 +94,7 @@ function OzFin1_monthlyUpdate() {
  */
 function OzFin1_installMonthlyTrigger() {
   const creds = Auth_getOzonCredentials();   // понятная ошибка, если ключей нет
+  if (!OzFin1_confirmClear_()) return;
   OzFin1_deleteTriggers_();
   ScriptApp.newTrigger('OzFin1_monthlyUpdate')
     .timeBased()
@@ -93,7 +106,7 @@ function OzFin1_installMonthlyTrigger() {
     'будет загружаться предыдущий месяц (от имени текущего пользователя — используются ЕГО ключи Ozon).\n\n' +
     'Сейчас загружаю данные за 3 месяца…';
   try { SpreadsheetApp.getActive().toast(msg, 'Ozon', 8); } catch (e) { Logger.log(msg); }
-  OzFin1_loadRange_(creds, dayKey_(retentionStart_()), dayKey_(mskToday_()));
+  OzFin1_loadRange_(creds, dayKey_(retentionStart_()), dayKey_(mskToday_()), true);
 }
 
 function OzFin1_deleteTriggers_() {
@@ -107,8 +120,10 @@ function OzFin1_deleteTriggers_() {
 /**
  * Загружает периоды Ozon за [fromKey; toKey] ("yyyy-MM-dd") и ДОБАВЛЯЕТ их на лист:
  * строки с тем же period_id обновляются, остальные сохраняются.
+ * replace = true (первый запуск) — старые данные листа удаляются; чистим только
+ * ПОСЛЕ успешного ответа API, чтобы при ошибке не потерять прежние данные.
  */
-function OzFin1_loadRange_(creds, fromKey, toKey) {
+function OzFin1_loadRange_(creds, fromKey, toKey, replace) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(OZFIN1_SHEET_NAME);
   if (!sheet) sheet = ss.insertSheet(OZFIN1_SHEET_NAME);
@@ -146,6 +161,7 @@ function OzFin1_loadRange_(creds, fromKey, toKey) {
     page++;
   } while (page <= pageCount && page <= OZFIN1_MAX_PAGES);
 
+  if (replace) sheet.clear();
   const total = OzFin1_upsertRows_(sheet, newRows);
   if (total === 0) {
     sheet.getRange(1, 1).setValue('Нет данных за указанный период');
