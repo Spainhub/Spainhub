@@ -178,7 +178,7 @@ function SkuCalc_getReportData() {
   const columns = [];
   for (let i = 0; i < n; i++) {
     const title = String(headerVals[i]).trim();
-    if (title === '') continue;
+    if (isDashHeader_(title)) continue; // пусто или «-» — колонку не показываем
     columns.push({ i: i, title: title, type: SkuCalc_colType_(title) });
   }
   const colOf = type => columns.find(c => c.type === type);

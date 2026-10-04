@@ -1276,15 +1276,18 @@ function getReportData() {
   const lastCol = sh.getLastColumn();
   const lastRow = sh.getLastRow();
   const headers = sh.getRange(headerRow, 1, 1, lastCol).getValues()[0];
-  const periodLabels = headers.slice(4).filter(h => h !== '').map(fmtCell);
+  // Колонки периодов: пустой заголовок или прочерк «-» вместо даты — колонку не показываем.
+  const keepIdx = [];
+  headers.forEach((h, i) => { if (i >= 4 && !isDashHeader_(h)) keepIdx.push(i); });
+  const periodLabels = keepIdx.map(i => fmtCell(headers[i]));
 
   // Тип каждой колонки-периода — по строке «Параметры» (CALC_ROW_PARAMS):
   // у месяцев там дата конца месяца, у дней — день недели (текст). Так график
   // «Месяцы» не зависит от того, сколько дневных колонок в отчёте.
   const params = sh.getRange(CALC_ROW_PARAMS, 1, 1, lastCol).getValues()[0];
   const periodMeta = [];
-  headers.forEach((h, i) => {
-    if (i < 4 || h === '') return;
+  keepIdx.forEach(i => {
+    const h = headers[i];
     const p = params[i];
     const isMonth = p instanceof Date || /^\d{2}\.\d{2}\.\d{4}$/.test(String(p).trim());
     const key = cellDateKey_(h);
@@ -1304,7 +1307,7 @@ function getReportData() {
         share: r[3],
         isPercent: /%/.test(name), // проценты форматируем иначе
         isManual: ['020', '040', '045', '050', '055'].includes(code), // ручной ввод
-        values: r.slice(4, 4 + periodLabels.length).map(fmtCell)
+        values: keepIdx.map(i => fmtCell(r[i]))
       };
     });
 
@@ -1322,6 +1325,11 @@ function getReportData() {
     periodMeta: periodMeta,
     rows
   };
+}
+
+// Заголовок-«не дата»: пусто или только прочерки (-, –, —) — такие колонки скрываем.
+function isDashHeader_(h) {
+  return /^[\s\-\u2010-\u2015\u2212]*$/.test(String(h === null || h === undefined ? '' : h));
 }
 
 // Date → "dd.MM.yyyy" строкой (для показа в Web App); число/строку не трогает.

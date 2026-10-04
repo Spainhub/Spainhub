@@ -125,6 +125,10 @@
   .num{font-variant-numeric:tabular-nums}
   .neg{color:#c14a2a}
   .zero{color:#b9b9b9}
+  /* Оранжевый текст — у строк, для которых есть график при наведении */
+  table.pnl tbody tr td.total-col.has-chart{color:var(--accent)}
+  /* SKU: таблица прокручивается внутри блока (строки подгружаются по 50) */
+  #skuWrap{max-height:calc(100vh - 240px);min-height:320px}
   /* LOADING / EMPTY */
   .state{padding:36px 16px;text-align:center;color:var(--muted);font-size:12.5px}
   .spinner{width:20px;height:20px;border:2px solid var(--line);border-top-color:var(--accent);
@@ -200,6 +204,7 @@
     font-size:12.5px;min-width:260px;max-width:100%;color:var(--ink-2);background:#fff}
   .unit-bar select:focus{outline:none;border-color:var(--accent)}
   .unit-bar select:disabled{opacity:.6}
+  table.pnl thead th .master-toggle{vertical-align:middle}
   .unit-info{color:var(--muted);font-size:11.5px}
   .unit-info b{color:var(--ink-3)}
   /* ГРАФИК ПРИ НАВЕДЕНИИ */
@@ -512,27 +517,42 @@
       if (tr) tr.click();
     });
     updateMasterToggle();
+    markChartRows();
   }
-  function updateMasterToggle(){
-    const btn = $('masterToggle');
+  // Оранжевым в колонке «Сумма» — строки, у которых есть график при наведении
+  function markChartRows(){
+    const rows = state.data && state.data.rows;
+    if (!rows) return;
+    document.querySelectorAll('#tbody tr[data-idx]').forEach(tr => {
+      const row = rows[+tr.dataset.idx];
+      const ser = row && row._type !== 'row-params' && state.series && state.series.series[row.name];
+      const td = tr.children[2];
+      if (td) td.classList.toggle('has-chart', !!(ser && ser.values.length > 1));
+    });
+  }
+  function updateMasterToggle(tbodyId, btnId){
+    tbodyId = tbodyId || 'tbody'; btnId = btnId || 'masterToggle';
+    const btn = $(btnId);
     if (!btn) return;
-    const all = [...document.querySelectorAll('#tbody tr.collapsible')];
+    const all = [...document.querySelectorAll('#' + tbodyId + ' tr.collapsible')];
     const allCollapsed = all.length > 0 && all.every(tr => tr.classList.contains('collapsed'));
     btn.textContent = allCollapsed ? '+' : '−';
   }
+  const MASTER_OF = { tbody: 'masterToggle', unitBody: 'unitMaster' };
   function toggleSection(secIdx, tr){
-    const rows = document.querySelectorAll(`#tbody tr[data-parent="${secIdx}"]`);
+    const body = tr.parentElement;
+    const rows = body.querySelectorAll(`tr[data-parent="${secIdx}"]`);
     const collapsed = tr.classList.toggle('collapsed');
     rows.forEach(r => { r.style.display = collapsed ? 'none' : ''; });
-    updateMasterToggle();
+    updateMasterToggle(body.id, MASTER_OF[body.id]);
   }
-  function collapseAll(){
-    document.querySelectorAll('#tbody tr.collapsible').forEach(tr => {
+  function collapseAll(tbodyId){
+    document.querySelectorAll('#' + (tbodyId || 'tbody') + ' tr.collapsible').forEach(tr => {
       if (!tr.classList.contains('collapsed')) tr.click();
     });
   }
-  function expandAll(){
-    document.querySelectorAll('#tbody tr.collapsible').forEach(tr => {
+  function expandAll(tbodyId){
+    document.querySelectorAll('#' + (tbodyId || 'tbody') + ' tr.collapsible').forEach(tr => {
       if (tr.classList.contains('collapsed')) tr.click();
     });
   }
@@ -601,8 +621,12 @@
   });
   // Экспорт
   function tableHTML(){
+    // В экспорт SKU попадают ВСЕ строки, а не только подгруженные
+    const lim = state.skuLimit;
+    if (state.tab === 'sku' && state.sku) { state.skuLimit = Infinity; renderSku(); }
     const t = document.getElementById(state.tab === 'sku' ? 'skuTable' : (state.tab === 'unit' ? 'unitTable' : 'pnl'));
     const clone = t.cloneNode(true);
+    if (state.tab === 'sku' && state.sku) { state.skuLimit = lim; renderSku(); }
     clone.style.display = 'table';
     // Раскрываем все разделы в клоне
     clone.querySelectorAll('tr[style*="display: none"]').forEach(tr=>tr.style.display='');
@@ -679,7 +703,7 @@
   Object.assign(state, {
     tab: 'pnl', sku: null, skuReq: 0, skuLoading: false,
     unit: null, unitReq: 0, unitLoading: false, unitJson: '', unitSkuJson: '',
-    skuSort: { col: -1, dir: 1 }, skuFilter: { q: '', abc: '' }, skuJson: '', dataJson: '',
+    skuLimit: 50, skuSort: { col: -1, dir: 1 }, skuFilter: { q: '', abc: '' }, skuJson: '', dataJson: '',
     series: null, seriesReq: 0, hoverOn: true
   });
   try { state.hoverOn = localStorage.getItem('pnl.hoverCharts') !== '0'; } catch (e) {}
@@ -873,7 +897,9 @@
     const tr = (r, id, service) => `<tr class="${service ? 'lvl1' : ''}" data-sku="${id}">` +
       cols.map((c, i) => skuCell(c, r.cells[i], cs[i], service)).join('') + '</tr>';
     // Строки листа без № (например, «Итого») — внизу, в порядке листа
-    $('skuBody').innerHTML = rows.map((r, i) => tr(r, i, false)).join('') +
+    // Сначала только первые SKU_PAGE строк, остальные подгружаются при прокрутке
+    const shown = rows.slice(0, state.skuLimit);
+    $('skuBody').innerHTML = shown.map((r, i) => tr(r, i, false)).join('') +
       (d.service || []).map((r, i) => tr(r, 's' + i, true)).join('');
 
     const abcI = skuIdx('abc');
@@ -883,7 +909,8 @@
     $('skuSummary').innerHTML = `SKU: <b>${d.rows.length}</b>` +
       (abcI >= 0 ? ` · A <b>${cnt.A}</b> · B <b>${cnt.B}</b> · C <b>${cnt.C}</b>` : '') +
       ` · данные листа Calculation_sku` +
-      (rows.length !== d.rows.length ? ` · показано: <b>${rows.length}</b>` : '');
+      (rows.length !== d.rows.length ? ` · найдено: <b>${rows.length}</b>` : '') +
+      (shown.length < rows.length ? ` · показано: <b>${shown.length}</b> (остальные — при прокрутке)` : '');
     $('skuState').style.display = d.rows.length || (d.service || []).length ? 'none' : 'block';
     if (!d.rows.length && !(d.service || []).length) {
       $('skuState').textContent = 'В листе Calculation_sku нет строк (данные — с 7-й строки).';
@@ -891,6 +918,17 @@
     $('skuTable').style.display = 'table';
     hideChart();
   }
+  // Подгрузка следующих строк при прокрутке таблицы SKU вниз
+  const SKU_PAGE = 50;
+  function resetSkuLimit(){ state.skuLimit = SKU_PAGE; $('skuWrap').scrollTop = 0; }
+  $('skuWrap').addEventListener('scroll', () => {
+    const w = $('skuWrap');
+    if (!state.sku || !state.skuVisible || state.skuLimit >= state.skuVisible.length) return;
+    if (w.scrollTop + w.clientHeight >= w.scrollHeight - 300) {
+      state.skuLimit += SKU_PAGE;
+      renderSku();
+    }
+  }, { passive:true });
   $('skuThead').addEventListener('click', e => {
     const th = e.target.closest('th[data-sort]');
     if (!th || !state.sku) return;
@@ -899,13 +937,15 @@
     state.skuSort = state.skuSort.col === col
       ? { col, dir: -state.skuSort.dir }
       : { col, dir: ['id', 'art', 'text', 'xyz', 'abc'].includes(t) ? 1 : -1 };
+    resetSkuLimit();
     renderSku();
   });
-  $('skuSearch').addEventListener('input', e => { state.skuFilter.q = e.target.value; if (state.sku) renderSku(); });
+  $('skuSearch').addEventListener('input', e => { state.skuFilter.q = e.target.value; resetSkuLimit(); if (state.sku) renderSku(); });
   $('abcChips').addEventListener('click', e => {
     const b = e.target.closest('.chip');
     if (!b) return;
     state.skuFilter.abc = b.dataset.abc;
+    resetSkuLimit();
     document.querySelectorAll('#abcChips .chip').forEach(c => c.classList.toggle('on', c === b));
     if (state.sku) renderSku();
   });
@@ -925,8 +965,9 @@
   function loadSeries(){
     const req = ++state.seriesReq;
     state.series = null;
+    markChartRows();
     google.script.run
-      .withSuccessHandler(s => { if (req === state.seriesReq) state.series = prepSeries(s); })
+      .withSuccessHandler(s => { if (req === state.seriesReq) { state.series = prepSeries(s); markChartRows(); } })
       .withFailureHandler(err => console.warn('Дневные ряды недоступны:', err && err.message))
       .PnlChart_getDailySeries();
   }
@@ -1356,19 +1397,26 @@
     ].filter(Boolean).join(' · ');
 
     const th = [
-      `<th class="left num-col">№</th>`,
+      `<th class="left num-col"><span class="master-toggle" id="unitMaster" title="Свернуть/развернуть все">−</span></th>`,
       `<th class="left">Данные за период</th>`,
       `<th class="total-col">Итого</th>`,
       `<th class="total-col">Доля, %</th>`,
       ...d.periods.map(p => `<th>${p.label}<span class="th-sub">${unitWeekday(p.key)}</span></th>`)
     ];
     $('unitThead').innerHTML = th.join('');
+    // Разделы (№ «1», «2» …) сворачиваются стрелкой; подпункты («1.1» …) — их дети
+    const collapsedBefore = [...document.querySelectorAll('#unitBody tr.collapsed')].map(t => t.dataset.secIdx);
+    const hasData = r => r.values.filter(v => typeof v === 'number' && isFinite(v)).length > 1 && r.values.some(v => typeof v === 'number' && v);
+    let sec = -1;
     $('unitBody').innerHTML = d.rows.map((r, idx) => {
-      const cls = r.level === 1 ? 'lvl1' : '';
-      return `<tr${cls ? ` class="${cls}"` : ''} data-idx="${idx}">` +
-        `<td class="left num-col">${escapeHtml(r.num)}</td>` +
+      const isSec = r.level === 1 && d.rows[idx + 1] && d.rows[idx + 1].level !== 1;
+      if (r.level === 1) sec = idx;
+      const cls = [r.level === 1 ? 'lvl1' : '', isSec ? 'collapsible' : ''].filter(Boolean).join(' ');
+      const attrs = (isSec ? ` data-sec-idx="${idx}"` : '') + (r.level !== 1 && sec >= 0 ? ` data-parent="${sec}"` : '');
+      return `<tr${cls ? ` class="${cls}"` : ''} data-idx="${idx}"${attrs}>` +
+        `<td class="left num-col">${isSec ? '<span class="toggle">▾</span>' : ''}${escapeHtml(r.num)}</td>` +
         `<td class="left">${escapeHtml(r.name)}</td>` +
-        `<td class="total-col ${numClass(r.sum)}">${fmtPeriodVal(r.sum, r.isPercent)}</td>` +
+        `<td class="total-col ${numClass(r.sum)}${hasData(r) ? ' has-chart' : ''}">${fmtPeriodVal(r.sum, r.isPercent)}</td>` +
         `<td class="total-col num">${fmtShare(r.share)}</td>` +
         r.values.map(v => `<td class="${numClass(v)}">${fmtPeriodVal(v, r.isPercent)}</td>`).join('') +
         `</tr>`;
@@ -1376,6 +1424,19 @@
     $('unitTable').style.minWidth = (510 + d.periods.length * 100) + 'px';
     $('unitState').style.display = 'none';
     $('unitTable').style.display = 'table';
+    const body = $('unitBody');
+    body.querySelectorAll('tr.collapsible').forEach(tr =>
+      tr.addEventListener('click', () => toggleSection(+tr.dataset.secIdx, tr)));
+    $('unitMaster').addEventListener('click', e => {
+      e.stopPropagation();
+      const all = [...body.querySelectorAll('tr.collapsible')];
+      all.length && all.every(tr => tr.classList.contains('collapsed')) ? expandAll('unitBody') : collapseAll('unitBody');
+    });
+    collapsedBefore.forEach(idx => {
+      const tr = body.querySelector(`tr.collapsible[data-sec-idx="${idx}"]`);
+      if (tr) tr.click();
+    });
+    updateMasterToggle('unitBody', 'unitMaster');
   }
 
   load();
