@@ -7,8 +7,7 @@
  * Документация: Финансы → Баланс → Доходы и расходы
  *
  * Ключи Ozon (Client-Id / Api-Key) берутся из единого хранилища —
- * Auth.gs (меню «Отчёты МП» → «Ключи API» → «Ozon: ввести Client-Id
- * и Api-Key»). Здесь их вводить/хранить не нужно.
+ * Auth.gs (меню «Отчёты МП» → «1. Добавить API-ключ» → «1.3 Добавить Ozon»). Здесь их вводить/хранить не нужно.
  *
  * ВАЖНО: все имена в этом файле имеют префикс OZFIN1_ / OzFin1_,
  * чтобы не конфликтовать с одноимёнными сущностями в других .gs
@@ -20,9 +19,10 @@
 const OZFIN1_SHEET_NAME = 'Report_finans_oz_1';
 const OZFIN1_BASE_URL = 'https://api-seller.ozon.ru';
 
-// Период отчёта (ISO 8601). Ozon отдаёт данные только за периоды 01–15 и 16–31.
-const OZFIN1_DATE_FROM = '2026-01-01T00:00:00.000Z';
-const OZFIN1_DATE_TO = '2026-12-31T00:00:00.000Z';
+// Период запроса задаётся при вызове (см. OzFin1_loadRange_). Ozon отдаёт данные
+// периодами 01–15 и 16–31 (конец месяца); строки на листе обновляются по period_id.
+const OZFIN1_TRIGGER_DAY = 10;   // день месяца автозагрузки
+const OZFIN1_TRIGGER_HOUR = 6;   // час запуска (МСК)
 
 const OZFIN1_PAGE_SIZE = 1000;   // количество элементов на странице
 const OZFIN1_WITH_DETAILS = true; // добавлять ли детализацию в ответ
@@ -51,26 +51,77 @@ const OZFIN1_HEADERS = [
 ];
 
 /**
- * Точка входа метода (вызывается из меню «Отчёты МП» →
- * «Ozon — отчёты» → «Финансовый отчёт (Cash Flow)»).
+ * Меню «3. Ozon» → «3.1 Загрузить данные за 3 месяца (первый запуск)»:
+ * с 1-го числа месяца MAX_MONTHS_BACK месяцев назад по сегодня (как у WB).
  */
-function OzFin1_loadReport() {
+function OzFin1_firstRun() {
   const creds = Auth_getOzonCredentials();
+  OzFin1_loadRange_(creds, dayKey_(retentionStart_()), dayKey_(mskToday_()));
+}
 
+/** Совместимость: старое имя точки входа. */
+function OzFin1_loadReport() {
+  OzFin1_firstRun();
+}
+
+/**
+ * Запуск триггера: ПРЕДЫДУЩИЙ календарный месяц целиком (10 ноября → октябрь).
+ * К 10-му числу Ozon уже закрыл оба периода месяца.
+ */
+function OzFin1_monthlyUpdate() {
+  const creds = Auth_getOzonCredentials();
+  const t = mskToday_();
+  const first = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - 1, 1, 12, 0, 0, 0));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), 0, 12, 0, 0, 0));
+  OzFin1_loadRange_(creds, dayKey_(first), dayKey_(last));
+}
+
+/**
+ * Меню «3.2 Включить ежемесячную автозагрузку»: ставит триггер на 10-е число
+ * и сразу загружает данные за 3 месяца (первый запуск).
+ */
+function OzFin1_installMonthlyTrigger() {
+  const creds = Auth_getOzonCredentials();   // понятная ошибка, если ключей нет
+  OzFin1_deleteTriggers_();
+  ScriptApp.newTrigger('OzFin1_monthlyUpdate')
+    .timeBased()
+    .onMonthDay(OZFIN1_TRIGGER_DAY)
+    .atHour(OZFIN1_TRIGGER_HOUR)
+    .inTimezone(TZ_MSK)
+    .create();
+  const msg = `Ежемесячная автозагрузка Ozon включена: ${OZFIN1_TRIGGER_DAY}-го числа ~${OZFIN1_TRIGGER_HOUR}:00 МСК ` +
+    'будет загружаться предыдущий месяц (от имени текущего пользователя — используются ЕГО ключи Ozon).\n\n' +
+    'Сейчас загружаю данные за 3 месяца…';
+  try { SpreadsheetApp.getActive().toast(msg, 'Ozon', 8); } catch (e) { Logger.log(msg); }
+  OzFin1_loadRange_(creds, dayKey_(retentionStart_()), dayKey_(mskToday_()));
+}
+
+function OzFin1_deleteTriggers_() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (['OzFin1_monthlyUpdate', 'OzFin1_loadReport'].includes(t.getHandlerFunction())) {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+}
+
+/**
+ * Загружает периоды Ozon за [fromKey; toKey] ("yyyy-MM-dd") и ДОБАВЛЯЕТ их на лист:
+ * строки с тем же period_id обновляются, остальные сохраняются.
+ */
+function OzFin1_loadRange_(creds, fromKey, toKey) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(OZFIN1_SHEET_NAME);
   if (!sheet) sheet = ss.insertSheet(OZFIN1_SHEET_NAME);
-  sheet.clear();
 
-  const allRows = [];
+  const newRows = [];
   let page = 1;
   let pageCount = 1;
 
   do {
     const payload = {
       date: {
-        from: OZFIN1_DATE_FROM,
-        to: OZFIN1_DATE_TO
+        from: fromKey + 'T00:00:00.000Z',
+        to: toKey + 'T23:59:59.000Z'
       },
       with_details: OZFIN1_WITH_DETAILS,
       page: page,
@@ -88,28 +139,50 @@ function OzFin1_loadReport() {
     const details = response.result.details || {};
 
     cashFlows.forEach(cf => {
-      allRows.push(OzFin1_buildRow_(cf, details));
+      newRows.push(OzFin1_buildRow_(cf, details));
     });
 
     Logger.log(`Страница ${page} из ${pageCount}. Получено записей: ${cashFlows.length}`);
     page++;
   } while (page <= pageCount && page <= OZFIN1_MAX_PAGES);
 
-  if (allRows.length === 0) {
+  const total = OzFin1_upsertRows_(sheet, newRows);
+  if (total === 0) {
     sheet.getRange(1, 1).setValue('Нет данных за указанный период');
-    SpreadsheetApp.getActive().toast('Ozon: данных за указанный период нет.', 'Ozon', 6);
+    SpreadsheetApp.getActive().toast(`Ozon: за ${fromKey} — ${toKey} данных нет.`, 'Ozon', 6);
     return;
   }
+  Logger.log(`Готово. Получено: ${newRows.length}, всего на листе: ${total}`);
+  SpreadsheetApp.getActive().toast(
+    `Ozon: ${fromKey} — ${toKey}: получено периодов ${newRows.length}, всего на листе ${total}`, 'Ozon', 8);
+}
 
-  sheet.getRange(1, 1, 1, OZFIN1_HEADERS.length).setValues([OZFIN1_HEADERS])
+/** Объединяет новые строки с уже имеющимися по period_id (колонка A); возвращает число строк. */
+function OzFin1_upsertRows_(sheet, newRows) {
+  const nCols = OZFIN1_HEADERS.length;
+  const byId = {};
+  const last = sheet.getLastRow();
+  if (last >= 2 && sheet.getLastColumn() >= nCols) {
+    const head = sheet.getRange(1, 1, 1, nCols).getValues()[0];
+    if (head.join('|') === OZFIN1_HEADERS.join('|')) {
+      sheet.getRange(2, 1, last - 1, nCols).getValues().forEach(r => {
+        if (r[0] !== '') byId[String(r[0])] = r;
+      });
+    }
+  }
+  newRows.forEach(r => { byId[String(r[0])] = r; });
+  const rows = Object.keys(byId).map(k => byId[k])
+    .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  if (!rows.length) return 0;
+
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, nCols).setValues([OZFIN1_HEADERS])
     .setFontWeight('bold')
     .setBackground('#f0f0f0');
-  sheet.getRange(2, 1, allRows.length, OZFIN1_HEADERS.length).setValues(allRows);
+  sheet.getRange(2, 1, rows.length, nCols).setValues(rows);
   sheet.setFrozenRows(1);
-  sheet.autoResizeColumns(1, OZFIN1_HEADERS.length);
-
-  Logger.log(`Готово. Всего записей: ${allRows.length}`);
-  SpreadsheetApp.getActive().toast(`Ozon: загружено строк ${allRows.length}`, 'Ozon', 8);
+  sheet.autoResizeColumns(1, nCols);
+  return rows.length;
 }
 
 /* ------------------ Формирование строки ------------------ */
@@ -187,18 +260,4 @@ function OzFin1_callApi_(creds, path, payload) {
     Logger.log('Не удалось распарсить JSON: ' + text);
     return null;
   }
-}
-
-/* --------- Триггер (запуск раз в день, вручную из редактора) --------- */
-function OzFin1_createDailyTrigger() {
-  ScriptApp.getProjectTriggers().forEach(t => {
-    if (t.getHandlerFunction() === 'OzFin1_loadReport') {
-      ScriptApp.deleteTrigger(t);
-    }
-  });
-  ScriptApp.newTrigger('OzFin1_loadReport')
-    .timeBased()
-    .everyDays(1)
-    .atHour(6)
-    .create();
 }

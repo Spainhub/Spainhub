@@ -12,7 +12,7 @@
  *
  * ЕДИНОЕ МЕНЮ ПРОЕКТА: пункт "Отчёты МП" в этом файле объединяет все
  * методы проекта (WB P&L, доп. отчёты WB и Ozon). Ключи API вводятся
- * в ОДНОМ месте — подменю "Ключи API" (см. Auth.gs). Сами загрузчики
+ * в ОДНОМ месте — подменю "1. Добавить API-ключ" (см. Auth.gs). Сами загрузчики
  * данных других методов лежат каждый в своём файле:
  *   Report_finans_oz_1.gs — Ozon, финансовый отчёт (Cash Flow)
  *   Report_finans_wb_2.gs — WB, эквайринг (детализация)
@@ -155,42 +155,41 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('Отчёты МП')
     .addSubMenu(
-      ui.createMenu('Ключи API')
-        .addItem('Wildberries: ввести токен', 'Auth_setWbToken')
-        .addItem('Ozon: ввести Client-Id и Api-Key', 'Auth_setOzonCredentials')
-    )
-    .addSeparator()
-    .addSubMenu(
-      ui.createMenu('Wildberries — P&L')
-        .addItem('Первый запуск (3 месяца)', 'firstRun')
-        .addItem('Ежедневное обновление (сейчас)', 'dailyUpdate')
-        .addItem('Загрузить за период...', 'loadCustomPeriod')
-        .addItem('Очистить старше 3 месяцев', 'cleanupOldRows')
-        .addSeparator()
-        .addItem('Создать лист Calculation_sku (шапка)', 'SkuCalc_setupSheet')
-        .addItem('Формулы активного листа → на русском', 'Formulas_activeSheetToRussian')
+      ui.createMenu('1. Добавить API-ключ')
+        .addItem('1.1 Добавить токен Wildberries API', 'Auth_setWbToken')
+        .addItem('1.2 Удалить токен Wildberries API', 'Auth_removeWbToken')
+        .addItem('1.3 Добавить Ozon: Client-ID и API-ключ', 'Auth_setOzonCredentials')
+        .addItem('1.4 Удалить токен и ID Ozon', 'Auth_removeOzonCredentials')
     )
     .addSubMenu(
-      ui.createMenu('Контроль данных')
-        .addItem('Проверить пропуски', 'Gap_checkMenu')
-        .addItem('Дозагрузить пропуски', 'Gap_healMenu')
-        .addSeparator()
-        .addItem('Установить ежедневный триггер', 'installDailyTrigger')
+      ui.createMenu('2. Wildberries')
+        .addItem('2.1 Загрузить данные за 3 месяца (первый запуск)', 'firstRun')
+        .addItem('2.2 Включить ежедневную автозагрузку (6:00 МСК)', 'installDailyTrigger')
     )
     .addSubMenu(
-      ui.createMenu('Wildberries — доп. отчёты')
-        .addItem('Финансовый отчёт (эквайринг)', 'WbAcq2_loadReport')
-        .addItem('Список товаров (SKU)', 'WbSku_loadGoods')
-    )
-    .addSubMenu(
-      ui.createMenu('Ozon — отчёты')
-        .addItem('Финансовый отчёт (Cash Flow)', 'OzFin1_loadReport')
-        .addItem('Список товаров (SKU)', 'OzSku_loadProducts')
+      ui.createMenu('3. Ozon')
+        .addItem('3.1 Загрузить данные за 3 месяца (первый запуск)', 'OzFin1_firstRun')
+        .addItem('3.2 Включить ежемесячную автозагрузку (10-го числа)', 'OzFin1_installMonthlyTrigger')
     )
     .addSeparator()
     .addItem('Открыть отчёт', 'openWebApp')
     .addSeparator()
-    .addItem('Обновить Info', 'buildInfoSheet')
+    .addSubMenu(
+      ui.createMenu('Дополнительно')
+        .addItem('Wildberries: обновить за последние дни (сейчас)', 'dailyUpdate')
+        .addItem('Wildberries: загрузить за период...', 'loadCustomPeriod')
+        .addItem('Wildberries: очистить старше 3 месяцев', 'cleanupOldRows')
+        .addItem('Wildberries: список товаров (SKU)', 'WbSku_loadGoods')
+        .addItem('Wildberries: финансовый отчёт (эквайринг)', 'WbAcq2_loadReport')
+        .addItem('Ozon: список товаров (SKU)', 'OzSku_loadProducts')
+        .addSeparator()
+        .addItem('Контроль данных: проверить пропуски', 'Gap_checkMenu')
+        .addItem('Контроль данных: дозагрузить пропуски', 'Gap_healMenu')
+        .addSeparator()
+        .addItem('Создать лист Calculation_sku (шапка)', 'SkuCalc_setupSheet')
+        .addItem('Формулы активного листа → на русском', 'Formulas_activeSheetToRussian')
+        .addItem('Обновить Info', 'buildInfoSheet')
+    )
     .addToUi();
 }
 
@@ -1417,7 +1416,7 @@ function buildInfoSheet() {
     ['', ''],
     ['ЕДИНОЕ МЕНЮ И КЛЮЧИ API', ''],
     ['Меню проекта', '«Отчёты МП» --- объединяет все методы (WB P&L, доп. отчёты WB, отчёты Ozon).'],
-    ['Ключи API', 'Вводятся ОДИН РАЗ в подменю «Ключи API»: токен WB, Client-Id/Api-Key Ozon.'],
+    ['Ключи API', 'Вводятся ОДИН РАЗ в меню «1. Добавить API-ключ»: токен WB (Финансы, Цены и скидки, Маркетплейс), Client-Id/Api-Key Ozon; там же удаление.'],
     ['Хранение ключей', 'Auth.gs, PropertiesService.getUserProperties() --- не в коде, привязаны к пользователю.'],
     ['', ''],
     ['ЛИСТЫ (загрузка данных)', ''],
@@ -1456,8 +1455,8 @@ function buildInfoSheet() {
     ['Защита', 'protectCalculationSheet --- вручную из редактора (в меню не выведена).'],
     ['', ''],
     ['ТОКЕН / КЛЮЧИ', ''],
-    ['WB', 'Меню «Отчёты МП» → «Ключи API» → «Wildberries: ввести токен». Категория «Финансы» --- иначе 403 у WB P&L.'],
-    ['Ozon', 'Меню «Отчёты МП» → «Ключи API» → «Ozon: ввести Client-Id и Api-Key».'],
+    ['WB', 'Меню «Отчёты МП» → «1. Добавить API-ключ» → «1.1 Добавить токен Wildberries API». Категория «Финансы» --- иначе 403 у WB P&L.'],
+    ['Ozon', 'Меню «Отчёты МП» → «1. Добавить API-ключ» → «1.3 Добавить Ozon: Client-ID и API-ключ». Автозагрузка: «3. Ozon» → 3.1 (3 месяца) и 3.2 (10-го числа за прошлый месяц).'],
     ['', ''],
     ['КАК РАСШИРЯТЬ', ''],
     ['Новый метод API', 'Отдельный .gs файл (1 метод = 1 скрипт), уникальный префикс имён, ключи --- через Auth.gs, пункт меню --- в onOpen() этого файла.'],

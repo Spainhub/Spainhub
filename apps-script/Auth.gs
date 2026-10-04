@@ -4,7 +4,7 @@
  *
  * Все методы проекта (WB P&L, WB-доп.отчёты, Ozon-отчёты) берут ключи
  * ТОЛЬКО отсюда. Ввод и просмотр — только через меню:
- *   "Отчёты МП" → "Ключи API" → ...
+ *   "Отчёты МП" → "1. Добавить API-ключ" → ...
  *
  * Хранение: PropertiesService.getUserProperties() — ключ привязан к
  * пользователю, который его ввёл (у каждого пользователя таблицы —
@@ -32,8 +32,7 @@ function Auth_setWbToken() {
 
   const res = ui.prompt(
     'Wildberries API токен',
-    'Вставьте токен продавца (категории «Финансы» и, при необходимости, ' +
-      '«Цены и скидки»):' +
+    'Вставьте токен продавца (категории «Финансы», «Цены и скидки», «Маркетплейс»):' +
       (current ? '\n\nСейчас сохранён токен, оканчивающийся на «...' + current.slice(-6) + '».' : ''),
     ui.ButtonSet.OK_CANCEL
   );
@@ -46,12 +45,24 @@ function Auth_setWbToken() {
   ui.alert('Токен Wildberries сохранён. Он будет использован во всех методах WB.');
 }
 
+/** Пункт меню: удалить сохранённый токен Wildberries. */
+function Auth_removeWbToken() {
+  const ui = SpreadsheetApp.getUi();
+  const props = PropertiesService.getUserProperties();
+  if (!props.getProperty(AUTH_PROP_WB_TOKEN)) { ui.alert('Токен Wildberries не сохранён.'); return; }
+  const res = ui.alert('Удалить токен Wildberries?',
+    'Загрузка данных WB перестанет работать, пока вы не введёте токен снова.', ui.ButtonSet.YES_NO);
+  if (res !== ui.Button.YES) return;
+  props.deleteProperty(AUTH_PROP_WB_TOKEN);
+  ui.alert('Токен Wildberries удалён.');
+}
+
 /** Возвращает сохранённый токен WB или бросает понятную ошибку. */
 function Auth_getWbToken() {
   const t = PropertiesService.getUserProperties().getProperty(AUTH_PROP_WB_TOKEN);
   if (!t) {
     throw new Error(
-      'Токен Wildberries не задан. Меню «Отчёты МП» → «Ключи API» → «Wildberries: ввести токен».'
+      'Токен Wildberries не задан. Меню «Отчёты МП» → «1. Добавить API-ключ» → «1.1 Добавить токен Wildberries API».'
     );
   }
   return t;
@@ -90,6 +101,22 @@ function Auth_setOzonCredentials() {
   ui.alert('Ключи Ozon сохранены. Они будут использованы во всех методах Ozon.');
 }
 
+/** Пункт меню: удалить сохранённые Client-Id и Api-Key Ozon. */
+function Auth_removeOzonCredentials() {
+  const ui = SpreadsheetApp.getUi();
+  const props = PropertiesService.getUserProperties();
+  if (!props.getProperty(AUTH_PROP_OZON_CLIENT) && !props.getProperty(AUTH_PROP_OZON_APIKEY)) {
+    ui.alert('Ключи Ozon не сохранены.');
+    return;
+  }
+  const res = ui.alert('Удалить токен и ID Ozon?',
+    'Загрузка данных Ozon перестанет работать, пока вы не введёте ключи снова.', ui.ButtonSet.YES_NO);
+  if (res !== ui.Button.YES) return;
+  props.deleteProperty(AUTH_PROP_OZON_CLIENT);
+  props.deleteProperty(AUTH_PROP_OZON_APIKEY);
+  ui.alert('Client-Id и Api-Key Ozon удалены.');
+}
+
 /** Возвращает { clientId, apiKey } для Ozon или бросает понятную ошибку. */
 function Auth_getOzonCredentials() {
   const props = PropertiesService.getUserProperties();
@@ -97,7 +124,7 @@ function Auth_getOzonCredentials() {
   const apiKey = props.getProperty(AUTH_PROP_OZON_APIKEY);
   if (!clientId || !apiKey) {
     throw new Error(
-      'Ключи Ozon не заданы. Меню «Отчёты МП» → «Ключи API» → «Ozon: ввести Client-Id и Api-Key».'
+      'Ключи Ozon не заданы. Меню «Отчёты МП» → «1. Добавить API-ключ» → «1.3 Добавить Ozon: Client-ID и API-ключ».'
     );
   }
   return { clientId: clientId, apiKey: apiKey };
