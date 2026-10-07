@@ -1,0 +1,1944 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #f9fafb; --card: #ffffff; --border: #e5e7eb; --text: #111827; --text2: #6b7280; --blue: #2563eb; --green: #10b981; --yellow: #f59e0b; --red: #ef4444; --radius: 12px; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { max-width: 100%; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+    /* Растягиваем приложение на всю ширину экрана (ПК, ноутбук, планшет, телефон) */
+    html, body { height: 100%; }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    .app { width: 100%; max-width: 100%; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
+    .header h1 { font-size: 22px; font-weight: 600; }
+
+    .tabs { display: flex; gap: 4px; background: var(--card); padding: 4px; border-radius: 10px; border: 1px solid var(--border); width: fit-content; max-width: 100%; margin-bottom: 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; flex-shrink: 0; }
+    .tab-btn { padding: 8px 16px; border: none; background: transparent; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--text2); cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+    .tab-btn.active { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); }
+
+    /* Вкладки растягиваем на всю доступную высоту до нижней границы экрана.
+       ВАЖНО: hidden через класс, а не inline-стиль — иначе display:inline перечит и вкладка «не появляется» */
+    .tab-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .tab-content.hidden-tab { display: none !important; }
+    .tab-content > .card { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+    .btn { background: var(--blue); color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+    .card { background: var(--card); border-radius: var(--radius); border: 1px solid var(--border); padding: 16px; margin-bottom: 16px; min-width: 0; }
+    .debug-box { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; padding: 12px; border-radius: 8px; font-size: 12px; margin-bottom: 16px; display: none; word-break: break-word; flex-shrink: 0; }
+
+    /* === Таблица (сводная, с раскрытием через стрелку) === */
+    .table-tools { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
+    .tool-btn { border: 1px solid var(--border); background: var(--card); color: var(--text2); padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .tool-btn:hover { background: var(--bg); color: var(--text); }
+    .tool-btn.active-filter { border-color: var(--blue); color: var(--blue); background: #eff6ff; }
+    .col-settings { position: relative; }
+    .col-panel { display: none; position: absolute; top: 34px; left: 0; z-index: 50; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.12); padding: 12px; width: 240px; max-height: 320px; overflow-y: auto; }
+    .col-panel.open { display: block; }
+    .col-panel label { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 4px 0; cursor: pointer; color: var(--text); }
+
+    /* Выпадающий фильтр-меню (чекбоксы значений) */
+    .filter-menu { display: none; position: fixed; z-index: 100; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.15); padding: 10px; width: 240px; max-height: 320px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .filter-menu.open { display: block; }
+    .fm-search { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; font-family: inherit; margin-bottom: 8px; }
+    .fm-actions { display: flex; gap: 6px; margin-bottom: 8px; }
+    .fm-actions button { flex: 1; border: 1px solid var(--border); background: var(--bg); border-radius: 6px; font-size: 11px; padding: 4px; cursor: pointer; font-family: inherit; color: var(--text2); }
+    .fm-actions button:hover { background: var(--border); color: var(--text); }
+    .fm-list label { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 3px 0; cursor: pointer; color: var(--text); }
+    .fm-blank { color: var(--text2); font-style: italic; }
+
+    /* Таблица: растягиваемся на всю доступную высоту до нижней границы экрана.
+       table-layout: fixed + colgroup — ширины столбцов (в т.ч. ручные) применяются к ЛЮБОМУ столбцу
+       и не «схлопываются» браузером; заголовки при этом всегда видны. */
+    .table-wrap { overflow: auto; -webkit-overflow-scrolling: touch; flex: 1; min-height: 0; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; table-layout: fixed; }
+    th { text-align: left; padding: 10px 8px; color: var(--text2); font-weight: 600; border-bottom: 2px solid var(--border); white-space: nowrap; position: sticky; top: 0; background: var(--card); z-index: 5; overflow: hidden; text-overflow: ellipsis; height: 40px; }
+    td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ФОН ЗАГОЛОВКОВ: непрозрачный градиент вместо полупрозрачных фонов фильтров/ручек,
+       иначе при position:sticky просвечивающие элементы делали заголовки «невидимыми». */
+    thead th { background-image: linear-gradient(var(--card), var(--card)); }
+    thead th::after { content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; background: var(--border); pointer-events: none; }
+    th .f-icon, th .th-label { background: transparent !important; }
+
+    /* Зебра: очень светло-серая заливка каждой второй строки для читаемости */
+    tbody tr.hrow:nth-child(even) > td { background: #f6f7f9; }
+    /* Этапы (уровень 1) всегда подсвечены чуть сильнее — визуально отделяем группы */
+    tbody tr.hrow.lvl-1 > td { background: #eef2f8; }
+    tbody tr.hrow.hidden-row { display: none; }
+    tbody tr.hrow.group-row > td { background: #fafafa; }
+    tbody tr.hrow:hover > td { background: #e3ebf7; }
+
+    /* Ручное изменение ширины столбцов: «ручка» на правой границке заголовка */
+    th { position: sticky; }
+    th .resizer { position: absolute; right: 0; top: 0; width: 7px; height: 100%; cursor: col-resize; user-select: none; z-index: 5; }
+    th .resizer:hover, th .resizer.dragging { background: rgba(37, 99, 235, .25); }
+    th .th-label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; max-width: calc(100% - 10px); vertical-align: middle; }
+    th .th-label .f-icon { font-size: 9px; color: var(--text2); opacity: .55; flex-shrink: 0; }
+    th .th-label .f-on { color: var(--blue); opacity: 1; }
+    th.sorted .th-label { color: var(--text); }
+
+    /* Визуальная иерархия: служебная колонка-направляющая (в ней же кнопка +/−) + «№» + «Название». */
+    th.col-guide, td.col-guide { padding: 0 !important; width: 26px; min-width: 26px; max-width: 26px; position: sticky; left: 0; z-index: 6; border-bottom: none !important; }
+    /* Направляющие линии вложенности — рисуем на самой ячейке (div может схлопнуться по высоте) */
+    td.col-guide div { display: none; }
+    tr.lvl-2 > td.col-guide { border-left: 2px solid #cbd5e1; }
+    tr.lvl-3 > td.col-guide { border-left: 2px solid #cbd5e1; margin-left: 22px; }
+    /* Фон закреплённых слева колонок: белый / зебра / hover — чтобы строки не сливались.
+       ВАЖНО: !important — иначе правило "tr.lvl-1 > td" перекрывало фон и «дырки» ломали зебру */
+    th.col-num, th.col-name { background: var(--card); }
+    td.col-guide, td.col-num, td.col-name { background: var(--card) !important; }
+    tbody tr.hrow:nth-child(even) > td.col-guide,
+    tbody tr.hrow:nth-child(even) > td.col-num,
+    tbody tr.hrow:nth-child(even) > td.col-name { background: #f6f7f9 !important; }
+    tbody tr.hrow:hover > td.col-guide,
+    tbody tr.hrow:hover > td.col-num,
+    tbody tr.hrow:hover > td.col-name { background: #e3ebf7 !important; }
+    /* Этапы (lvl-1): закреплённые колонки тоже должны быть подсвечены — иначе «белые дырки» */
+    tbody tr.hrow.lvl-1 > td.col-guide,
+    tbody tr.hrow.lvl-1 > td.col-num,
+    tbody tr.hrow.lvl-1 > td.col-name { background: #eef2f8 !important; }
+    tbody tr.hrow.lvl-1:hover > td.col-guide,
+    tbody tr.hrow.lvl-1:hover > td.col-num,
+    tbody tr.hrow.lvl-1:hover > td.col-name { background: #e3ebf7 !important; }
+    /* Колонка «№» (колонка B листа «Таблица») — номер элемента структуры */
+    th.col-num { left: 26px; z-index: 5; width: 58px; min-width: 58px; max-width: 58px; padding: 10px 4px !important; text-align: center; }
+    td.col-num { left: 26px; width: 58px; min-width: 58px; max-width: 58px; text-align: center; padding: 4px !important; font-size: 11px; color: var(--text2); white-space: nowrap; }
+    th.col-name { left: 84px; z-index: 5; min-width: 220px; }
+    td.col-name { left: 84px; min-width: 220px; }
+
+    .name-cell { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+    /* Кнопка +/− раскрытия структуры (как в сводных таблицах Excel) — видна всегда */
+    .twisty { border: 1px solid #94a3b8; background: var(--card); cursor: pointer; font-size: 13px; font-weight: 700; line-height: 1; color: #334155; width: 18px; height: 18px; flex-shrink: 0; border-radius: 4px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-family: inherit; }
+    .twisty:hover { background: #eff6ff; color: var(--blue); border-color: var(--blue); }
+    .twisty.empty { visibility: hidden; cursor: default; }
+    .task-name { min-width: 0; word-break: break-word; }
+    .lvl-1 .task-name { font-weight: 600; font-size: 14px; }
+    tr.lvl-1 > td { background: #f8fafc; }
+    .lvl-2 .task-name { font-weight: 500; }
+    .lvl-3 .task-name { color: var(--text2); font-size: 12px; }
+    .child-count { display: inline-block; background: var(--bg); border: 1px solid var(--border); color: var(--text2); border-radius: 10px; padding: 0 7px; font-size: 10px; font-weight: 600; margin-left: 6px; vertical-align: 1px; }
+
+    .link-chip { display: inline-flex; align-items: center; gap: 4px; background: #eff6ff; color: #1d4ed8; border: none; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 500; cursor: pointer; font-family: inherit; white-space: nowrap; max-width: 180px; }
+    .link-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .link-chip:hover { background: #dbeafe; }
+    .no-link { color: var(--text2); font-size: 11px; }
+    tr.hl-flash > td { animation: hlflash 2s ease-out; }
+    @keyframes hlflash { 0%, 60% { background: #fef9c3; } 100% { background: transparent; } }
+
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+    .b-done { background: #d1fae5; color: #065f46; }
+    .b-progress { background: #dbeafe; color: #1e40af; }
+    .b-plan { background: #fef3c7; color: #92400e; }
+    select.inline { border: 1px solid transparent; background: transparent; padding: 4px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; max-width: 150px; font-family: inherit; }
+    select.inline:hover, select.inline:focus { border-color: var(--border); background: var(--bg); outline: none; }
+    input.cell-input { border: 1px solid transparent; background: transparent; padding: 4px 6px; border-radius: 6px; font-size: 12px; width: 100%; max-width: 150px; font-family: inherit; }
+    input.cell-input:hover, input.cell-input:focus { border-color: var(--border); background: var(--bg); outline: none; }
+    textarea.cell-input { resize: vertical; min-height: 28px; }
+    a.doc-link { color: var(--blue); font-size: 12px; text-decoration: none; }
+    a.doc-link:hover { text-decoration: underline; }
+
+    /* Мобильный режим: карточки вместо широкой таблицы */
+    .hier-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+    .h-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; min-width: 0; }
+    .h-card.lvl-1 { border-left: 4px solid var(--blue); }
+    .h-card.lvl-2 { border-left: 4px solid var(--green); }
+    .h-card.lvl-3 { border-left: 4px solid var(--border); }
+    .hc-head { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 8px; }
+    .hc-num { font-size: 10px; color: var(--text2); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; margin-right: 6px; vertical-align: 1px; white-space: nowrap; }
+    .row-num { font-variant-numeric: tabular-nums; }
+    .hc-title { font-weight: 600; font-size: 13px; word-break: break-word; min-width: 0; }
+    .hc-sub { font-size: 11px; color: var(--text2); margin-bottom: 8px; word-break: break-word; }
+    .hc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12px; }
+    .hc-field label { display: block; font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 2px; }
+    .hc-full { grid-column: 1 / -1; }
+
+    /* Канбан */
+    .kanban { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .k-col { background: var(--bg); border-radius: var(--radius); padding: 14px; min-height: 300px; min-width: 0; }
+    .k-col h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; display: flex; justify-content: space-between; gap: 8px; }
+    .k-col h3 span { background: var(--border); padding: 2px 8px; border-radius: 10px; font-size: 11px; color: var(--text2); flex-shrink: 0; }
+    .k-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); cursor: pointer; min-width: 0; }
+    .k-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgb(0 0 0 / 0.05); }
+    .k-title { font-weight: 500; font-size: 13px; margin-bottom: 8px; word-break: break-word; }
+    .k-meta { font-size: 11px; color: var(--text2); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+
+    /* Гант */
+    .gantt-controls { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+    .gantt-controls select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; }
+    /* Гант: растягиваем на всю доступную высоту до нижней границы экрана */
+    #gantt-root { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .gantt-wrap { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--card); max-width: 100%; flex: 1; min-height: 0; }
+    /* Гант: колонка названий + «ручка» по правому краю — тянем мышкой, ширина сохраняется */
+    .g-side-box { position: relative; flex-shrink: 0; display: flex; }
+    .gantt-side { width: 280px; min-width: 140px; border-right: none; overflow-y: hidden; overflow-x: auto; flex: none; }
+    .g-resizer { width: 6px; flex-shrink: 0; cursor: col-resize; user-select: none; background: var(--border); transition: background .15s; touch-action: none; }
+    .g-resizer:hover, .g-resizer.dragging { background: var(--blue); }
+    .gantt-time { flex: 1; overflow: auto; position: relative; min-width: 0; }
+    .g-row { display: flex; height: 36px; border-bottom: 1px solid var(--border); align-items: center; padding: 0 12px; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .g-row.lvl-1 { font-weight: 600; background: #fafafa; }
+    .g-row.lvl-2 { padding-left: 24px; }
+    .g-row.lvl-3 { padding-left: 48px; color: var(--text2); font-size: 11px; }
+    .g-header { display: flex; height: 36px; border-bottom: 1px solid var(--border); background: var(--bg); font-size: 11px; font-weight: 600; color: var(--text2); }
+    .g-cell { flex-shrink: 0; border-right: 1px solid #f3f4f6; display: flex; align-items: center; justify-content: center; }
+    .g-cell.day { width: 30px; } .g-cell.week { width: 60px; } .g-cell.month { width: 100px; }
+    .g-cell.we { background: #fafafa; }
+    .g-bar-wrap { pointer-events: none; }
+    .g-bar { position: absolute; height: 22px; top: 7px; border-radius: 6px; pointer-events: auto; overflow: hidden; box-shadow: 0 1px 2px rgb(0 0 0 / 0.1); }
+    .g-bar:hover { transform: scale(1.02); z-index: 10; }
+    .g-bar.done { background: #d1fae5; border: 1px solid #10b981; }
+    .g-bar.progress { background: #dbeafe; border: 1px solid #2563eb; }
+    .g-bar.plan { background: #fef3c7; border: 1px solid #f59e0b; }
+    .g-bar-fill { position: absolute; top: 0; left: 0; bottom: 0; opacity: 0.35; }
+    .g-bar.done .g-bar-fill { background: #10b981; }
+    .g-bar.progress .g-bar-fill { background: #2563eb; }
+    .g-bar.plan .g-bar-fill { background: #f59e0b; }
+    .g-bar-label { position: relative; z-index: 2; padding: 0 8px; font-size: 10px; font-weight: 500; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Всплывающая подсказка Ганта (Ответственный, даты, статус) */
+    .g-tip { position: fixed; z-index: 200; background: #111827; color: #f9fafb; border-radius: 8px; padding: 8px 10px; font-size: 11px; line-height: 1.5; max-width: 300px; pointer-events: none; box-shadow: 0 6px 20px rgb(0 0 0 / 0.25); display: none; word-break: break-word; }
+    .g-tip b { font-size: 12px; }
+    .g-tip .tip-resp { color: #93c5fd; }
+    .gantt-wrap .g-bar { cursor: pointer; }
+
+    /* Фиксация колонок иерархии и «Название» слева при широкой таблице */
+    th.col-name, td.col-name { position: sticky; z-index: 5; }
+    td.col-name { box-shadow: 2px 0 4px -2px rgb(0 0 0 / 0.08); }
+    /* Обычные (не закреплённые) ячейки должны перекрывать sticky-колонки при скролле */
+    tbody td:not(.col-guide):not(.col-num):not(.col-name) { background: transparent; }
+    tbody tr.hrow > td:not(.col-guide):not(.col-num):not(.col-name) { background: var(--card); }
+    tbody tr.hrow:nth-child(even) > td:not(.col-guide):not(.col-num):not(.col-name) { background: #f6f7f9; }
+    tbody tr.hrow.lvl-1 > td:not(.col-guide):not(.col-num):not(.col-name) { background: #eef2f8; }
+    tbody tr.hrow:hover > td:not(.col-guide):not(.col-num):not(.col-name) { background: #e3ebf7; }
+
+    /* Надёжный фон sticky-заголовков: псевдоэлемент перекрывает ЛЮБОЕ наследование/перекрытие,
+       из-за которого заголовки могли «исчезать» (прозрачный th просвечивал строками tbody). */
+    thead th::before { content: ''; position: absolute; inset: 0; background: var(--card); z-index: -1; pointer-events: none; }
+    /* Ручка изменения ширины — поверх фона заголовка, но не перекрывает текст */
+    th .resizer { background: transparent; }
+    th .resizer:hover, th .resizer.dragging { background: rgba(37, 99, 235, .35); }
+
+    .loader { text-align: center; padding: 40px; color: var(--text2); }
+    .err { color: var(--red); font-weight: 500; }
+
+    /* ============ АДАПТИВНОСТЬ ============ */
+    /* Ноутбук / небольшой ПК */
+    @media (max-width: 1200px) {
+      .app { padding: 16px; }
+      .gantt-side { width: 220px; min-width: 170px; }
+    }
+    /* Планшет */
+    @media (max-width: 900px) {
+      .kanban { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    /* Телефон */
+    @media (max-width: 768px) {
+      .app { padding: 12px; }
+      .header h1 { font-size: 18px; }
+      .kanban { grid-template-columns: 1fr; }
+      .gantt-side { width: 150px; min-width: 130px; }
+      .card { padding: 12px; }
+      .tabs { width: 100%; }
+      .tab-btn { flex: 1 0 auto; text-align: center; padding: 8px 12px; font-size: 13px; }
+    }
+    @media (max-width: 640px) {
+      /* На телефоне — обычная прокрутка страницы, карточки вместо широкой таблицы */
+      body { overflow: auto; }
+      #hier-cards { display: block !important; }
+      #hier-table { display: none !important; }
+      .hier-cards { grid-template-columns: 1fr; }
+      /* на телефоне фиксация колонок не нужна — экономим место */
+      th.col-name, td.col-name, th.col-guide, td.col-guide, th.col-num, td.col-num, th.col-tw, td.col-tw { position: static; }
+      .table-wrap { max-height: none; flex: none; }
+      .tab-content > .card { overflow: visible; }
+    }
+    @media (min-width: 641px) {
+      #hier-cards { display: none !important; }    /* карточки только на телефоне */
+    }
+    /* ===== ИСПРАВЛЕНИЕ ШАПКИ ТАБЛИЦЫ =====
+       1) заголовки всех столбцов теперь выводятся (раньше рисовались только «№» и «Название»);
+       2) шапка всегда выше закреплённых ячеек тела таблицы (иначе при прокрутке «№»/«Название» перекрывали шапку). */
+    thead th { z-index: 10; top: 0; }
+    thead th.col-guide, thead th.col-num, thead th.col-name { z-index: 12; }
+    tbody td.col-guide, tbody td.col-num, tbody td.col-name { z-index: 4; }
+    thead th .th-label { display: inline-flex; max-width: calc(100% - 10px); }
+    thead th .th-label .th-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    textarea.cell-input { border: 1px solid transparent; background: transparent; padding: 4px 6px; border-radius: 6px; font-size: 12px; width: 100%; max-width: 150px; font-family: inherit; }
+    textarea.cell-input:hover, textarea.cell-input:focus { border-color: var(--border); background: var(--bg); outline: none; }
+
+    /* ===== Связи (чипы Вход/Выход) и статусы передачи ===== */
+    .rel-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; border-radius: 10px; padding: 2px 8px; font-size: 11px; cursor: pointer; font-family: inherit; max-width: 190px; }
+    .rel-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rel-chip.st-blocking { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+    .rel-chip.st-risk { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+    .rel-chip.st-done { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+    .st { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .st-planned.st { background: #e5e7eb; color: #374151; }
+    .st-done.st { background: #d1fae5; color: #065f46; }
+    .st-risk.st { background: #fef3c7; color: #92400e; }
+    .st-blocking.st { background: #fee2e2; color: #991b1b; }
+
+    /* ===== Сводная таблица связей (drill-down) ===== */
+    .pv-wrap { overflow: auto; flex: 1; min-height: 0; }
+    table.pv { table-layout: auto; min-width: 900px; }
+    table.pv th { top: 0; z-index: 10; }
+    table.pv th.pv-name, table.pv td.pv-name { position: sticky; left: 0; min-width: 300px; max-width: 420px; background: var(--card); z-index: 11; }
+    table.pv td.pv-name { z-index: 4; }
+    table.pv td { white-space: nowrap; }
+    table.pv td.pv-name { white-space: normal; }
+    table.pv tr.lvl-1 > td { background: #eef2f8; }
+    table.pv tr.lvl-1 > td.pv-name { background: #eef2f8; font-weight: 600; }
+    table.pv tr.lvl-3 > td.pv-name { color: var(--text2); }
+    table.pv td.num, table.pv th.num { text-align: center; }
+    .cnt { display: inline-block; min-width: 22px; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 700; background: var(--bg); border: 1px solid var(--border); }
+    .cnt-red { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+    .cnt-amber { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+    .rel-toggle { border: 1px solid var(--border); background: var(--card); border-radius: 6px; font-size: 12px; cursor: pointer; padding: 0 6px; margin-left: auto; flex-shrink: 0; color: var(--text2); }
+    .rel-toggle.on, .rel-toggle:hover { background: #eff6ff; color: var(--blue); border-color: var(--blue); }
+    tr.pv-rel > td { background: #f8fafc !important; white-space: normal !important; padding: 8px 8px 12px 40px; }
+    .pv-rel-box { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+    .pv-rel-box h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text2); margin-bottom: 6px; }
+    .pv-rel-item { font-size: 12px; padding: 6px 0; border-bottom: 1px dashed var(--border); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+    .pv-rel-item .info { color: var(--text2); flex-basis: 100%; }
+
+    /* ===== Обмен информацией ===== */
+    .ex-tools { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
+    .ex-tools select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; }
+    .ex-root { overflow: auto; flex: 1; min-height: 0; }
+    .ex-section { margin-bottom: 24px; }
+    .ex-section h3 { font-size: 14px; margin-bottom: 8px; display: flex; gap: 8px; align-items: center; }
+    table.ex { table-layout: auto; min-width: 860px; }
+    table.ex th { position: static; height: auto; white-space: nowrap; }
+    table.ex td { vertical-align: top; white-space: normal; }
+    .ex-sub { font-size: 10px; color: var(--text2); }
+    .warn-box { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; padding: 10px 12px; border-radius: 8px; font-size: 12px; margin-bottom: 12px; }
+    .empty-note { padding: 24px; text-align: center; color: var(--text2); }
+
+    /* ===== Гант: триггеры и блокеры ===== */
+    .g-chk { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; cursor: pointer; }
+    .g-legend { font-size: 11px; color: var(--text2); display: inline-flex; gap: 12px; flex-wrap: wrap; }
+    .g-header { position: sticky; top: 0; z-index: 20; }
+    .gantt-side > .g-row:first-child { position: sticky; top: 0; z-index: 20; }
+    .g-bar-wrap { background-image: linear-gradient(var(--border) 1px, transparent 1px); background-size: 100% 36px; background-position: 0 35px; }
+    .g-bar.blocked { outline: 2px solid var(--red); outline-offset: 0; }
+    .g-flag { position: absolute; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .3); pointer-events: auto; cursor: pointer; z-index: 12; }
+    .g-flag.blk { border: 2px solid var(--red); }
+    .g-flag.trg { border: 2px solid var(--yellow); }
+    .g-flag.trg.crit { border-color: var(--red); background: #fee2e2; }
+    .g-mk { position: absolute; height: 22px; display: flex; align-items: center; gap: 4px; z-index: 11; pointer-events: none; }
+    .g-pill { height: 20px; line-height: 18px; padding: 0 8px; border-radius: 10px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: auto; cursor: pointer; }
+    .g-pill.blk { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .g-pill.trg { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+    .g-pill.trg.crit { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+    .g-today { position: absolute; top: 0; width: 0; border-left: 2px dashed var(--blue); opacity: .6; pointer-events: none; z-index: 9; }
+    .g-links { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 8; overflow: visible; }
+    .g-tip .tip-blk { color: #fca5a5; font-weight: 700; }
+    .g-tip .tip-trg { color: #fcd34d; font-weight: 700; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1>E-commerce Project 1.0</h1>
+    <button class="btn" onclick="refreshData()">↻ Обновить</button>
+  </div>
+
+  <div id="debug" class="debug-box"></div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('hier', this)">Таблица</button>
+    <button class="tab-btn" onclick="switchTab('pivot', this)">Сводная связей</button>
+    <button class="tab-btn" onclick="switchTab('exch', this)">Обмен</button>
+    <button class="tab-btn" onclick="switchTab('kanban', this)">Канбан</button>
+    <button class="tab-btn" onclick="switchTab('gantt', this)">График Ганта</button>
+  </div>
+
+  <div id="tab-hier" class="tab-content">
+    <div class="card">
+      <div class="table-tools">
+        <button class="tool-btn" onclick="expandAll(true)">▼ Раскрыть все</button>
+        <button class="tool-btn" onclick="expandAll(false)">▶ Свернуть все</button>
+        <div class="col-settings">
+          <button class="tool-btn" onclick="toggleColPanel(event)">⚙ Столбцы</button>
+          <div class="col-panel" id="col-panel"></div>
+        </div>
+        <button class="tool-btn" id="btn-clear-filters" style="display:none" onclick="clearAllFilters()">✕ Сбросить фильтры</button>
+        <span style="font-size:11px;color:var(--text2);margin-left:auto">Фильтр — клик по заголовку · ширина — тянем за край заголовка</span>
+      </div>
+      <div class="table-wrap" id="hier-table"><div class="loader">Загрузка...</div></div>
+      <div class="hier-cards" id="hier-cards"></div>
+    </div>
+  </div>
+
+  <div id="tab-pivot" class="tab-content hidden-tab">
+    <div class="card">
+      <div class="table-tools">
+        <button class="tool-btn" onclick="pvExpandAll(true)">▼ Раскрыть все</button>
+        <button class="tool-btn" onclick="pvExpandAll(false)">▶ Свернуть все</button>
+        <label class="g-chk"><input type="checkbox" id="pv-issues" onchange="pvOnlyIssues=this.checked;renderPivot()"> Только с блокерами / рисками</label>
+        <span style="font-size:11px;color:var(--text2);margin-left:auto">+ / − — раскрыть Этап → Задача → Под-задача · ⇄ — что приходит и куда уходит</span>
+      </div>
+      <div class="pv-wrap" id="pivot-table"><div class="loader">Загрузка...</div></div>
+    </div>
+  </div>
+
+  <div id="tab-exch" class="tab-content hidden-tab">
+    <div class="card">
+      <div class="ex-tools">
+        <label>Сотрудник:</label>
+        <select id="ex-person" onchange="setExPerson(this.value)"></select>
+        <select id="ex-state" onchange="exState=this.value;renderExchange()">
+          <option value="">Любой статус</option>
+          <option value="blocking">⛔ Блокирует</option>
+          <option value="risk">⚠ Риск срока</option>
+          <option value="planned">Запланировано</option>
+          <option value="done">Передано</option>
+        </select>
+        <button class="tool-btn" onclick="writeExchangeSheet()">📋 Записать в лист «Обмен»</button>
+        <span id="ex-info" style="margin-left:auto;font-size:12px;color:var(--text2)"></span>
+      </div>
+      <div class="ex-root" id="ex-root"><div class="loader">Загрузка...</div></div>
+    </div>
+  </div>
+
+  <div id="tab-kanban" class="tab-content hidden-tab">
+    <div class="kanban" id="kanban-board"><div class="loader">Загрузка...</div></div>
+  </div>
+
+  <div id="tab-gantt" class="tab-content hidden-tab">
+    <div class="card">
+      <div class="gantt-controls">
+        <label>Масштаб:</label>
+        <select id="g-zoom" onchange="renderGantt()">
+          <option value="day">Дни</option>
+          <option value="week" selected>Недели</option>
+          <option value="month">Месяцы</option>
+        </select>
+        <label class="g-chk"><input type="checkbox" id="g-links" checked onchange="renderGantt()"> Стрелки связей</label>
+        <select id="g-focus" onchange="renderGantt()">
+          <option value="">Все задачи</option>
+          <option value="issues">Только блокеры и триггеры</option>
+        </select>
+        <span class="g-legend">
+          <span>⛔ <b>Блокер</b> — задача стоит, кто/что мешает указано рядом</span>
+          <span>⚡ <b>Триггер</b> — от её завершения зависят другие (красный — уже ждут)</span>
+          <span style="color:#dc2626">━▶ ждёт</span><span style="color:#d97706">━▶ риск срока</span><span style="color:#6b7280">━▶ в плане</span>
+        </span>
+        <span id="g-info" style="margin-left:auto;font-size:12px;color:var(--text2)"></span>
+      </div>
+      <div id="gantt-root"><div class="loader">Загрузка...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Всплывающая подсказка Ганта -->
+<div class="g-tip" id="g-tip"></div>
+<!-- Выпадающий фильтр значений столбца -->
+<div class="filter-menu" id="filter-menu"></div>
+
+<script>
+  let appData = { rows: [], options: {} };
+  let idMap = {};         // ID (колонка A) -> строка данных
+  let childrenMap = {};   // ID родителя -> [дочерние строки]
+  let expanded = {};      // состояние раскрытия: key -> true/false
+  let savedScroll = null; // позиция скролла при перерисовке
+
+  // === КОНФИГУРАЦИЯ СТОЛБЦОВ ===
+  // internal: true — служебные колонки (ID, ID Связи). Они НЕ показываются в таблице
+  // как отдельные столбцы и не участвуют в переключателе «Столбцы»,
+  // но используются для построения иерархии и связей.
+  const COL_CONFIG = [
+    { key: 'Статус',            render: 'status' },
+    { key: 'Прогресс',          render: 'progress' },
+    { key: 'Владелец результата', render: 'owner',   def: true },
+    { key: 'Ответственный',     render: 'resp',      def: true },
+    { key: 'Решающий',          render: 'text',      def: true },
+    { key: 'Информируемые',     render: 'text',      def: false },
+    { key: 'Старт',             render: 'date',      def: true },
+    { key: 'Финиш',             render: 'date',      def: true },
+    { key: '__GATE__',           render: 'gate',      label: 'Sprint / Gate', def: true },
+    { key: '__LINKS__',          render: 'links',     label: 'Связанные задачи', def: true },
+    { key: 'Блокер',            render: 'blocker',   def: true },
+    { key: 'Кем заблок.',       render: 'text',      def: false },
+    { key: 'С какого числа',    render: 'date',      def: false },
+    { key: 'Комментарий',       render: 'comment',   def: true },
+    { key: 'Вход инф.',         render: 'textarea',  def: true },
+    { key: '__IN__',            render: 'relin',     label: 'Вход ← от кого', def: true },
+    { key: 'Выход инф.',        render: 'textarea',  def: true },
+    { key: '__OUT__',           render: 'relout',    label: 'Выход → кому', def: true },
+    { key: 'Документ',          render: 'doc',       def: false },
+  ];
+  // Служебные колонки (ID, ID Связи) скрыты в веб-приложении:
+  // они не выводятся столбцами и не показываются в названиях,
+  // но используются для построения иерархии Этап > Задача > Под-задача и связей.
+  let visibleCols = {}; // ключ -> bool (настраивается пользователем)
+  try { visibleCols = JSON.parse(localStorage.getItem('visibleCols') || '{}'); } catch (e) { visibleCols = {}; }
+  COL_CONFIG.forEach(c => { if (typeof visibleCols[c.key] !== 'boolean') visibleCols[c.key] = !!c.def; });
+
+  function saveVisibleCols() { try { localStorage.setItem('visibleCols', JSON.stringify(visibleCols)); } catch (e) {} }
+  function toggleColPanel(ev) { ev.stopPropagation(); document.getElementById('col-panel').classList.toggle('open'); }
+  document.addEventListener('click', e => {
+    const p = document.getElementById('col-panel');
+    if (p && p.classList.contains('open') && !p.contains(e.target)) p.classList.remove('open');
+  });
+  function renderColPanel() {
+    const p = document.getElementById('col-panel');
+    if (!p) return;
+    p.innerHTML = '<div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">Отображаемые столбцы</div>' +
+      COL_CONFIG.map(c => `<label><input type="checkbox" ${visibleCols[c.key] ? 'checked' : ''} onchange="setColVis('${c.key}', this.checked)"> ${esc(c.label || c.key)}</label>`).join('');
+  }
+  function setColVis(key, v) { visibleCols[key] = v; saveVisibleCols(); renderHier(); }
+
+  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  function isUrl(u) { return /^https?:\/\//i.test(String(u || '').trim()); }
+
+  // === ПАРСЕР РОССИЙСКИХ ДАТ (01.07.2026) ===
+  function parseRuDate(str) {
+    if (!str) return null;
+    const parts = String(str).split('.');
+    if (parts.length === 3) {
+      return new Date(parts[2], parts[1] - 1, parts[0]);
+    }
+    const d = new Date(str);
+    return isNaN(d) ? null : d;
+  }
+
+  function showMsg(html, isErr) {
+    const debug = document.getElementById('debug');
+    debug.style.display = 'block';
+    debug.innerHTML = isErr ? `<span class="err">${html}</span>` : html;
+    if (!isErr) setTimeout(() => { debug.style.display = 'none'; }, 4000);
+  }
+
+  // silent = true — перезагрузка данных без «Загрузка…» (после правок на вкладке «Обмен»)
+  function refreshData(silent) {
+    silent = silent === true;
+    const hier = document.getElementById('hier-table');
+    const debug = document.getElementById('debug');
+    if (!silent) {
+      hier.innerHTML = '<div class="loader">Проверка соединения...</div>';
+      debug.style.display = 'block';
+      debug.innerHTML = 'Подключение к серверу...';
+    }
+
+    google.script.run
+      .withSuccessHandler(pong => {
+        if (!silent) debug.innerHTML = '✅ Сервер отвечает. Загрузка данных...';
+        google.script.run
+          .withSuccessHandler(data => {
+            if (data && data._error) {
+              debug.style.display = 'block';
+              debug.innerHTML = `<span class="err">❌ ${esc(data._error)}</span><br>Проверьте имя вкладки (должно быть "Таблица") и наличие данных.`;
+              hier.innerHTML = '';
+              return;
+            }
+            if (!data || !data.rows) {
+              debug.style.display = 'block';
+              debug.innerHTML = '<span class="err">❌ Пустой ответ от сервера. Сделайте НОВОЕ развертывание!</span>';
+              return;
+            }
+            debug.style.display = 'none';
+            appData = data;
+            buildRelations();
+            renderHier();
+            renderPivot();
+            renderExchange();
+            renderKanban();
+            renderGantt();
+          })
+          .withFailureHandler(err => {
+            debug.style.display = 'block';
+            debug.innerHTML = `<span class="err">❌ Ошибка: ${esc(err.message)}</span>`;
+          })
+          .getProjectData();
+      })
+      .withFailureHandler(err => {
+        debug.style.display = 'block';
+        debug.innerHTML = `<span class="err">❌ Сервер недоступен. Вы сделали "Новую версию" при развертывании?</span><br>Детали: ${esc(err.message)}`;
+      })
+      .ping();
+  }
+
+  // === СВЯЗИ ПО ID ===
+  // Колонка A ("ID") — уникальный ID строки. Колонка W ("ID Связи") — ID связи.
+  function getLinkIds(r) {
+    // Поддерживаются значения "1; 5" и "1, 5".
+    let raw = String(r['ID Связи'] || '');
+    if (!raw.trim()) return [];
+    return raw.split(/[;,\s]+/).map(v => v.trim()).filter(v => v !== '');
+  }
+
+  // === ИЕРАХИЯ ПО КОЛОНКЕ «№» (колонка B) ===
+  // № структурирует этапы/задачи/подзадачи точечной нотацией: "1", "1.2", "1.2.3".
+  // Родитель строки — номер без последней части (родитель "1.2.3" → "1.2").
+  // Глубина номера = уровень вложенности. Если колонки «№» нет или она не образует
+  // дерево — используется запасная логика по столбцам Этап / Задача / Под-задача.
+  function normNum(v) {
+    return String(v == null ? '' : v).trim().replace(/,$/, '').replace(/\s+/g, '');
+  }
+  function numToLevel(num) {
+    if (!num) return null;
+    const parts = num.split('.');
+    if (!parts.every(p => /^\d+$/.test(p))) return null;
+    return Math.min(parts.length, 3);
+  }
+  function parentOfNum(num) {
+    const i = num.lastIndexOf('.');
+    return i > 0 ? num.substring(0, i) : null;
+  }
+
+  let byNum = {};       // нормализованный № -> строка
+  let treeMode = false; // true — строим дерево по колонке «№»
+
+  function getParentKey(r) {
+    if (treeMode) {
+      const num = normNum(r._num);
+      const p = parentOfNum(num);
+      if (p && byNum[p]) return rowKey(byNum[p]);
+      return 'R'; // вершина дерева (этап верхнего уровня или строка без родителя)
+    }
+    // Запасной вариант: Этап > Задача > Под-задача
+    const lvl = getRowLevel(r);
+    if (lvl === 3) {
+      const task = appData.rows.find(x => x !== r && !x['Под-задача'] && x['Задача'] &&
+        x['Задача'] === r['Задача'] && (!r['Этап'] || x['Этап'] === r['Этап']));
+      return task ? rowKey(task) : 'R';
+    }
+    if (lvl === 2) {
+      const stage = appData.rows.find(x => x !== r && x['Этап'] === r['Этап'] && !x['Задача'] && !x['Под-задача']);
+      return stage ? rowKey(stage) : 'R';
+    }
+    return 'R';
+  }
+
+  function rowKey(r) { return 'r' + r._rowIndex; }
+
+  function buildRelations() {
+    idMap = {};
+    childrenMap = {};
+    byNum = {};
+    appData.rows.forEach(r => {
+      const id = String(r['ID'] || '').trim();
+      if (id && !idMap[id]) idMap[id] = r;
+    });
+
+    // Проверяем, можно ли строить дерево по колонке «№»:
+    // все непустые номера валидны и хотя бы один содержит точку (есть вложенность)
+    const nums = appData.rows.map(r => normNum(r._num)).filter(n => n !== '');
+    treeMode = nums.length > 0 && nums.every(n => numToLevel(n) !== null) &&
+               nums.some(n => n.indexOf('.') !== -1);
+
+    if (treeMode) {
+      appData.rows.forEach(r => {
+        const n = normNum(r._num);
+        if (n && !byNum[n]) byNum[n] = r;
+      });
+    }
+
+    // Дети по дереву (для раскрытия/сворачивания кнопок +/−)
+    appData.rows.forEach(r => {
+      const p = getParentKey(r);
+      (childrenMap[p] = childrenMap[p] || []).push(r);
+    });
+    Object.keys(childrenMap).forEach(k => childrenMap[k].sort(numCmp));
+    buildEdgeIndex();
+  }
+
+  // Порядок строк: по «№» (родитель перед потомками), иначе по порядку строк листа
+  function numCmp(a, b) {
+    if (!treeMode) return a._rowIndex - b._rowIndex;
+    const na = normNum(a._num), nb = normNum(b._num);
+    if (na && nb) {
+      const c = na.localeCompare(nb, 'ru', { numeric: true });
+      if (c !== 0) return c;
+    } else if (na) return -1; else if (nb) return 1;
+    return a._rowIndex - b._rowIndex;
+  }
+
+  // === ПЕРЕДАЧИ ИНФОРМАЦИИ (Вход (ID) / Выход (ID)) — считаются на сервере ===
+  let edges = [], edgesIn = {}, edgesOut = {}, rowMap = {};
+  const STATE_TXT = { done: 'Передано', blocking: '⛔ Блокирует', risk: '⚠ Риск срока', planned: 'Запланировано' };
+  function buildEdgeIndex() {
+    edges = (appData.exchange && appData.exchange.edges) || [];
+    edgesIn = {}; edgesOut = {}; rowMap = {};
+    appData.rows.forEach(r => { rowMap[r._rowIndex] = r; });
+    edges.forEach((e, i) => {
+      e._i = i;
+      (edgesOut[e.srcRow] = edgesOut[e.srcRow] || []).push(e);
+      (edgesIn[e.dstRow] = edgesIn[e.dstRow] || []).push(e);
+    });
+  }
+  const stBadge = st => `<span class="st st-${st}">${STATE_TXT[st] || st}</span>`;
+  const peopleStr = a => (a && a.length) ? a.join(', ') : 'не назначен';
+  function splitPeople(v) { return String(v == null ? '' : v).split(/[;,]+/).map(x => x.trim()).filter(Boolean); }
+  function rowPeople(r) {
+    const p = splitPeople(r['Ответственный']);
+    return p.length ? p : splitPeople(r['Владелец результата']);
+  }
+
+  // Чипы «← от кого» / «→ кому» для столбцов Вход / Выход
+  function relCell(list, dir) {
+    if (!list || !list.length) return '<span class="no-link">—</span>';
+    return '<div style="display:flex;flex-wrap:wrap;gap:4px">' + list.map(e => {
+      const idx = dir === 'in' ? e.srcRow : e.dstRow;
+      const nm = dir === 'in' ? e.srcName : e.dstName;
+      const who = dir === 'in' ? e.from : e.to;
+      const tip = (dir === 'in' ? 'Получаю от: ' : 'Передаю: ') + nm + ' (' + peopleStr(who) + ')' +
+        (e.info ? ' — ' + e.info : '') + (e.reason ? '\n' + e.reason : '');
+      return `<button class="rel-chip st-${e.state}" title="${esc(tip)}" onclick="revealByRow(${idx})">${dir === 'in' ? '←' : '→'}<span>${esc(nm.substring(0, 28))}</span></button>`;
+    }).join('') + '</div>';
+  }
+
+  // Отображаемый номер строки из колонки «№» (пусто, если колонки нет)
+  function displayNum(r) {
+    return treeMode ? normNum(r._num) : '';
+  }
+
+  function getRowName(r) { return r['Под-задача'] || r['Задача'] || r['Этап'] || '(без названия)'; }
+  function getRowLevel(r) {
+    if (r['Под-задача']) return 3;
+    if (r['Задача']) return 2;
+    return 1;
+  }
+  // Уровень для отображения: в режиме «№» берём глубину номера, иначе — по столбцам
+  function getDisplayLevel(r) {
+    if (treeMode) return numToLevel(normNum(r._num)) || getRowLevel(r);
+    return getRowLevel(r);
+  }
+
+  // Все связанные задачи: потомки по ID (кого привязали к этой строке) и предки по ID
+  function getLinkedTasks(r) {
+    const down = [], up = [];
+    const myId = String(r['ID'] || '').trim();
+    if (myId) {
+      appData.rows.forEach(x => {
+        if (x === r) return;
+        if (getLinkIds(x).indexOf(myId) !== -1) down.push({ row: x, dir: '↓' });
+      });
+    }
+    getLinkIds(r).forEach(lid => {
+      const p = idMap[lid];
+      if (p && p !== r) up.push({ row: p, dir: '↑' });
+    });
+    return { down, up };
+  }
+
+  // === НАВИГАЦИЯ ПО СВЯЗЯМ ===
+  function revealRow(r) {
+    // Раскрыть цепочку дерева (строки-предки: задача, этап) — getParentKey уже их находит
+    let cur = r, g0 = 0;
+    while (cur && g0++ < 50) {
+      const pk = getParentKey(cur);
+      expanded[pk] = true;
+      if (pk === 'R') break;
+      cur = appData.rows.find(x => rowKey(x) === pk);
+    }
+    // Раскрыть предков по ID-связям (колонка W "ID Связи")
+    let node = r, g2 = 0;
+    while (node && g2++ < 50) {
+      const lids = getLinkIds(node);
+      let parent = null;
+      for (const lid of lids) { if (idMap[lid]) { parent = idMap[lid]; break; } }
+      if (!parent || parent === node) break;
+      expanded[rowKey(parent)] = true;
+      node = parent;
+    }
+  }
+
+  function scrollToRow(idx) {
+    const el = document.querySelector('#hier-table tr[data-row="' + idx + '"]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const el2 = document.querySelector('#hier-cards .h-card[data-row="' + idx + '"]');
+    if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (el || el2) {
+      const t = el || el2;
+      t.classList.add('hl-flash');
+      setTimeout(() => t.classList.remove('hl-flash'), 2100);
+    }
+  }
+
+  // === РАСКРЫТИЕ/СВОРАЧИВАНИЕ УЗЛА ===
+  // Каждый узел раскрывается и закрывается независимо от остальных:
+  // состояние хранится в объекте expanded по ключу строки.
+  function toggleRow(key) {
+    expanded[key] = !expanded[key];
+    renderHier();
+  }
+
+  function expandAll(open) {
+    if (!open) { expanded = {}; }
+    else {
+      appData.rows.forEach(r => { expanded[rowKey(r)] = true; });
+    }
+    renderHier();
+  }
+
+  // === РЕДАКТИРУЕМЫЕ ПОЛЯ ===
+  function selCell(r, col, list, empty) {
+    return `<select class="inline" onchange="upd(${r._rowIndex},'${col}',this.value)">${buildOpts(list, r[col], empty)}</select>`;
+  }
+  function txtCell(r, col, area) {
+    const v = esc(r[col]);
+    if (area) return `<textarea class="cell-input" rows="1" onblur="cellBlur(this,${r._rowIndex},'${col}')">${v}</textarea>`;
+    return `<input class="cell-input" type="text" value="${v}" onblur="cellBlur(this,${r._rowIndex},'${col}')" onkeydown="if(event.key==='Enter'){this.blur()}">`;
+  }
+  function cellBlur(el, idx, col) {
+    const nv = el.value.trim();
+    const r = appData.rows.find(x => x._rowIndex === idx);
+    if (r && String(r[col] || '').trim() === nv) return; // значение не изменилось
+    upd(idx, col, nv);
+  }
+  function docCell(r) {
+    const v = String(r['Документ'] || '').trim();
+    if (!v) return txtCell(r, 'Документ');
+    // Google Таблица может хранить ссылку как текст "Текст (https://...)" — выделяем URL
+    let url = null;
+    const m = v.match(/https?:\/\/[^\s)]+/i);
+    if (m) url = m[0];
+    if (url) {
+      const label = v.replace(url, '').replace(/[()\s]+$/g, '').trim() || 'Открыть документ';
+      return `<a class="doc-link" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(url)}">📎 ${esc(label)}</a>`;
+    }
+    return txtCell(r, 'Документ');
+  }
+
+  // === ФИЛЬТРЫ СТОЛБЦОВ ===
+  // Для каждого столбца — выпадающий список уникальных значений (чекбоксы).
+  let colFilters = {};   // key -> массив выбранных значений (undefined = фильтр не активен)
+  let sortState = { key: null, dir: 1 };
+  try { colFilters = JSON.parse(localStorage.getItem('colFilters') || '{}'); } catch (e) { colFilters = {}; }
+  function saveFilters() { try { localStorage.setItem('colFilters', JSON.stringify(colFilters)); } catch (e) {} }
+
+  // Значение ячейки «как строка» — для фильтрации и сортировки
+  function cellValueStr(r, c) {
+    if (c.key === '__NAME__') return getRowName(r);
+    if (c.key === '__NUM__') return displayNum(r); // колонка «№» листа «Таблица»
+    if (c.render === 'relin') return (edgesIn[r._rowIndex] || []).map(e => e.srcName).join(', ');
+    if (c.render === 'relout') return (edgesOut[r._rowIndex] || []).map(e => e.dstName).join(', ');
+    if (c.render === 'links') {
+      const { down, up } = getLinkedTasks(r);
+      return down.concat(up).map(l => getRowName(l.row)).join(', ');
+    }
+    if (c.key === '__GATE__') {
+      const g = r['Gate'], s = r['Sprint'];
+      if (String(g || '') !== '' && String(s || '') !== '') return `${s} / ${g}`;
+      return String(g || s || '');
+    }
+    return String(r[c.key] == null ? '' : r[c.key]).trim();
+  }
+
+  function rowPassesFilters(r) {
+    for (const key of Object.keys(colFilters)) {
+      const sel = colFilters[key];
+      if (!sel || !Array.isArray(sel)) continue;
+      let v;
+      if (key === '__NAME__' || key === '__NUM__') {
+        v = cellValueStr(r, { key: key, render: 'text' }); // псевдо-колонки Название / «№»
+      } else {
+        const c = COL_CONFIG.find(x => x.key === key);
+        if (!c) continue;
+        v = cellValueStr(r, c);
+      }
+      if (sel.indexOf(v) === -1) return false;
+    }
+    return true;
+  }
+
+  function hasActiveFilters() {
+    return Object.keys(colFilters).some(k => Array.isArray(colFilters[k]) && colFilters[k].length >= 0 && isFilterModified(k));
+  }
+  function isFilterModified(key) {
+    const sel = colFilters[key];
+    if (!Array.isArray(sel)) return false;
+    const all = collectColumnValues(key);
+    return sel.length !== all.length; // выбраны не все значения => фильтр активен
+  }
+
+  function collectColumnValues(key) {
+    if (key === '__NAME__' || key === '__NUM__') {
+      // Псевдо-колонки: Название и «№» — тоже доступны для фильтрации
+      const pseudo = { key, render: key === '__NAME__' ? 'name' : 'text' };
+      const set = new Set();
+      appData.rows.forEach(r => set.add(cellValueStr(r, pseudo)));
+      return [...set].sort((a, b) => a.localeCompare(b, 'ru', { numeric: true }));
+    }
+    const c = COL_CONFIG.find(x => x.key === key);
+    if (!c) return [];
+    const set = new Set();
+    appData.rows.forEach(r => set.add(cellValueStr(r, c)));
+    return [...set].sort((a, b) => a.localeCompare(b, 'ru'));
+  }
+
+  function openFilterMenu(ev, key) {
+    ev.stopPropagation();
+    closeFilterMenu();
+    const menu = document.getElementById('filter-menu');
+    const all = collectColumnValues(key);
+    let sel = colFilters[key];
+    if (!Array.isArray(sel)) sel = all.slice(); // по умолчанию выбрано всё
+    const filtered = all.filter(v => v !== '');
+    const hasBlank = all.indexOf('') !== -1;
+
+    function draw(filterText) {
+      const shown = filtered.filter(v => !filterText || v.toLowerCase().indexOf(filterText.toLowerCase()) !== -1);
+      menu.innerHTML = `
+        <input class="fm-search" placeholder="Поиск значений..." value="${esc(filterText || '')}" oninput="fmSearch(this.value,'${key}')">
+        <div class="fm-actions">
+          <button onclick="fmSelectAll('${key}',true)">Все</button>
+          <button onclick="fmSelectAll('${key}',false)">Снять все</button>
+          <button onclick="fmReset('${key}')">Сброс</button>
+        </div>
+        <div class="fm-list">
+          ${shown.map(v => `<label><input type="checkbox" value="${esc(v)}" ${sel.indexOf(v) !== -1 ? 'checked' : ''} onchange="fmToggle('${key}', this.value, this.checked)"> ${esc(v)}</label>`).join('')}
+          ${hasBlank ? `<label class="fm-blank"><input type="checkbox" value="" ${sel.indexOf('') !== -1 ? 'checked' : ''} onchange="fmToggle('${key}', '', this.checked)"> (пусто)</label>` : ''}
+        </div>`;
+    }
+
+    menu._state = { key, sel, all };
+    draw('');
+    menu.classList.add('open');
+    // Позиционируем меню под заголовком
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const mw = 240, mh = Math.min(320, window.innerHeight - 20);
+    let left = Math.min(rect.left, window.innerWidth - mw - 8);
+    menu.style.left = Math.max(8, left) + 'px';
+    menu.style.top = Math.min(rect.bottom + 4, window.innerHeight - mh) + 'px';
+    menu._draw = draw;
+  }
+
+  function fmSearch(txt, key) {
+    const menu = document.getElementById('filter-menu');
+    if (menu._state && menu._state.key === key && menu._draw) {
+      // сохраняем чекбоксы, которые пользователь уже менял через fmToggle (sel синхронен)
+      menu._draw(txt);
+    }
+  }
+  function fmToggle(key, val, checked) {
+    const menu = document.getElementById('filter-menu');
+    if (!menu._state) return;
+    const sel = menu._state.sel;
+    const i = sel.indexOf(val);
+    if (checked && i === -1) sel.push(val);
+    if (!checked && i !== -1) sel.splice(i, 1);
+    applyFilterSelection(key, sel.slice());
+  }
+  function fmSelectAll(key, on) {
+    const menu = document.getElementById('filter-menu');
+    if (!menu._state) return;
+    const sel = on ? menu._state.all.slice() : [];
+    menu._state.sel = sel;
+    applyFilterSelection(key, sel.slice());
+    if (menu._draw) menu._draw('');
+  }
+  function fmReset(key) {
+    delete colFilters[key];
+    saveFilters();
+    closeFilterMenu();
+    renderHier();
+  }
+  function applyFilterSelection(key, sel) {
+    const all = collectColumnValues(key);
+    if (sel.length === all.length) delete colFilters[key]; // выбрано всё = нет фильтра
+    else colFilters[key] = sel;
+    saveFilters();
+    renderHier();
+    // перерисовываем содержимое меню (счётчики/галочки)
+    const menu = document.getElementById('filter-menu');
+    if (menu._state && menu._state.key === key) { menu._state.sel = Array.isArray(colFilters[key]) ? colFilters[key].slice() : all.slice(); }
+  }
+  function clearAllFilters() { colFilters = {}; saveFilters(); closeFilterMenu(); renderHier(); }
+  function closeFilterMenu() {
+    const menu = document.getElementById('filter-menu');
+    if (menu) { menu.classList.remove('open'); menu.innerHTML = ''; menu._state = null; menu._draw = null; }
+  }
+
+  function sortByCol(key) {
+    if (sortState.key === key) sortState.dir = -sortState.dir;
+    else { sortState.key = key; sortState.dir = 1; }
+    renderHier();
+  }
+
+  // === РАСКРЫТИЕ И СТРУКТУРА: ширина столбцов (ручное изменение) ===
+  let colWidths = {};
+  try { colWidths = JSON.parse(localStorage.getItem('colWidths') || '{}'); } catch (e) { colWidths = {}; }
+  function saveWidths() { try { localStorage.setItem('colWidths', JSON.stringify(colWidths)); } catch (e) {} }
+
+  function startResize(ev, key) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const handle = ev.target;
+    const th = handle.closest('th');
+    const startX = ev.clientX != null ? ev.clientX : (ev.touches && ev.touches[0] ? ev.touches[0].clientX : 0);
+    const startW = th.getBoundingClientRect().width;
+    handle.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    const wrap = document.getElementById('hier-table');
+    const table = wrap ? wrap.querySelector('table') : null;
+
+    function applyWidth(w) {
+      w = Math.max(30, Math.round(w));
+      colWidths[key] = w;
+      // Ширины колонок живут в <colgroup> — обновляем <col> этого столбца.
+      // Это работает для ЛЮБОГО столбца таблицы (включая закреплённые №/Название).
+      if (table) {
+        const idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+        const colEl = table.querySelector(`colgroup col:nth-child(${idx + 1})`);
+        if (colEl) colEl.style.width = w + 'px';
+        // пересчитываем суммарную ширину таблицы
+        let sumW = 0;
+        table.querySelectorAll('colgroup col').forEach(c => { sumW += parseFloat(c.style.width) || 0; });
+        const avail = wrap.clientWidth || window.innerWidth;
+        table.style.width = sumW > avail ? sumW + 'px' : '100%';
+      }
+      applyStickyOffsets(); // закреплённые колонки сдвигаются при изменении ширины соседей
+    }
+
+    function onMove(e) {
+      const x = e.clientX != null ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : startX);
+      applyWidth(startW + (x - startX));
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onUp);
+      handle.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      saveWidths();
+    }
+    function onTouchMove(e) {
+      if (e.touches && e.touches[0]) onMove({ clientX: e.touches[0].clientX });
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onTouchMove, { passive: true });
+    document.addEventListener('touchend', onUp);
+  }
+
+  function linkChip(row, dir) {
+    const nm = esc(getRowName(row).substring(0, 30));
+    // ID не показываем — только название связанной задачи; переход по внутреннему индексу строки
+    return `<button class="link-chip" title="${dir === '↑' ? 'Родитель:' : 'Связано с:'} ${esc(getRowName(row))}" onclick="revealByRow(${row._rowIndex})">${dir}<span>${nm}</span></button>`;
+  }
+
+  function linksCell(r) {
+    const { down, up } = getLinkedTasks(r);
+    if (!down.length && !up.length) return '<span class="no-link">—</span>';
+    const chips = [];
+    up.forEach(l => chips.push(linkChip(l.row, '↑')));
+    down.forEach(l => chips.push(linkChip(l.row, '↓')));
+    return `<div style="display:flex;flex-wrap:wrap;gap:4px">${chips.join('')}</div>`;
+  }
+
+  // === РЕНДЕР ЯЧЕЕК ПО ТИПУ СТОЛБЦА ===
+  function renderCell(r, c) {
+    switch (c.render) {
+      case 'status':   return selCell(r, 'Статус', appData.options.statuses, false);
+      case 'progress': return selCell(r, 'Прогресс', appData.options.progress, false);
+      case 'owner':    return selCell(r, 'Владелец результата', appData.options.employees, true);
+      case 'resp':     return selCell(r, 'Ответственный', appData.options.employees, true);
+      case 'blocker':  return selCell(r, 'Блокер', appData.options.departments, true);
+      case 'date':     return txtCell(r, c.key);
+      case 'text':     return txtCell(r, c.key);
+      case 'textarea': return txtCell(r, c.key, true);
+      case 'comment':  return txtCell(r, 'Комментарий', true);
+      case 'doc':      return docCell(r);
+      case 'gate': {
+        const g = r['Gate'], s = r['Sprint'];
+        if (String(g || '') !== '' && String(s || '') !== '') return esc(`${s} / ${g}`);
+        if (String(g || '') !== '') return txtCell(r, 'Gate');
+        if (String(s || '') !== '') return txtCell(r, 'Sprint');
+        return '<span class="no-link">—</span>';
+      }
+      case 'links':    return linksCell(r);
+      case 'relin':    return relCell(edgesIn[r._rowIndex], 'in');
+      case 'relout':   return relCell(edgesOut[r._rowIndex], 'out');
+      default:         return txtCell(r, c.key);
+    }
+  }
+
+  // === ОТРИСОВКА: СВОДНАЯ ТАБЛИЦА ===
+  const NAME_COL = { key: '__NAME__', label: 'Название', render: 'name' };
+
+  // Дефолтные ширины служебных колонок (можно менять мышкой — сохранится в colWidths)
+  const GUIDE_W_DEF = 26, NUM_W_DEF = 58, NAME_W_DEF = 260;
+
+  function thHtml(col, cls) {
+    const key = col.key;
+    const title = esc(col.label || col.key);
+    const sorted = sortState.key === key;
+    const filtered = isFilterModified(key);
+    return `<th class="${cls}${sorted ? ' sorted' : ''}" data-fkey="${key}">
+      <span class="th-label" onclick="openFilterMenu(event,'${key}')" title="Фильтр по столбцу «${title}»"><span class="th-text">${title}</span><span class="f-icon ${filtered ? 'f-on' : ''}">▼</span>${sorted ? `<span class="f-on">${sortState.dir === 1 ? '↑' : '↓'}</span>` : ''}</span>
+      <span class="resizer" ontouchstart="startResize(event,'${key}')" onmousedown="startResize(event,'${key}')"></span>
+    </th>`;
+  }
+
+  // Служебные закреплённые колонки тоже можно расширять/сужать (хранится в colWidths)
+  function fixedTh(cls, key, label) {
+    const head = label
+      ? `<span class="th-label" onclick="openFilterMenu(event,'${key}')" title="Фильтр по столбцу «${label}»"><span class="th-text">${esc(label)}</span><span class="f-icon ${isFilterModified(key) ? 'f-on' : ''}">▼</span></span>`
+      : '';
+    return `<th class="${cls}" data-fkey="${key}">${head}<span class="resizer" ontouchstart="startResize(event,'${key}')" onmousedown="startResize(event,'${key}')"></span></th>`;
+  }
+
+  // Ширины колонок задаются через <colgroup> — при table-layout:fixed это единственный
+  // надёжный способ применить ручную ширину к ЛЮБОМУ столбцу таблицы.
+  function colW(key, def) { return colWidths[key] || def; }
+
+  function buildColgroup(activeCols) {
+    let cg = '<colgroup>';
+    cg += `<col data-fkey="__GUIDE__" style="width:${colW('__GUIDE__', GUIDE_W_DEF)}px">`;
+    cg += `<col data-fkey="__NUM__" style="width:${colW('__NUM__', NUM_W_DEF)}px">`;
+    cg += `<col data-fkey="__NAME__" style="width:${colW('__NAME__', NAME_W_DEF)}px">`;
+    activeCols.forEach(c => {
+      const defW = ({ status: 110, progress: 90, owner: 140, resp: 130, date: 90, text: 110, textarea: 140, comment: 160, doc: 130, gate: 110, links: 170, blocker: 120 })[c.render] || 120;
+      cg += `<col data-fkey="${c.key}" style="width:${colW(c.key, defW)}px">`;
+    });
+    cg += '</colgroup>';
+    return cg;
+  }
+
+  // Фиксация left у закреплённых колонок с учётом текущих (в т.ч. ручных) ширин
+  function applyStickyOffsets() {
+    const wrap = document.getElementById('hier-table');
+    if (!wrap) return;
+    const gL = colW('__GUIDE__', GUIDE_W_DEF);
+    const numL = gL + colW('__NUM__', NUM_W_DEF);
+    const nameL = numL + colW('__NAME__', NAME_W_DEF);
+    wrap.querySelectorAll('th.col-guide, td.col-guide').forEach(el => el.style.left = '0px');
+    wrap.querySelectorAll('th.col-num, td.col-num').forEach(el => el.style.left = gL + 'px');
+    wrap.querySelectorAll('th.col-name, td.col-name').forEach(el => el.style.left = numL + 'px');
+  }
+
+  function renderHier() {
+    const c = document.getElementById('hier-table');
+    const cc = document.getElementById('hier-cards');
+    closeFilterMenu();
+    renderColPanel();
+    if (!appData.rows.length) { c.innerHTML = '<p style="padding:20px">Нет данных</p>'; cc.innerHTML = ''; return; }
+
+    // Сохраняем позицию скролла
+    savedScroll = c.scrollTop;
+
+    // Фильтрация: строки, не прошедшие фильтры, исключаются; дети проходят, если прошёл родитель
+    const passCache = {};
+    function rowPasses(r) {
+      const k = rowKey(r);
+      if (k in passCache) return passCache[k];
+      let res = rowPassesFilters(r);
+      if (!res) {
+        // Если проходит кто-то из потомков — оставляем родителя (иначе потеряем дерево)
+        const kids = childrenMap[k] || [];
+        res = kids.some(rowPasses);
+      }
+      passCache[k] = res;
+      return res;
+    }
+
+    const roots = (childrenMap['R'] || []).filter(rowPasses);
+
+    // Сортировка: по «№» (иерархия этапов/задач/подзадач) — родитель всегда перед потомками.
+    function numOrder(a, b) {
+      if (!treeMode) return a._rowIndex - b._rowIndex; // без «№» — порядок строк листа
+      const na = normNum(a._num), nb = normNum(b._num);
+      if (na && nb) {
+        const c = na.localeCompare(nb, 'ru', { numeric: true });
+        if (c !== 0) return c;
+      } else if (na) return -1; else if (nb) return 1;
+      return a._rowIndex - b._rowIndex;
+    }
+    Object.keys(childrenMap).forEach(k => childrenMap[k].sort(numOrder));
+    roots.sort(numOrder);
+
+    // Принудительная сортировка по колонке (если пользователь кликнул ↑/↓ в заголовке)
+    if (sortState.key) {
+      const col = sortState.key === '__NAME__' ? NAME_COL : COL_CONFIG.find(x => x.key === sortState.key);
+      if (col) {
+        roots.sort((a, b) => cellValueStr(a, col).localeCompare(cellValueStr(b, col), 'ru') * sortState.dir);
+      }
+    }
+
+    // Защита от циклов в ID-связях (рекурсивный renderRow не должен зациклиться)
+    const renderedSet = new Set();
+
+    const activeCols = COL_CONFIG.filter(col => visibleCols[col.key]);
+
+    // Кнопка сброса фильтров
+    const anyFilter = Object.keys(colFilters).some(isFilterModified);
+    const btnCF = document.getElementById('btn-clear-filters');
+    if (btnCF) btnCF.style.display = anyFilter ? '' : 'none';
+
+    let html = `<table>${buildColgroup(activeCols)}<thead><tr>
+      ${fixedTh('col-guide', '__GUIDE__', '')}
+      ${fixedTh('col-num', '__NUM__', '№')}
+      ${thHtml(NAME_COL, 'col-name')}
+      ${activeCols.map(col => thHtml(col, '')).join('')}</tr></thead><tbody>`;
+
+    // ВАЖНО: у закреплённых (sticky) колонок НЕ ставим overflow:hidden —
+    // в WebKit это ломает position:sticky (заголовки и колонки «уезжают» при скролле).
+    // Обрезка текста вместо CSS делает JS ниже (по фактическим ширинам colgroup).
+    const stickyFix = 'overflow:visible !important;text-overflow:clip !important';
+
+    let cardsHtml = '';
+
+    function renderRow(r) {
+      const key = rowKey(r);
+      if (renderedSet.has(key)) return; // защита от циклов
+      renderedSet.add(key);
+      const lvl = getDisplayLevel(r);
+      const kids = (childrenMap[key] || []).filter(rowPasses);
+      const isOpen = !!expanded[key];
+      // Кнопка раскрытия структуры (+/−) — как в сводных таблицах, внутри колонки «Название»
+      const twisty = kids.length
+        ? `<button class="twisty" title="${isOpen ? 'Свернуть (−)' : 'Раскрыть (+)'} вложенные задачи" onclick="toggleRow('${key}')">${isOpen ? '−' : '+'}</button>`
+        : `<span class="twisty empty">+</span>`;
+      const name = esc(getRowName(r));
+      const stage = r['Этап'] && lvl > 1 ? `<div style="font-size:10px;color:var(--text2)">${esc(r['Этап'])}</div>` : '';
+      // Отступ вложенности — через padding ячейки направляющей (без лишних пустых колонок)
+      const guidePad = `<td class="col-guide" style="padding-left:${(lvl - 1) * 14}px"></td>`;
+      // Номер элемента структуры из колонки «№» листа «Таблица»
+      const numHtml = displayNum(r) ? `<span class="row-num">${esc(displayNum(r))}</span>` : '';
+      // Счётчик потомков у кнопки (видно, сколько задач скрыто)
+      const countBadge = kids.length && !isOpen ? `<span class="child-count">${kids.length}</span>` : '';
+
+      // ID (колонка A) и ID Связи (колонка W) НЕ отображаются — они служебные
+      html += `<tr class="hrow lvl-${lvl}" data-row="${r._rowIndex}">
+        ${guidePad}
+        <td class="col-num">${numHtml}</td>
+        <td class="col-name"><div class="name-cell">${twisty}<div class="task-name">${name}${countBadge}${stage}</div></div></td>`;
+      activeCols.forEach(col => { html += `<td>${renderCell(r, col)}</td>`; });
+      html += `</tr>`;
+
+      // Мобильная карточка (без ID, с номером «№»)
+      cardsHtml += `<div class="h-card lvl-${lvl}" data-row="${r._rowIndex}" style="margin-left:${(lvl - 1) * 8}px">
+        <div class="hc-head">${twisty}<div>
+          <div class="hc-title">${displayNum(r) ? `<span class="hc-num">${esc(displayNum(r))}</span>` : ''}${name}${countBadge}</div>
+          ${stage}
+        </div></div>
+        <div class="hc-grid">
+          <div class="hc-field"><label>Статус</label>${selCell(r, 'Статус', appData.options.statuses, false)}</div>
+          <div class="hc-field"><label>Прогресс</label>${selCell(r, 'Прогресс', appData.options.progress, false)}</div>
+          <div class="hc-field"><label>Владелец</label>${selCell(r, 'Владелец результата', appData.options.employees, true)}</div>
+          <div class="hc-field"><label>Ответственный</label>${selCell(r, 'Ответственный', appData.options.employees, true)}</div>
+          <div class="hc-field"><label>Старт</label>${txtCell(r, 'Старт')}</div>
+          <div class="hc-field"><label>Финиш</label>${txtCell(r, 'Финиш')}</div>
+          <div class="hc-field hc-full"><label>Вход ← от кого</label>${relCell(edgesIn[r._rowIndex], 'in')}</div>
+          <div class="hc-field hc-full"><label>Выход → кому</label>${relCell(edgesOut[r._rowIndex], 'out')}</div>
+          <div class="hc-field hc-full"><label>Связанные задачи</label><div style="display:flex;flex-wrap:wrap;gap:4px">${linksCell(r)}</div></div>
+          <div class="hc-field"><label>Блокер</label>${selCell(r, 'Блокер', appData.options.departments, true)}</div>
+          <div class="hc-field hc-full"><label>Комментарий</label>${txtCell(r, 'Комментарий', true)}</div>
+        </div>
+      </div>`;
+
+      if (isOpen) kids.forEach(renderRow);
+    }
+
+    roots.forEach(r => renderRow(r));
+
+    html += '</tbody></table>';
+    c.innerHTML = html;
+    cc.innerHTML = `<div class="hier-cards">${cardsHtml}</div>`;
+    c.scrollTop = savedScroll;
+
+    // Ширина таблицы: если суммарные ширины столбцов больше контейнера — даём горизонтальный скролл,
+    // иначе растягиваем на всю ширину экрана (адаптив под ПК/ноутбук/планшет).
+    const table = c.querySelector('table');
+    if (table) {
+      let sumW = 0;
+      table.querySelectorAll('colgroup col').forEach(colEl => { sumW += parseFloat(colEl.style.width) || 0; });
+      const avail = c.clientWidth || window.innerWidth;
+      table.style.width = sumW > avail ? sumW + 'px' : '100%';
+    }
+
+    applyStickyOffsets();
+
+    // 1) Снимаем overflow:hidden с sticky-колонок (в WebKit он ломает position:sticky —
+    //    из-за этого заголовки и колонки «Название/№» могли не отображаться).
+    if (hierTabVisible()) {
+      c.querySelectorAll('.col-guide, .col-num, .col-name').forEach(el => { el.style.cssText += ';' + stickyFix; });
+
+      // 2) Обрезка текста в этих колонках — по фактическим ширинам colgroup (эмуляция ellipsis).
+      const widths = {};
+      table && table.querySelectorAll('colgroup col').forEach(colEl => {
+        widths[colEl.getAttribute('data-fkey')] = parseFloat(colEl.style.width) || 0;
+      });
+      if (widths['__NUM__']) {
+        c.querySelectorAll('td.col-num .row-num').forEach(el => {
+          el.textContent = fitText(el.textContent, widths['__NUM__'] - 12);
+        });
+      }
+      if (widths['__NAME__']) {
+        c.querySelectorAll('td.col-name .task-name').forEach(el => {
+          const tn = el.firstChild && el.firstChild.nodeType === 3 ? el.firstChild : null;
+          if (!tn) return;
+          const short = fitText(tn.nodeValue, widths['__NAME__'] - 46); // запас на кнопку +/− и бейдж
+          if (short !== tn.nodeValue) tn.nodeValue = short + '…';
+        });
+      }
+    }
+  }
+
+  // Простая эмуляция text-overflow: для sticky-колонок, где CSS overflow:hidden запрещён (ломает sticky)
+  function fitText(txt, maxPx) {
+    txt = String(txt == null ? '' : txt);
+    if (maxPx <= 10 || txt.length * 7.5 <= maxPx) return txt;
+    const maxChars = Math.max(3, Math.floor(maxPx / 7.5));
+    return txt.length > maxChars ? txt.substring(0, maxChars - 1) : txt;
+  }
+
+  function switchTab(id, btn) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden-tab'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    const tc = document.getElementById('tab-' + id);
+    tc.classList.remove('hidden-tab');
+    btn.classList.add('active');
+    if (id === 'gantt') bindGanttSync();
+    if (id === 'pivot' && appData.rows.length) renderPivot();
+    if (id === 'exch' && appData.rows.length) renderExchange();
+    // Таблица с table-layout:fixed пересчитывает ширину по ширине контейнера —
+    // после переключения вкладки принудительно перерисовываем её, чтобы не было «пустоты»
+    if (id === 'hier' && appData.rows.length) {
+      requestAnimationFrame(() => renderHier());
+    }
+  }
+
+  // Показана ли сейчас вкладка «Таблица»
+  function hierTabVisible() {
+    return !document.getElementById('tab-hier').classList.contains('hidden-tab');
+  }
+
+  function buildOpts(list, current, empty = true) {
+    let h = empty ? '<option value="">—</option>' : '';
+    (list || []).forEach(v => { h += `<option value="${esc(v)}" ${v === current ? 'selected' : ''}>${esc(v)}</option>`; });
+    return h;
+  }
+
+  function renderKanban() {
+    const b = document.getElementById('kanban-board');
+    const cols = { 'В процессе': [], 'Планируется': [], 'Готово': [] };
+    appData.rows.forEach(r => {
+      const name = getRowName(r);
+      if (!name || (!r['Этап'] && !r['Задача'] && !r['Под-задача'])) return;
+      const s = r['Статус'] || 'Планируется';
+      (cols[s] || cols['Планируется']).push(r);
+    });
+    let html = '';
+    for (const [col, tasks] of Object.entries(cols)) {
+      html += `<div class="k-col"><h3>${col} <span>${tasks.length}</span></h3>`;
+      tasks.forEach(r => {
+        const name = getRowName(r);
+        const bCls = r['Статус'] === 'Готово' ? 'b-done' : r['Статус'] === 'В процессе' ? 'b-progress' : 'b-plan';
+        // ID в веб-приложении не показываем — переход по внутренней ссылке строки
+        html += `<div class="k-card" onclick="revealByRow(${r._rowIndex})">
+          <div class="k-title">${esc(name)}</div>
+          <div class="k-meta">
+            <span>👤 ${esc(r['Ответственный'] || '—')}</span>
+            <span class="badge ${bCls}">${esc(r['Прогресс'] || '0%')}</span>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+    b.innerHTML = html;
+  }
+
+  function revealByRow(idx) {
+    const r = appData.rows.find(x => x._rowIndex === idx);
+    if (!r) return;
+    // переход по позиции строки
+    if (!hierTabVisible()) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden-tab'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-hier').classList.remove('hidden-tab');
+      document.querySelectorAll('.tab-btn')[0].classList.add('active');
+    }
+    revealRow(r);
+    renderHier();
+    // двойной requestAnimationFrame: ждём, пока браузер разложит таблицу после показа вкладки
+    requestAnimationFrame(() => requestAnimationFrame(() => scrollToRow(idx)));
+  }
+
+  // ============================================================
+  // СВОДНАЯ ТАБЛИЦА СВЯЗЕЙ (drill-down): Этап → Задача → Под-задача → связи
+  // ============================================================
+  let pvOpen = {};          // раскрытые узлы иерархии
+  let pvRel = {};           // раскрытые блоки «вход / выход» у строки
+  let pvOnlyIssues = false;
+
+  function pvToggle(k) { pvOpen[k] = !pvOpen[k]; renderPivot(); }
+  function pvToggleRel(k) { pvRel[k] = !pvRel[k]; renderPivot(); }
+  function pvExpandAll(open) {
+    pvOpen = {}; pvRel = {};
+    if (open) appData.rows.forEach(r => { pvOpen[rowKey(r)] = true; });
+    renderPivot();
+  }
+
+  // Итоги по узлу: сам узел + все его потомки
+  function pvRollup(r) {
+    const seen = new Set(), list = [];
+    (function walk(x) {
+      const k = rowKey(x);
+      if (seen.has(k)) return;
+      seen.add(k); list.push(x);
+      (childrenMap[k] || []).forEach(walk);
+    })(r);
+    const u = { n: list.length, inN: 0, outN: 0, blk: 0, risk: 0, trg: 0, prog: 0, start: null, finish: null };
+    let pSum = 0;
+    list.forEach(x => {
+      const ei = edgesIn[x._rowIndex] || [], eo = edgesOut[x._rowIndex] || [];
+      u.inN += ei.length; u.outN += eo.length;
+      if (ei.some(e => e.state === 'blocking')) u.blk++;
+      if (ei.some(e => e.state === 'risk')) u.risk++;
+      if (eo.some(e => e.state !== 'done')) u.trg++;
+      pSum += parseInt(x['Прогресс']) || 0;
+      const s = parseRuDate(x['Старт']), f = parseRuDate(x['Финиш']);
+      if (s && (!u.start || s < u.start)) u.start = s;
+      if (f && (!u.finish || f > u.finish)) u.finish = f;
+    });
+    u.prog = Math.round(pSum / list.length);
+    return u;
+  }
+
+  function pvRelList(list, dir) {
+    if (!list || !list.length) return '<div class="no-link">нет</div>';
+    return list.map(e => {
+      const idx = dir === 'in' ? e.srcRow : e.dstRow;
+      const nm = dir === 'in' ? e.srcName : e.dstName;
+      const who = dir === 'in' ? e.from : e.to;
+      const when = dir === 'in' ? ('до ' + (e.due || '—')) : ('нужно с ' + (e.need || '—'));
+      return `<div class="pv-rel-item">
+        <button class="link-chip" onclick="revealByRow(${idx})"><span>${dir === 'in' ? '←' : '→'} ${esc(nm)}</span></button>
+        <b>${esc(peopleStr(who))}</b> · ${esc(when)} ${stBadge(e.state)}
+        <div class="info">${e.info ? '📨 ' + esc(e.info) : '<i>информация не описана</i>'}${e.reason ? ' · ⚠ ' + esc(e.reason) : ''}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderPivot() {
+    const c = document.getElementById('pivot-table');
+    if (!c) return;
+    if (!appData.rows.length) { c.innerHTML = '<p style="padding:20px">Нет данных</p>'; return; }
+
+    const cache = {};
+    const ru = r => cache[rowKey(r)] || (cache[rowKey(r)] = pvRollup(r));
+    const seen = new Set();
+    const fmt = d => d ? d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
+
+    let html = `<table class="pv"><thead><tr>
+      <th class="pv-name">Этап / Задача / Под-задача</th><th>Ответственный</th><th>Срок</th><th>Статус</th>
+      <th class="num">Прогресс</th><th class="num" title="Сколько передач информации приходит">← Вход</th>
+      <th class="num" title="Сколько передач информации уходит дальше">→ Выход</th>
+      <th class="num" title="Задач, которые ждут чужую информацию">⛔ Блокеры</th>
+      <th class="num" title="Задач, от завершения которых зависят другие">⚡ Триггеры</th></tr></thead><tbody>`;
+
+    function render(r) {
+      const key = rowKey(r);
+      if (seen.has(key)) return;
+      seen.add(key);
+      const u = ru(r);
+      if (pvOnlyIssues && !(u.blk || u.risk)) return;
+      const kids = childrenMap[key] || [];
+      const lvl = getDisplayLevel(r);
+      const open = !!pvOpen[key];
+      const ei = edgesIn[r._rowIndex] || [], eo = edgesOut[r._rowIndex] || [];
+      const tw = kids.length
+        ? `<button class="twisty" title="${open ? 'Свернуть' : 'Раскрыть'}" onclick="pvToggle('${key}')">${open ? '−' : '+'}</button>`
+        : '<span class="twisty empty">+</span>';
+      const relBtn = (ei.length || eo.length)
+        ? `<button class="rel-toggle ${pvRel[key] ? 'on' : ''}" title="Что приходит и что уходит" onclick="pvToggleRel('${key}')">⇄ ${ei.length}/${eo.length}</button>` : '';
+      const num = displayNum(r) ? `<span class="hc-num">${esc(displayNum(r))}</span>` : '';
+      const badge = kids.length && !open ? `<span class="child-count">${kids.length}</span>` : '';
+      const st = r['Статус'] || '';
+      const bCls = st === 'Готово' ? 'b-done' : st === 'В процессе' ? 'b-progress' : 'b-plan';
+      const term = (u.start || u.finish) ? `${fmt(u.start)} – ${fmt(u.finish)}` : '—';
+
+      html += `<tr class="hrow pv-row lvl-${lvl}">
+        <td class="pv-name" style="padding-left:${8 + (lvl - 1) * 18}px"><div class="name-cell">${tw}
+          <div class="task-name">${num}${esc(getRowName(r))}${badge}</div>${relBtn}</div></td>
+        <td>${esc(peopleStr(rowPeople(r)).replace('не назначен', '—'))}</td>
+        <td>${term}</td>
+        <td>${st ? `<span class="badge ${bCls}">${esc(st)}</span>` : '—'}</td>
+        <td class="num">${u.prog}%</td>
+        <td class="num">${u.inN || '—'}</td>
+        <td class="num">${u.outN || '—'}</td>
+        <td class="num">${u.blk ? `<span class="cnt cnt-red">${u.blk}</span>` : (u.risk ? `<span class="cnt cnt-amber" title="риск срока">${u.risk}</span>` : '—')}</td>
+        <td class="num">${u.trg ? `<span class="cnt cnt-amber">${u.trg}</span>` : '—'}</td></tr>`;
+
+      if (pvRel[key] && (ei.length || eo.length)) {
+        html += `<tr class="pv-rel"><td colspan="9"><div class="pv-rel-box">
+          <div><h4>← Вход: что приходит и от кого</h4>${pvRelList(ei, 'in')}</div>
+          <div><h4>→ Выход: что передаётся дальше и кому</h4>${pvRelList(eo, 'out')}</div>
+        </div></td></tr>`;
+      }
+      if (open) kids.forEach(render);
+    }
+
+    (childrenMap['R'] || []).forEach(render);
+    html += '</tbody></table>';
+    if (!edges.length) {
+      html = '<div class="warn-box">Связей пока нет: заполните в листе «Таблица» столбцы «Вход (ID)» / «Выход (ID)» (ID задач через «;»).</div>' + html;
+    }
+    c.innerHTML = html;
+  }
+
+  // ============================================================
+  // ВКЛАДКА «ОБМЕН»: кто → что → кому, в разрезе задач и сроков
+  // ============================================================
+  let exPerson = '', exState = '';
+  try { exPerson = localStorage.getItem('exPerson') || ''; } catch (e) {}
+
+  function setExPerson(v) {
+    exPerson = v;
+    try { localStorage.setItem('exPerson', v); } catch (e) {}
+    renderExchange();
+  }
+
+  function exTaskCell(idx, name, stage) {
+    return `<button class="link-chip" onclick="revealByRow(${idx})" title="${esc(name)}"><span>${esc(name)}</span></button>` +
+      (stage ? `<div class="ex-sub">${esc(stage)}</div>` : '');
+  }
+
+  // mode: 'in' — мне поступает, 'out' — я передаю, 'all' — общий список
+  function exTable(list, mode) {
+    if (!list.length) return '<div class="empty-note">Нет передач</div>';
+    const dueCmp = (a, b) => ((parseRuDate(a.due) || 0) - (parseRuDate(b.due) || 0)) || a.srcName.localeCompare(b.srcName, 'ru');
+    list = list.slice().sort(dueCmp);
+    const head = mode === 'in'
+      ? ['От кого', 'Что мне передают', 'Из задачи', 'В мою задачу', 'Передать до', 'Нужно к', 'Статус', 'Получено']
+      : mode === 'out'
+        ? ['Кому', 'Что я передаю', 'Из моей задачи', 'В задачу', 'Передать до', 'Нужно к', 'Статус']
+        : ['Кто передаёт', 'Что передаёт', 'Кому', 'Из задачи', 'В задачу', 'Передать до', 'Нужно к', 'Статус'];
+    const rows = list.map(e => {
+      const info = e.info ? esc(e.info) : '<i class="no-link">не описано</i>';
+      const infoFull = info + (e.infoOut && e.infoIn && e.infoOut !== e.infoIn
+        ? `<div class="ex-sub">Получатель ожидает: ${esc(e.infoIn)}</div>` : '') +
+        (e.reason ? `<div class="ex-sub" style="color:#b91c1c">⚠ ${esc(e.reason)}</div>` : '');
+      const src = exTaskCell(e.srcRow, e.srcName, e.srcStage);
+      const dst = exTaskCell(e.dstRow, e.dstName, e.dstStage);
+      const dates = `<td>${esc(e.due || '—')}</td><td>${esc(e.need || '—')}</td><td>${stBadge(e.state)}</td>`;
+      if (mode === 'in') {
+        return `<tr><td>${esc(peopleStr(e.from))}</td><td>${infoFull}</td><td>${src}</td><td>${dst}</td>${dates}
+          <td><input type="checkbox" ${e.received ? 'checked' : ''} title="Подтвердить получение" onchange="markReceived(${e._i}, this.checked)"></td></tr>`;
+      }
+      if (mode === 'out') {
+        return `<tr><td>${esc(peopleStr(e.to))}</td><td>${infoFull}</td><td>${src}</td><td>${dst}</td>${dates}</tr>`;
+      }
+      return `<tr><td>${esc(peopleStr(e.from))}</td><td>${infoFull}</td><td>${esc(peopleStr(e.to))}</td><td>${src}</td><td>${dst}</td>${dates}</tr>`;
+    }).join('');
+    return `<div style="overflow:auto"><table class="ex"><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function exSection(title, list, mode) {
+    const blk = list.filter(e => e.state === 'blocking').length;
+    return `<div class="ex-section"><h3>${title} <span class="cnt">${list.length}</span>${blk ? `<span class="cnt cnt-red">⛔ ${blk}</span>` : ''}</h3>${exTable(list, mode)}</div>`;
+  }
+
+  function renderExchange() {
+    const root = document.getElementById('ex-root');
+    if (!root) return;
+    const sel = document.getElementById('ex-person');
+    const people = (appData.options && appData.options.people) || [];
+    if (exPerson && people.indexOf(exPerson) === -1) exPerson = '';
+    sel.innerHTML = '<option value="">Все сотрудники</option>' +
+      people.map(p => `<option value="${esc(p)}" ${p === exPerson ? 'selected' : ''}>${esc(p)}</option>`).join('');
+    document.getElementById('ex-state').value = exState;
+
+    const warnings = (appData.exchange && appData.exchange.warnings) || [];
+    let html = warnings.length
+      ? `<div class="warn-box"><b>Проверьте связи:</b><br>${warnings.slice(0, 10).map(esc).join('<br>')}${warnings.length > 10 ? '<br>…и ещё ' + (warnings.length - 10) : ''}</div>` : '';
+
+    const all = edges.filter(e => !exState || e.state === exState);
+    document.getElementById('ex-info').textContent = `Всего передач: ${edges.length}`;
+
+    if (!edges.length) {
+      root.innerHTML = html + '<div class="empty-note">Передач информации нет.<br>Заполните в листе «Таблица» столбцы «Вход (ID)» (от каких задач приходит информация) и/или «Выход (ID)» (каким задачам передаётся результат).</div>';
+      return;
+    }
+    if (exPerson) {
+      html += exSection('📥 Мне поступает', all.filter(e => e.to.indexOf(exPerson) !== -1), 'in');
+      html += exSection('📤 Я передаю дальше', all.filter(e => e.from.indexOf(exPerson) !== -1), 'out');
+    } else {
+      html += exSection('Все передачи информации', all, 'all');
+    }
+    root.innerHTML = html;
+  }
+
+  function markReceived(i, val) {
+    const e = edges[i];
+    if (!e) return;
+    google.script.run
+      .withSuccessHandler(r => {
+        if (r && r.success === false) { showMsg('❌ Не сохранено: ' + esc(r.message), true); return; }
+        refreshData(true);
+      })
+      .withFailureHandler(err => showMsg('❌ ' + esc(err.message), true))
+      .setExchangeReceived(e.key, !!val);
+  }
+
+  function writeExchangeSheet() {
+    showMsg('Обновляю лист «Обмен»…');
+    google.script.run
+      .withSuccessHandler(r => {
+        if (r && r.success) { showMsg(`✅ Лист «Обмен» обновлён: ${r.count} передач(и)`); refreshData(true); }
+        else showMsg('❌ ' + esc((r && r.message) || 'Ошибка'), true);
+      })
+      .withFailureHandler(err => showMsg('❌ ' + esc(err.message), true))
+      .refreshExchangeSheet();
+  }
+
+  // ============================================================
+  // ГАНТ: подсказки, триггеры и блокеры
+  // ============================================================
+  let ganttTasks = []; // текущие отрисованные задачи (для тултипов и кликов)
+
+  // Блокеры и триггеры задачи.
+  //  Блокер  (⛔) — задача не готова, и её тормозит: (а) информация, которую не передали из «Вход (ID)»,
+  //                 (б) заполненные поля «Блокер» / «Кем заблок.».
+  //  Триггер (⚡) — задача не готова, а от её результата («Выход (ID)») ждут другие задачи.
+  //                 Красный триггер — кто-то уже ждёт (просрочка или получатель стартовал).
+  function taskFlags(r) {
+    const res = { blk: [], blockers: [], trg: [], crit: false };
+    if (String(r['Статус'] || '').trim() === 'Готово') return res;
+    (edgesIn[r._rowIndex] || []).filter(e => e.state === 'blocking').forEach(e => {
+      res.blk.push(`Ждёт «${e.srcName}» от ${peopleStr(e.from)}${e.info ? ' — ' + e.info : ''} (${e.reason})`);
+      if (e.from.length) e.from.forEach(p => res.blockers.push(p)); else res.blockers.push(e.srcName);
+    });
+    const own = String(r['Блокер'] || '').trim(), by = String(r['Кем заблок.'] || '').trim();
+    const since = String(r['С какого числа'] || '').trim();
+    if (own || by) {
+      res.blk.push('Блокер: ' + [own, by].filter(Boolean).join(' / ') + (since ? ' (с ' + since + ')' : ''));
+      res.blockers.push(by || own);
+    }
+    res.trg = (edgesOut[r._rowIndex] || []).filter(e => e.state !== 'done');
+    res.crit = res.trg.some(e => e.state === 'blocking');
+    res.blockers = res.blockers.filter((v, i, a) => v && a.indexOf(v) === i);
+    return res;
+  }
+
+  function showGTip(ev, t, kind) {
+    const tip = document.getElementById('g-tip');
+    if (!tip || !t) return;
+    const resp = [t.resp, t.owner].filter(v => v && String(v).trim()).join(', ');
+    let extra = '';
+    if (kind !== 'trg' && t.blk.length) {
+      extra += '<br><span class="tip-blk">⛔ Блокер:</span><br>' + t.blk.map(x => '• ' + esc(x)).join('<br>');
+    }
+    if (kind !== 'blk' && t.trg.length) {
+      extra += '<br><span class="tip-trg">⚡ Триггер — после завершения запускает:</span><br>' +
+        t.trg.map(e => `• ${esc(e.dstName)} (${esc(peopleStr(e.to))})${e.info ? ' — ' + esc(e.info) : ''}${e.state === 'blocking' ? ' — <b>уже ждёт</b>' : ''}`).join('<br>');
+      if (t.crit && !t.blk.length) extra += '<br><b>Первопричина задержки цепочки</b>';
+    }
+    tip.innerHTML = `<b>${esc(t.name)}</b><br>` +
+      `👤 Ответственные: <span class="tip-resp">${esc(resp || 'не назначен')}</span><br>` +
+      `📅 ${fmtDate(t.start)} — ${fmtDate(t.end)} · Прогресс: ${t.progress}%<br>` +
+      `Статус: ${esc(t.status)}${t.stage ? '<br>Этап: ' + esc(t.stage) : ''}${extra}`;
+    tip.style.display = 'block';
+    moveGTip(ev);
+  }
+  function moveGTip(ev) {
+    const tip = document.getElementById('g-tip');
+    if (!tip || tip.style.display === 'none') return;
+    const pad = 14;
+    let x = ev.clientX + pad, y = ev.clientY + pad;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    if (x + w > window.innerWidth - 8) x = ev.clientX - w - pad;
+    if (y + h > window.innerHeight - 8) y = ev.clientY - h - pad;
+    tip.style.left = Math.max(8, x) + 'px';
+    tip.style.top = Math.max(8, y) + 'px';
+  }
+  function hideGTip() {
+    const tip = document.getElementById('g-tip');
+    if (tip) tip.style.display = 'none';
+  }
+
+  function bindGanttSync() {
+    // Синхронизация вертикального скролла левой панели и временной шкалы
+    const wrap = document.querySelector('#gantt-root .gantt-wrap');
+    if (!wrap || wrap._synced) return;
+    wrap._synced = true;
+    const side = wrap.querySelector('.gantt-side');
+    const time = wrap.querySelector('.gantt-time');
+    if (side && time) {
+      side.addEventListener('scroll', () => { time.scrollTop = side.scrollTop; });
+      time.addEventListener('scroll', () => { side.scrollTop = time.scrollTop; });
+    }
+  }
+
+  function ganttBarClick(i) {
+    const t = ganttTasks[i];
+    if (!t) return;
+    // Переход к задаче в разделе «Таблица»: раскрыть цепочку, прокрутить и подсветить строку
+    revealByRow(t.rowIndex);
+  }
+
+  // === ГАНТ: ширина колонки названий (ручное изменение) ===
+  let gSideW = 280;
+  try { const v = parseInt(localStorage.getItem('ganttSideW')); if (v >= 140 && v <= 700) gSideW = v; } catch (e) {}
+  function getGSideW() { return gSideW; }
+
+  function startGResize(ev, handle, side) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const startX = ev.clientX != null ? ev.clientX : (ev.touches && ev.touches[0] ? ev.touches[0].clientX : 0);
+    const startW = side.getBoundingClientRect().width;
+    handle.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+
+    function apply(w) {
+      w = Math.min(700, Math.max(140, Math.round(w)));
+      gSideW = w;
+      side.style.width = w + 'px';
+    }
+    function onMove(e) {
+      const x = e.clientX != null ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : startX);
+      apply(startW + (x - startX));
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onUp);
+      handle.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      try { localStorage.setItem('ganttSideW', String(gSideW)); } catch (e) {}
+    }
+    function onTouchMove(e) {
+      if (e.touches && e.touches[0]) { e.preventDefault(); onMove({ clientX: e.touches[0].clientX }); }
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onUp);
+  }
+
+  const G_EDGE_COLOR = { blocking: '#dc2626', risk: '#d97706', planned: '#9ca3af', done: '#86efac' };
+
+  function renderGantt() {
+    const root = document.getElementById('gantt-root');
+    const zoom = document.getElementById('g-zoom').value;
+    const showLinks = document.getElementById('g-links').checked;
+    const focus = document.getElementById('g-focus').value;
+    const rows = appData.rows.filter(r => r['Этап'] || r['Задача'] || r['Под-задача']).slice().sort(numCmp);
+
+    const tasks = [];
+    rows.forEach(r => {
+      const start = parseRuDate(r['Старт']);
+      const end = parseRuDate(r['Финиш']);
+      if (!start || !end) return;
+      const fl = taskFlags(r);
+      if (focus === 'issues' && !fl.blk.length && !fl.trg.length) return;
+      tasks.push({
+        name: getRowName(r), lvl: getDisplayLevel(r), start, end,
+        status: r['Статус'] || 'Планируется',
+        progress: parseInt(r['Прогресс']) || 0,
+        resp: String(r['Ответственный'] || '').trim(),
+        owner: String(r['Владелец результата'] || '').trim(),
+        stage: String(r['Этап'] || '').trim(),
+        rowIndex: r._rowIndex,
+        blk: fl.blk, blockers: fl.blockers, trg: fl.trg, crit: fl.crit
+      });
+    });
+    ganttTasks = tasks;
+
+    if (!tasks.length) { root.innerHTML = '<div class="loader">Нет задач с заполненными датами Старт и Финиш</div>'; return; }
+
+    const minD = new Date(Math.min(...tasks.map(t => t.start.getTime())));
+    const maxD = new Date(Math.max(...tasks.map(t => t.end.getTime())));
+    minD.setDate(minD.getDate() - 3); maxD.setDate(maxD.getDate() + 3);
+
+    // Начало шкалы: для недель — понедельник, для месяцев — 1-е число (бары и ячейки совпадают)
+    let orig = new Date(minD);
+    if (zoom === 'week') orig.setDate(orig.getDate() - (orig.getDay() === 0 ? 6 : orig.getDay() - 1));
+    if (zoom === 'month') orig = new Date(minD.getFullYear(), minD.getMonth(), 1);
+
+    const DAY = 86400000;
+    function xOf(d) {
+      if (zoom === 'day') return Math.round((d - orig) / DAY) * 30;
+      if (zoom === 'week') return Math.round((d - orig) / DAY) / 7 * 60;
+      const mi = (d.getFullYear() - orig.getFullYear()) * 12 + d.getMonth() - orig.getMonth();
+      const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      return (mi + (d.getDate() - 1) / dim) * 100;
+    }
+    const nextDay = d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; };
+
+    const cells = [];
+    const mNames = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+    if (zoom === 'day') {
+      for (let c = new Date(orig); c <= maxD; c.setDate(c.getDate() + 1)) {
+        cells.push({ label: c.getDate() + '.' + (c.getMonth() + 1), w: 30, we: c.getDay() === 0 || c.getDay() === 6 });
+      }
+    } else if (zoom === 'week') {
+      for (let c = new Date(orig); c <= maxD; c.setDate(c.getDate() + 7)) {
+        cells.push({ label: c.getDate() + '.' + (c.getMonth() + 1), w: 60, we: false });
+      }
+    } else {
+      for (let c = new Date(orig); c <= maxD; c.setMonth(c.getMonth() + 1)) {
+        cells.push({ label: mNames[c.getMonth()] + ' ' + c.getFullYear(), w: 100, we: false });
+      }
+    }
+
+    const totalW = cells.reduce((s, c) => s + c.w, 0);
+    const rowH = 36;
+    document.getElementById('g-info').textContent = `${fmtDate(minD)} — ${fmtDate(maxD)} · ${tasks.length} задач`;
+
+    let sideH = '<div class="g-row" style="height:36px;background:var(--bg)"></div>';
+    tasks.forEach((t, i) => {
+      const mk = (t.blk.length ? ' ⛔' : '') + (t.trg.length ? ' ⚡' : '');
+      sideH += `<div class="g-row lvl-${t.lvl}" data-gi="${i}">${esc(t.name)}${mk}</div>`;
+    });
+
+    const headH = cells.map(c => `<div class="g-cell ${zoom} ${c.we ? 'we' : ''}" style="width:${c.w}px">${c.label}</div>`).join('');
+
+    // Позиции баров (нужны для стрелок связей)
+    const pos = tasks.map(t => {
+      const left = Math.max(0, xOf(t.start));
+      const width = Math.max(20, xOf(nextDay(t.end)) - xOf(t.start));
+      return { left, width, right: left + width };
+    });
+    const idxByRow = {};
+    tasks.forEach((t, i) => { idxByRow[t.rowIndex] = i; });
+
+    let barsH = '';
+    tasks.forEach((t, i) => {
+      const p = pos[i], top = i * rowH + 7;
+      const cls = t.status === 'Готово' ? 'done' : t.status === 'В процессе' ? 'progress' : 'plan';
+      barsH += `<div class="g-bar ${cls}${t.blk.length ? ' blocked' : ''}" data-gi="${i}" style="left:${p.left}px;width:${p.width}px;top:${top}px">
+        <div class="g-bar-fill" style="width:${t.progress}%"></div>
+        <div class="g-bar-label">${esc(t.name)}</div>
+      </div>`;
+
+      // ⛔ Блокер: значок на старте бара + плашка «кто/что мешает» справа
+      if (t.blk.length) {
+        barsH += `<div class="g-flag blk" data-gi="${i}" data-kind="blk" style="left:${Math.max(0, p.left - 10)}px;top:${top - 3}px" title="Блокер">⛔</div>`;
+      }
+      // Правая часть: ⚡ триггер и плашки
+      let mk = '';
+      if (t.trg.length) {
+        mk += `<div class="g-flag trg${t.crit ? ' crit' : ''}" style="position:static" data-gi="${i}" data-kind="trg">⚡</div>`;
+        const targets = t.trg.map(e => e.to.length ? e.to.join(', ') : e.dstName).filter((v, k, a) => a.indexOf(v) === k).join('; ');
+        mk += `<div class="g-pill trg${t.crit ? ' crit' : ''}" data-gi="${i}" data-kind="trg">Триггер → ${esc(targets.length > 38 ? targets.substring(0, 37) + '…' : targets)}</div>`;
+      }
+      if (t.blk.length) {
+        const who = t.blockers.join(', ') || 'причина указана';
+        mk += `<div class="g-pill blk" data-gi="${i}" data-kind="blk">⛔ Блокер: ${esc(who.length > 38 ? who.substring(0, 37) + '…' : who)}</div>`;
+      }
+      if (mk) barsH += `<div class="g-mk" style="left:${p.right + 6}px;top:${top - 0}px">${mk}</div>`;
+    });
+
+    // Стрелки зависимостей (передача информации): красная — ждут, жёлтая — риск срока
+    let svg = '';
+    if (showLinks) {
+      let paths = '';
+      edges.forEach(e => {
+        const a = idxByRow[e.srcRow], b = idxByRow[e.dstRow];
+        if (a == null || b == null) return;
+        const y1 = a * rowH + 18, y2 = b * rowH + 18;
+        const x1 = pos[a].right, x2 = pos[b].left;
+        const col = G_EDGE_COLOR[e.state] || G_EDGE_COLOR.planned;
+        let d;
+        if (x2 >= x1 + 14) {
+          const xm = x1 + 8;
+          d = `M${x1},${y1} H${xm} V${y2} H${x2 - 4}`;
+        } else {
+          const ym = y1 + (y2 >= y1 ? 1 : -1) * (rowH / 2);
+          d = `M${x1},${y1} H${x1 + 8} V${ym} H${x2 - 10} V${y2} H${x2 - 4}`;
+        }
+        const w = e.state === 'blocking' ? 2 : 1.3;
+        paths += `<path d="${d}" fill="none" stroke="${col}" stroke-width="${w}" ${e.state === 'planned' || e.state === 'done' ? 'stroke-dasharray="4 3"' : ''} marker-end="url(#ga-${e.state})"><title>${esc(e.srcName + ' → ' + e.dstName + (e.info ? ': ' + e.info : ''))}</title></path>`;
+      });
+      const markers = Object.keys(G_EDGE_COLOR).map(k =>
+        `<marker id="ga-${k}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="${G_EDGE_COLOR[k]}"/></marker>`).join('');
+      svg = `<svg class="g-links" width="${totalW}" height="${tasks.length * rowH}"><defs>${markers}</defs>${paths}</svg>`;
+    }
+
+    // Линия «сегодня»
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const tx = xOf(today);
+    const todayH = (tx >= 0 && tx <= totalW)
+      ? `<div class="g-today" title="Сегодня" style="left:${tx}px;height:${tasks.length * rowH}px"></div>` : '';
+
+    root.innerHTML = `<div class="gantt-wrap">
+      <div class="g-side-box">
+        <div class="gantt-side" style="width:${getGSideW()}px">${sideH}</div>
+        <div class="g-resizer" title="Потяните, чтобы изменить ширину колонки названий"></div>
+      </div>
+      <div class="gantt-time">
+        <div style="width:${totalW}px">
+          <div class="g-header">${headH}</div>
+          <div class="g-bar-wrap" style="position:relative;height:${tasks.length * rowH}px">${todayH}${svg}${barsH}</div>
+        </div>
+      </div>
+    </div>`;
+
+    // Ручка изменения ширины колонки названий в Ганте (сохраняется в localStorage)
+    const gRes = root.querySelector('.g-resizer');
+    const gSide = root.querySelector('.gantt-side');
+    if (gRes && gSide) {
+      gRes.addEventListener('mousedown', ev => startGResize(ev, gRes, gSide));
+      gRes.addEventListener('touchstart', ev => startGResize(ev, gRes, gSide), { passive: false });
+    }
+
+    // Тултип при наведении + переход по клику (бары, значки и плашки)
+    root.querySelectorAll('.g-bar, .g-flag, .g-pill').forEach(el => {
+      const t = ganttTasks[+el.dataset.gi];
+      const kind = el.dataset.kind;
+      el.addEventListener('mouseenter', ev => showGTip(ev, t, kind));
+      el.addEventListener('mousemove', moveGTip);
+      el.addEventListener('mouseleave', hideGTip);
+      el.addEventListener('click', () => { hideGTip(); ganttBarClick(+el.dataset.gi); });
+    });
+    // Строки левой панели — подсказка и клик как на баре
+    root.querySelectorAll('.g-row[data-gi]').forEach(el => {
+      const t = ganttTasks[+el.dataset.gi];
+      el.style.cursor = 'pointer';
+      el.title = t.resp ? 'Ответственные: ' + t.resp : 'Нет ответственных';
+      el.addEventListener('click', () => ganttBarClick(+el.dataset.gi));
+    });
+    bindGanttSync();
+  }
+
+  function upd(idx, col, val) {
+    google.script.run.withSuccessHandler(r => {
+      if (r && r.success === false) console.warn('Не сохранено:', r.message);
+    }).updateCell(idx, col, val);
+  }
+
+  function fmtDate(d) {
+    if (!d) return '—';
+    const dt = parseRuDate(d) || new Date(d);
+    return isNaN(dt) ? d : dt.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
+  }
+
+  // Автозапуск: DOMContentLoaded + запасной вариант (script в конце body может отработать позже события)
+  function bootApp() { refreshData(); }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootApp);
+  } else {
+    bootApp();
+  }
+
+  // При изменении размера окна пересчитываем ширину таблицы и offsets закреплённых колонок
+  window.addEventListener('resize', () => {
+    if (appData.rows.length && hierTabVisible()) renderHier();
+  });
+
+  // Закрытие выпадающего фильтра кликом в ЛЮБОМ месте страницы
+  // (ловим и mousedown, и touchstart — на мобильных click может не дойти до document)
+  ['mousedown', 'touchstart'].forEach(evtName => {
+    document.addEventListener(evtName, e => {
+      const menu = document.getElementById('filter-menu');
+      if (!menu || !menu.classList.contains('open')) return;
+      if (menu.contains(e.target)) return;                       // клик внутри самого фильтра
+      if (e.target.closest && e.target.closest('.th-label')) return; // клик по другому заголовку — openFilterMenu сам перезапустит меню
+      closeFilterMenu();
+    }, true);
+  });
+</script>
+</body>
+</html>
