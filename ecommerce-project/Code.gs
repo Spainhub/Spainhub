@@ -1,15 +1,24 @@
 // ============================================================
 // E-commerce Project 1.0 — Google Apps Script (Backend)
 // Лист с данными: "Таблица" (старое имя "Data" поддерживается)
-// Колонки: A = ID (уникальный), B = №, ... W = ID Связи
 //
-// Связи между задачами:
-//   «Вход (ID)»  — ID задач/под-задач, ОТ КОТОРЫХ приходит информация (предшественники)
-//   «Выход (ID)» — ID задач/под-задач, КОТОРЫМ передаётся результат (последователи)
-// Можно указывать несколько ID через ; , или пробел. Допустимы заголовки «Вход ID» / «Вход (ID)».
+// Колонки: ID | ID Связи | № | Этап | Задача | Под-задача | Владелец результата | Ответственный |
+//          Решающий | Информируемые | От кого получаем инф. | Кому передаем инф. | Старт | Финиш |
+//          Статус | Блокер | Кем заблок. | С какого числа | Прогресс | Документ | Результат | Комментарий
 //
-// Лист «Обмен» создаётся и обновляется автоматически (меню «E-commerce» → «Обновить лист Обмен»).
+// Как читаются колонки:
+//  • «№» (1 / 1.2 / 1.2.3) — иерархия Этап > Задача > Под-задача (если «№» пуст — по колонкам Этап/Задача/Под-задача).
+//  • «ID Связи» — ID строк (задач, под-задач ИЛИ этапов), с которыми связана строка. Несколько — через ; , или пробел.
+//    По умолчанию это «зависит от» (эти строки должны завершиться раньше). См. LINK_MODE.
+//  • «От кого получаем инф.» / «Кому передаем инф.» — ID строк и/или ФИО/отделы (через ; , или с новой строки).
+//    ID → связь с конкретной задачей/этапом; ФИО/отдел → передача между людьми в рамках этой задачи.
+//  • «Результат» — ЧТО передаётся (информация/артефакт), показывается в «Обмен».
+// Лист «Обмен» создаётся автоматически (меню «E-commerce»).
 // ============================================================
+
+// 'depends_on' — «ID Связи» = от каких строк зависит эта (они -> эта)
+// 'feeds'      — «ID Связи» = какие строки зависят от этой (эта -> они)
+const LINK_MODE = 'depends_on';
 
 const SHEET_NAME = 'Таблица';
 const SHEET_NAME_OLD = 'Data';
@@ -17,10 +26,9 @@ const REF_SHEET_NAME = 'Справочник';
 const EXCHANGE_SHEET_NAME = 'Обмен';
 
 const EXPECTED_HEADERS = [
-  'ID', '№', 'Этап', 'Задача', 'Под-задача', 'Владелец результата', 'Ответственный',
-  'Решающий', 'Информируемые', 'Вход инф.', 'Вход (ID)', 'Выход инф.', 'Выход (ID)',
-  'Gate', 'Старт', 'Финиш', 'Статус', 'Блокер', 'Кем заблок.', 'С какого числа',
-  'Документ', 'Прогресс', 'Комментарий', 'ID Связи'
+  'ID', 'ID Связи', '№', 'Этап', 'Задача', 'Под-задача', 'Владелец результата', 'Ответственный',
+  'Решающий', 'Информируемые', 'От кого получаем инф.', 'Кому передаем инф.', 'Старт', 'Финиш',
+  'Статус', 'Блокер', 'Кем заблок.', 'С какого числа', 'Прогресс', 'Документ', 'Результат', 'Комментарий'
 ];
 
 const EXCHANGE_HEADERS = [
@@ -72,7 +80,7 @@ function getDataSheet_() {
   return ss.getSheetByName(SHEET_NAME) || ss.getSheetByName(SHEET_NAME_OLD);
 }
 
-// «Вход ID» == «Вход (ID)» == «вход id»: сравниваем без регистра, пробелов, скобок, точек
+// Заголовки сравниваем без регистра, пробелов, скобок, точек
 function normHeader_(h) {
   return String(h == null ? '' : h).toLowerCase().replace(/[\s().:_\-]/g, '');
 }
@@ -91,6 +99,10 @@ function splitIds_(v) {
 }
 function splitPeople_(v) {
   return String(v == null ? '' : v).split(/[;,]+/).map(s => s.trim()).filter(s => s !== '');
+}
+// ID и/или ФИО: разделители ; , и перенос строки (пробелы внутри ФИО сохраняются)
+function splitTokens_(v) {
+  return String(v == null ? '' : v).split(/[;,\n]+/).map(s => s.trim()).filter(s => s !== '');
 }
 function parseDate_(s) {
   if (!s) return null;
@@ -230,73 +242,100 @@ function readExchangeManual_() {
   return res;
 }
 
-// Строит список передач информации по колонкам «Вход (ID)» и «Выход (ID)».
-// Передача A → B возникает, если у B в «Вход (ID)» указан A, ИЛИ у A в «Выход (ID)» указан B.
+// Строит список передач информации. Источники связей:
+//  1) «ID Связи»                — зависимость строка <-> строка (в т.ч. задача <-> этап);
+//  2) «От кого получаем инф.»   — ID строки ИЛИ ФИО/отдел (внешний источник);
+//  3) «Кому передаем инф.»      — ID строки ИЛИ ФИО/отдел (внешний получатель).
+// «Что передаётся» берётся из колонки «Результат» строки-источника.
 function buildExchange_(rows) {
-  const byId = {};
-  rows.forEach(r => { const id = String(r['ID'] || '').trim(); if (id && !byId[id]) byId[id] = r; });
+  const byId = {}, byIdLower = {};
+  rows.forEach(r => {
+    const id = String(r['ID'] || '').trim();
+    if (id && !byId[id]) { byId[id] = r; byIdLower[id.toLowerCase()] = r; }
+  });
+  const findRow = t => byId[t] || byIdLower[t.toLowerCase()] || null;
+
+  // Токен — это ID строки (одна или несколько через пробел) либо ФИО/отдел
+  function resolveTokens_(v) {
+    const res = [];
+    splitTokens_(v).forEach(t => {
+      const o = findRow(t);
+      if (o) { res.push({ row: o }); return; }
+      const parts = t.split(/\s+/);
+      if (parts.length > 1 && parts.every(p => findRow(p))) parts.forEach(p => res.push({ row: findRow(p) }));
+      else res.push({ row: null, name: t });
+    });
+    return res;
+  }
 
   const manual = readExchangeManual_();
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const map = {};
   const warnings = [];
 
-  function add(src, dst, side) {
-    if (src === dst) return;
-    const key = rowId_(src) + '>' + rowId_(dst);
-    if (map[key]) { if (map[key].declared !== side) map[key].declared = 'both'; return; }
-    map[key] = { src: src, dst: dst, key: key, declared: side };
+  // src/dst — строка или null; srcName/dstName — ФИО (если конец связи — человек)
+  function add(src, dst, srcPerson, dstPerson, how) {
+    if (src && dst && src === dst) return;
+    const sid = src ? rowId_(src) : '👤 ' + srcPerson;
+    const did = dst ? rowId_(dst) : '👤 ' + dstPerson;
+    const key = sid + '>' + did;
+    if (!map[key]) map[key] = { key: key, src: src, dst: dst, srcPerson: srcPerson, dstPerson: dstPerson, sid: sid, did: did, how: {} };
+    map[key].how[how] = true;
   }
 
   rows.forEach(r => {
-    splitIds_(r['Вход (ID)']).forEach(pid => {
-      const p = byId[pid];
-      if (!p) warnings.push(`Строка ${r._rowIndex}: в «Вход (ID)» указан несуществующий ID «${pid}»`);
-      else add(p, r, 'in');
+    // 1) ID Связи
+    splitIds_(r['ID Связи']).forEach(t => {
+      const o = findRow(t);
+      if (!o) { warnings.push(`Строка ${r._rowIndex}: в «ID Связи» указан несуществующий ID «${t}»`); return; }
+      if (LINK_MODE === 'feeds') add(r, o, '', '', 'link'); else add(o, r, '', '', 'link');
     });
-    splitIds_(r['Выход (ID)']).forEach(tid => {
-      const t = byId[tid];
-      if (!t) warnings.push(`Строка ${r._rowIndex}: в «Выход (ID)» указан несуществующий ID «${tid}»`);
-      else add(r, t, 'out');
+    // 2) От кого получаем
+    resolveTokens_(r['От кого получаем инф.']).forEach(x => {
+      if (x.row) add(x.row, r, '', '', 'in'); else add(null, r, x.name, '', 'in');
+    });
+    // 3) Кому передаем
+    resolveTokens_(r['Кому передаем инф.']).forEach(x => {
+      if (x.row) add(r, x.row, '', '', 'out'); else add(r, null, '', x.name, 'out');
     });
   });
 
   const edges = Object.keys(map).map(k => {
     const e = map[k], s = e.src, d = e.dst;
     const man = manual[k] || { received: false, comment: '' };
-    const srcStatus = String(s['Статус'] || '').trim();
-    const dstStatus = String(d['Статус'] || '').trim();
-    const dueD = parseDate_(s['Финиш']);
-    const needD = parseDate_(d['Старт']);
+    const srcStatus = s ? String(s['Статус'] || '').trim() : '';
+    const dstStatus = d ? String(d['Статус'] || '').trim() : '';
+    const dueD = s ? parseDate_(s['Финиш']) : null;
+    const needD = d ? parseDate_(d['Старт']) : null;
     const srcDone = srcStatus === 'Готово' || man.received;
-    const dstStarted = (dstStatus !== '' && dstStatus !== 'Планируется') || (needD && needD <= today);
+    const dstStarted = d && ((dstStatus !== '' && dstStatus !== 'Планируется') || (needD && needD <= today));
 
     let state = 'planned', reason = '';
     if (srcDone || dstStatus === 'Готово') {
       state = 'done';
-    } else if ((dueD && dueD < today) || dstStarted) {
+    } else if ((dueD && dueD < today) || (s && dstStarted)) {
       state = 'blocking';
       const parts = [];
       if (dueD && dueD < today) parts.push(`источник просрочил передачу (срок ${s['Финиш']})`);
-      if (dstStarted) parts.push('получатель уже ждёт информацию');
+      if (s && dstStarted) parts.push('получатель уже ждёт информацию');
       reason = parts.join('; ');
     } else if (dueD && needD && dueD > needD) {
       state = 'risk';
       reason = `источник заканчивает ${s['Финиш']}, а получателю нужно с ${d['Старт']}`;
     }
 
-    const infoOut = String(s['Выход инф.'] || '').trim();
-    const infoIn = String(d['Вход инф.'] || '').trim();
+    const result = s ? String(s['Результат'] || '').trim() : '';
     return {
       key: k,
-      declared: e.declared,
-      srcRow: s._rowIndex, dstRow: d._rowIndex,
-      srcId: rowId_(s), dstId: rowId_(d),
-      srcName: rowName_(s), dstName: rowName_(d),
-      srcStage: String(s['Этап'] || ''), dstStage: String(d['Этап'] || ''),
-      from: rowPeople_(s), to: rowPeople_(d),
-      infoOut: infoOut, infoIn: infoIn, info: infoOut || infoIn,
-      due: String(s['Финиш'] || ''), need: String(d['Старт'] || ''),
+      declared: Object.keys(e.how).join('+'),
+      srcRow: s ? s._rowIndex : null, dstRow: d ? d._rowIndex : null,
+      srcId: e.sid, dstId: e.did,
+      srcName: s ? rowName_(s) : e.srcPerson, dstName: d ? rowName_(d) : e.dstPerson,
+      srcStage: s ? String(s['Этап'] || '') : '', dstStage: d ? String(d['Этап'] || '') : '',
+      srcLevel: s ? levelOf_(s) : '', dstLevel: d ? levelOf_(d) : '',
+      from: s ? rowPeople_(s) : [e.srcPerson], to: d ? rowPeople_(d) : [e.dstPerson],
+      info: result,
+      due: s ? String(s['Финиш'] || '') : '', need: d ? String(d['Старт'] || '') : '',
       srcStatus: srcStatus, dstStatus: dstStatus,
       received: man.received, comment: man.comment,
       state: state, reason: reason
@@ -305,6 +344,8 @@ function buildExchange_(rows) {
 
   return { edges: edges, warnings: warnings };
 }
+
+function levelOf_(r) { return r['Под-задача'] ? 'Под-задача' : (r['Задача'] ? 'Задача' : 'Этап'); }
 
 // Перестраивает лист «Обмен». Столбцы «Получено» и «Комментарий» сохраняются.
 function refreshExchangeSheet() {

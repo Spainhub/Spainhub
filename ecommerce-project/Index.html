@@ -460,16 +460,17 @@
     { key: 'Информируемые',     render: 'text',      def: false },
     { key: 'Старт',             render: 'date',      def: true },
     { key: 'Финиш',             render: 'date',      def: true },
-    { key: '__GATE__',           render: 'gate',      label: 'Sprint / Gate', def: true },
-    { key: '__LINKS__',          render: 'links',     label: 'Связанные задачи', def: true },
+    { key: '__LINKS__',          render: 'links',     label: 'ID Связи (иерархия)', def: false },
     { key: 'Блокер',            render: 'blocker',   def: true },
     { key: 'Кем заблок.',       render: 'text',      def: false },
     { key: 'С какого числа',    render: 'date',      def: false },
     { key: 'Комментарий',       render: 'comment',   def: true },
-    { key: 'Вход инф.',         render: 'textarea',  def: true },
-    { key: '__IN__',            render: 'relin',     label: 'Вход ← от кого', def: true },
-    { key: 'Выход инф.',        render: 'textarea',  def: true },
-    { key: '__OUT__',           render: 'relout',    label: 'Выход → кому', def: true },
+    { key: '__IN__',            render: 'relin',     label: '← Получаем от', def: true },
+    { key: '__OUT__',           render: 'relout',    label: '→ Передаем', def: true },
+    { key: 'Результат',         render: 'textarea',  def: true },
+    { key: 'От кого получаем инф.', render: 'textarea', def: false },
+    { key: 'Кому передаем инф.',    render: 'textarea', def: false },
+    { key: 'ID Связи',          render: 'text',      def: false },
     { key: 'Документ',          render: 'doc',       def: false },
   ];
   // Служебные колонки (ID, ID Связи) скрыты в веб-приложении:
@@ -660,7 +661,8 @@
     return a._rowIndex - b._rowIndex;
   }
 
-  // === ПЕРЕДАЧИ ИНФОРМАЦИИ (Вход (ID) / Выход (ID)) — считаются на сервере ===
+  // === ПЕРЕДАЧИ ИНФОРМАЦИИ («ID Связи», «От кого получаем инф.», «Кому передаем инф.») — считаются на сервере ===
+  // Конец связи может быть не строкой, а человеком/отделом: тогда srcRow/dstRow = null, имя — в srcName/dstName.
   let edges = [], edgesIn = {}, edgesOut = {}, rowMap = {};
   const STATE_TXT = { done: 'Передано', blocking: '⛔ Блокирует', risk: '⚠ Риск срока', planned: 'Запланировано' };
   function buildEdgeIndex() {
@@ -669,8 +671,8 @@
     appData.rows.forEach(r => { rowMap[r._rowIndex] = r; });
     edges.forEach((e, i) => {
       e._i = i;
-      (edgesOut[e.srcRow] = edgesOut[e.srcRow] || []).push(e);
-      (edgesIn[e.dstRow] = edgesIn[e.dstRow] || []).push(e);
+      if (e.srcRow != null) (edgesOut[e.srcRow] = edgesOut[e.srcRow] || []).push(e);
+      if (e.dstRow != null) (edgesIn[e.dstRow] = edgesIn[e.dstRow] || []).push(e);
     });
   }
   const stBadge = st => `<span class="st st-${st}">${STATE_TXT[st] || st}</span>`;
@@ -690,7 +692,10 @@
       const who = dir === 'in' ? e.from : e.to;
       const tip = (dir === 'in' ? 'Получаю от: ' : 'Передаю: ') + nm + ' (' + peopleStr(who) + ')' +
         (e.info ? ' — ' + e.info : '') + (e.reason ? '\n' + e.reason : '');
-      return `<button class="rel-chip st-${e.state}" title="${esc(tip)}" onclick="revealByRow(${idx})">${dir === 'in' ? '←' : '→'}<span>${esc(nm.substring(0, 28))}</span></button>`;
+      const lvl = (dir === 'in' ? e.srcLevel : e.dstLevel);
+      const ico = idx == null ? '👤' : (dir === 'in' ? '←' : '→');
+      const click = idx == null ? '' : `onclick="revealByRow(${idx})"`;
+      return `<button class="rel-chip st-${e.state}" title="${esc((lvl ? lvl + ': ' : '') + tip)}" ${click}>${ico}<span>${esc(nm.substring(0, 28))}</span></button>`;
     }).join('') + '</div>';
   }
 
@@ -823,11 +828,6 @@
     if (c.render === 'links') {
       const { down, up } = getLinkedTasks(r);
       return down.concat(up).map(l => getRowName(l.row)).join(', ');
-    }
-    if (c.key === '__GATE__') {
-      const g = r['Gate'], s = r['Sprint'];
-      if (String(g || '') !== '' && String(s || '') !== '') return `${s} / ${g}`;
-      return String(g || s || '');
     }
     return String(r[c.key] == null ? '' : r[c.key]).trim();
   }
@@ -1048,13 +1048,6 @@
       case 'textarea': return txtCell(r, c.key, true);
       case 'comment':  return txtCell(r, 'Комментарий', true);
       case 'doc':      return docCell(r);
-      case 'gate': {
-        const g = r['Gate'], s = r['Sprint'];
-        if (String(g || '') !== '' && String(s || '') !== '') return esc(`${s} / ${g}`);
-        if (String(g || '') !== '') return txtCell(r, 'Gate');
-        if (String(s || '') !== '') return txtCell(r, 'Sprint');
-        return '<span class="no-link">—</span>';
-      }
       case 'links':    return linksCell(r);
       case 'relin':    return relCell(edgesIn[r._rowIndex], 'in');
       case 'relout':   return relCell(edgesOut[r._rowIndex], 'out');
@@ -1228,8 +1221,8 @@
           <div class="hc-field"><label>Ответственный</label>${selCell(r, 'Ответственный', appData.options.employees, true)}</div>
           <div class="hc-field"><label>Старт</label>${txtCell(r, 'Старт')}</div>
           <div class="hc-field"><label>Финиш</label>${txtCell(r, 'Финиш')}</div>
-          <div class="hc-field hc-full"><label>Вход ← от кого</label>${relCell(edgesIn[r._rowIndex], 'in')}</div>
-          <div class="hc-field hc-full"><label>Выход → кому</label>${relCell(edgesOut[r._rowIndex], 'out')}</div>
+          <div class="hc-field hc-full"><label>← Получаем от</label>${relCell(edgesIn[r._rowIndex], 'in')}</div>
+          <div class="hc-field hc-full"><label>→ Передаем</label>${relCell(edgesOut[r._rowIndex], 'out')}</div>
           <div class="hc-field hc-full"><label>Связанные задачи</label><div style="display:flex;flex-wrap:wrap;gap:4px">${linksCell(r)}</div></div>
           <div class="hc-field"><label>Блокер</label>${selCell(r, 'Блокер', appData.options.departments, true)}</div>
           <div class="hc-field hc-full"><label>Комментарий</label>${txtCell(r, 'Комментарий', true)}</div>
@@ -1413,7 +1406,8 @@
       const who = dir === 'in' ? e.from : e.to;
       const when = dir === 'in' ? ('до ' + (e.due || '—')) : ('нужно с ' + (e.need || '—'));
       return `<div class="pv-rel-item">
-        <button class="link-chip" onclick="revealByRow(${idx})"><span>${dir === 'in' ? '←' : '→'} ${esc(nm)}</span></button>
+        <button class="link-chip" ${idx == null ? '' : `onclick="revealByRow(${idx})"`}><span>${idx == null ? '👤' : (dir === 'in' ? '←' : '→')} ${esc(nm)}</span></button>
+        ${(dir === 'in' ? e.srcLevel : e.dstLevel) ? `<span class="ex-sub">${esc(dir === 'in' ? e.srcLevel : e.dstLevel)}</span>` : ''}
         <b>${esc(peopleStr(who))}</b> · ${esc(when)} ${stBadge(e.state)}
         <div class="info">${e.info ? '📨 ' + esc(e.info) : '<i>информация не описана</i>'}${e.reason ? ' · ⚠ ' + esc(e.reason) : ''}</div>
       </div>`;
@@ -1432,8 +1426,8 @@
 
     let html = `<table class="pv"><thead><tr>
       <th class="pv-name">Этап / Задача / Под-задача</th><th>Ответственный</th><th>Срок</th><th>Статус</th>
-      <th class="num">Прогресс</th><th class="num" title="Сколько передач информации приходит">← Вход</th>
-      <th class="num" title="Сколько передач информации уходит дальше">→ Выход</th>
+      <th class="num">Прогресс</th><th class="num" title="Сколько передач информации приходит">← Получаем</th>
+      <th class="num" title="Сколько передач информации уходит дальше">→ Передаем</th>
       <th class="num" title="Задач, которые ждут чужую информацию">⛔ Блокеры</th>
       <th class="num" title="Задач, от завершения которых зависят другие">⚡ Триггеры</th></tr></thead><tbody>`;
 
@@ -1472,8 +1466,8 @@
 
       if (pvRel[key] && (ei.length || eo.length)) {
         html += `<tr class="pv-rel"><td colspan="9"><div class="pv-rel-box">
-          <div><h4>← Вход: что приходит и от кого</h4>${pvRelList(ei, 'in')}</div>
-          <div><h4>→ Выход: что передаётся дальше и кому</h4>${pvRelList(eo, 'out')}</div>
+          <div><h4>← Получаем: что приходит и от кого</h4>${pvRelList(ei, 'in')}</div>
+          <div><h4>→ Передаем: что уходит дальше и кому</h4>${pvRelList(eo, 'out')}</div>
         </div></td></tr>`;
       }
       if (open) kids.forEach(render);
@@ -1482,7 +1476,7 @@
     (childrenMap['R'] || []).forEach(render);
     html += '</tbody></table>';
     if (!edges.length) {
-      html = '<div class="warn-box">Связей пока нет: заполните в листе «Таблица» столбцы «Вход (ID)» / «Выход (ID)» (ID задач через «;»).</div>' + html;
+      html = '<div class="warn-box">Связей пока нет: заполните в листе «Таблица» столбцы «ID Связи», «От кого получаем инф.» / «Кому передаем инф.» (ID задач/этапов или ФИО через «;»).</div>' + html;
     }
     c.innerHTML = html;
   }
@@ -1499,9 +1493,10 @@
     renderExchange();
   }
 
-  function exTaskCell(idx, name, stage) {
+  function exTaskCell(idx, name, stage, level) {
+    if (idx == null) return `<span>👤 ${esc(name)}</span><div class="ex-sub">вне задач таблицы</div>`;
     return `<button class="link-chip" onclick="revealByRow(${idx})" title="${esc(name)}"><span>${esc(name)}</span></button>` +
-      (stage ? `<div class="ex-sub">${esc(stage)}</div>` : '');
+      `<div class="ex-sub">${esc([level, stage && stage !== name ? stage : ''].filter(Boolean).join(' · '))}</div>`;
   }
 
   // mode: 'in' — мне поступает, 'out' — я передаю, 'all' — общий список
@@ -1519,8 +1514,8 @@
       const infoFull = info + (e.infoOut && e.infoIn && e.infoOut !== e.infoIn
         ? `<div class="ex-sub">Получатель ожидает: ${esc(e.infoIn)}</div>` : '') +
         (e.reason ? `<div class="ex-sub" style="color:#b91c1c">⚠ ${esc(e.reason)}</div>` : '');
-      const src = exTaskCell(e.srcRow, e.srcName, e.srcStage);
-      const dst = exTaskCell(e.dstRow, e.dstName, e.dstStage);
+      const src = exTaskCell(e.srcRow, e.srcName, e.srcStage, e.srcLevel);
+      const dst = exTaskCell(e.dstRow, e.dstName, e.dstStage, e.dstLevel);
       const dates = `<td>${esc(e.due || '—')}</td><td>${esc(e.need || '—')}</td><td>${stBadge(e.state)}</td>`;
       if (mode === 'in') {
         return `<tr><td>${esc(peopleStr(e.from))}</td><td>${infoFull}</td><td>${src}</td><td>${dst}</td>${dates}
@@ -1557,7 +1552,7 @@
     document.getElementById('ex-info').textContent = `Всего передач: ${edges.length}`;
 
     if (!edges.length) {
-      root.innerHTML = html + '<div class="empty-note">Передач информации нет.<br>Заполните в листе «Таблица» столбцы «Вход (ID)» (от каких задач приходит информация) и/или «Выход (ID)» (каким задачам передаётся результат).</div>';
+      root.innerHTML = html + '<div class="empty-note">Передач информации нет.<br>Заполните в листе «Таблица» столбцы «ID Связи» (зависимость от других задач/этапов), «От кого получаем инф.» и «Кому передаем инф.» (ID или ФИО), а в «Результат» — что именно передаётся.</div>';
       return;
     }
     if (exPerson) {
@@ -1598,9 +1593,9 @@
   let ganttTasks = []; // текущие отрисованные задачи (для тултипов и кликов)
 
   // Блокеры и триггеры задачи.
-  //  Блокер  (⛔) — задача не готова, и её тормозит: (а) информация, которую не передали из «Вход (ID)»,
+  //  Блокер  (⛔) — задача не готова, и её тормозит: (а) информация, которую не передали (связи «ID Связи» / «От кого получаем инф.»),
   //                 (б) заполненные поля «Блокер» / «Кем заблок.».
-  //  Триггер (⚡) — задача не готова, а от её результата («Выход (ID)») ждут другие задачи.
+  //  Триггер (⚡) — задача не готова, а от её результата («Результат», «Кому передаем инф.») ждут другие задачи/этапы.
   //                 Красный триггер — кто-то уже ждёт (просрочка или получатель стартовал).
   function taskFlags(r) {
     const res = { blk: [], blockers: [], trg: [], crit: false };
