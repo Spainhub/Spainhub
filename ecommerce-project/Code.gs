@@ -252,6 +252,22 @@ function buildExchange_(rows) {
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const map = {};
+
+  // «Результат» строк человека, который передаёт информацию (если у него нет своей строки-источника):
+  // сначала строки, где он указал получателя по ID, затем строки того же этапа
+  function personResult_(person, dstRow) {
+    const pl = String(person || '').toLowerCase();
+    if (!pl || !dstRow) return '';
+    const same = n => { const x = n.toLowerCase(); return x === pl || x.indexOf(pl) === 0 || pl.indexOf(x) === 0; };
+    const cands = rows.filter(x => x !== dstRow && String(x['Результат'] || '').trim() && rowPeople_(x).some(same));
+    if (!cands.length) return '';
+    const did = rowId_(dstRow).toLowerCase();
+    let pick = cands.filter(x => splitTokens_(x['Кому передаем инф.']).some(t => t.toLowerCase().split(/\s+/).indexOf(did) >= 0));
+    if (!pick.length) pick = cands.filter(x => x['Этап'] && x['Этап'] === dstRow['Этап']);
+    const vals = [];
+    pick.forEach(x => { const v = String(x['Результат']).trim(); if (vals.indexOf(v) < 0) vals.push(v); });
+    return vals.join('; ');
+  }
   const warnings = [];
 
   // src/dst — строка или null; srcName/dstName — ФИО (если конец связи — человек)
@@ -304,7 +320,8 @@ function buildExchange_(rows) {
       reason = `источник заканчивает ${s['Финиш']}, а получателю нужно с ${d['Старт']}`;
     }
 
-    const result = s ? String(s['Результат'] || '').trim() : '';
+    // «Результат» источника; если источник — человек вне таблицы, берём «Результат» его строк
+    const result = s ? String(s['Результат'] || '').trim() : personResult_(e.srcPerson, d);
     return {
       key: k,
       declared: Object.keys(e.how).join('+'),

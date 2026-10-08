@@ -386,6 +386,14 @@
     .g-sband.alt { background: rgba(148, 163, 184, .04); }
     .g-sline { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed #c3c9d3; pointer-events: none; }
     .g-legend-plan { color: #9ca3af; }
+    .ex-result { white-space: pre-wrap; }
+    /* плановые даты задач — светло-серые маркеры */
+    .g-plan { position: absolute; height: 22px; display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: #9ca3af; z-index: 10; pointer-events: auto; cursor: default; white-space: nowrap; }
+    .g-plan i { width: 8px; height: 8px; background: #fff; border: 2px solid #b4bbc7; transform: rotate(45deg); flex-shrink: 0; }
+    .g-plan b { width: 8px; height: 8px; border-radius: 50%; background: #fff; border: 2px solid #b4bbc7; flex-shrink: 0; }
+    .g-plan.beg { width: 46px; justify-content: flex-end; }
+    .g-sdate { position: absolute; top: 5px; font-style: normal; font-size: 10px; font-weight: 700; color: #9ca3af; white-space: nowrap; pointer-events: none; }
+    .g-stage.fut { background: #e7eaef; }
 
     /* ===== Визуальная полировка ===== */
     body { background: linear-gradient(180deg, #f8fafc 0%, #f1f4f9 100%); background-attachment: fixed; }
@@ -514,7 +522,7 @@
           <option value="month">Месяцы</option>
         </select>
         <label class="g-chk"><input type="checkbox" id="g-links" checked onchange="renderGantt()"> Стрелки связей</label>
-        <label class="g-chk"><input type="checkbox" id="g-stages" checked onchange="renderGantt()"> Плановые этапы</label>
+        <label class="g-chk"><input type="checkbox" id="g-stages" checked onchange="renderGantt()"> Плановые даты</label>
         <label class="g-slider" title="Расстояние между строками (вехами) по вертикали">Интервал строк
           <input type="range" id="g-rowh" min="36" max="120" step="4" value="36" oninput="ganttSlider()"><b id="g-rowh-v">36</b></label>
         <label class="g-slider" title="Растяжение шкалы времени по горизонтали">Ширина шкалы
@@ -526,7 +534,7 @@
         <span class="g-legend">
           <span>⛔ <b>Блокер</b> — задача стоит, кто/что мешает указано рядом</span>
           <span>⚡ <b>Триггер</b> — от её завершения зависят другие (красный — уже ждут)</span>
-          <span class="g-legend-plan">◆ ┆ плановые этапы (серый пунктир)</span>
+          <span class="g-legend-plan">◆ ┆ плановые даты и этапы (серый пунктир, ◆ — будущая дата)</span>
           <span style="color:#dc2626">━▶ ждёт</span><span style="color:#d97706">━▶ риск срока</span><span style="color:#6b7280">━▶ в плане</span>
         </span>
         <span id="g-info" style="margin-left:auto;font-size:12px;color:var(--text2)"></span>
@@ -1661,9 +1669,8 @@
         ? ['Кому', 'Что я передаю', 'Из моей задачи', 'В задачу', 'Передать до', 'Нужно к', 'Статус']
         : ['Кто передаёт', 'Что передаёт', 'Кому', 'Из задачи', 'В задачу', 'Передать до', 'Нужно к', 'Статус'];
     const rows = list.map(e => {
-      const info = e.info ? esc(e.info) : '<i class="no-link">не описано</i>';
-      const infoFull = info + (e.infoOut && e.infoIn && e.infoOut !== e.infoIn
-        ? `<div class="ex-sub">Получатель ожидает: ${esc(e.infoIn)}</div>` : '') +
+      const info = e.info ? `<div class="ex-result">${esc(e.info).replace(/\n/g, '<br>')}</div>` : '<i class="no-link">«Результат» не заполнен</i>';
+      const infoFull = info +
         (e.reason ? `<div class="ex-sub" style="color:#b91c1c">⚠ ${esc(e.reason)}</div>` : '');
       const src = exTaskCell(e.srcRow, e.srcName, e.srcStage, e.srcLevel);
       const dst = exTaskCell(e.dstRow, e.dstName, e.dstStage, e.dstLevel);
@@ -1889,6 +1896,9 @@
       stages.sort((a, b) => a.start - b.start);
     }
     const SH = stages.length ? 24 : 0;   // высота полосы этапов
+    const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+    const fmtShort = d => String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0');
+    const daysTo = d => Math.round((d - todayD) / 86400000);
 
     const minD = new Date(Math.min(...tasks.map(t => t.start.getTime()), ...stages.map(t => t.start.getTime())));
     const maxD = new Date(Math.max(...tasks.map(t => t.end.getTime()), ...stages.map(t => t.end.getTime())));
@@ -1971,7 +1981,20 @@
         const who = t.blockers.join(', ') || 'причина указана';
         mk += `<div class="g-pill blk" data-gi="${i}" data-kind="blk">⛔ Блокер: ${esc(who.length > 38 ? who.substring(0, 37) + '…' : who)}</div>`;
       }
-      if (mk) barsH += `<div class="g-mk" style="left:${p.right + 6}px;top:${top - 0}px">${mk}</div>`;
+      // Плановые даты (серые): будущий финиш — справа от полосы, будущий старт — слева
+      let planW = 0;
+      if (showStages) {
+        if (t.end > todayD) {
+          const n = daysTo(t.end);
+          barsH += `<div class="g-plan fin" style="left:${p.right + 5}px;top:${top}px" title="План: завершение ${esc(fmtDate(t.end))} (через ${n} дн.)"><i></i>${fmtShort(t.end)}</div>`;
+          planW = 50;
+        }
+        if (t.start > todayD) {
+          const n = daysTo(t.start);
+          barsH += `<div class="g-plan beg" style="left:${Math.max(0, p.left - 50)}px;top:${top}px" title="План: старт ${esc(fmtDate(t.start))} (через ${n} дн.)">${fmtShort(t.start)}<b></b></div>`;
+        }
+      }
+      if (mk) barsH += `<div class="g-mk" style="left:${p.right + 6 + planW}px;top:${top - 0}px">${mk}</div>`;
     });
 
     // Стрелки зависимостей (передача информации): красная — ждут, жёлтая — риск срока
@@ -2006,7 +2029,10 @@
       const x1 = xOf(g.start), x2 = xOf(nextDay(g.end)), w = Math.max(6, x2 - x1);
       const label = (g.num ? g.num + ' ' : '') + g.name;
       const tip = `${label}: план ${fmtDate(g.start)} — ${fmtDate(g.end)}`;
-      stripH += `<div class="g-stage" style="left:${x1}px;width:${w}px" title="${esc(tip)}"><span>${esc(label)}</span></div>` +
+      const futEnd = g.end > todayD, futBeg = g.start > todayD;
+      stripH += `<div class="g-stage${futEnd ? ' fut' : ''}" style="left:${x1}px;width:${w}px" title="${esc(tip)}"><span>${esc(label)}</span></div>` +
+        (futBeg ? `<em class="g-sdate" style="left:${x1 - 38}px;width:30px;text-align:right">${fmtShort(g.start)}</em>` : '') +
+        (futEnd ? `<em class="g-sdate" style="left:${x1 + w + 8}px">${fmtShort(g.end)}</em>` : '') +
         `<i class="g-sdot" style="left:${x1 - 4}px" title="Плановый старт: ${esc(fmtDate(g.start))}"></i>` +
         `<i class="g-sdia" style="left:${x1 + w - 5}px" title="Плановое завершение этапа: ${esc(fmtDate(g.end))}"></i>`;
       bandsH += `<div class="g-sband${k % 2 ? ' alt' : ''}" style="left:${x1}px;width:${w}px"></div>` +
