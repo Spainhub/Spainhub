@@ -338,12 +338,50 @@
     .g-links { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 8; overflow: visible; }
     .g-tip .tip-blk { color: #fca5a5; font-weight: 700; }
     .g-tip .tip-trg { color: #fcd34d; font-weight: 700; }
+    /* ===== Заголовок: выбор проекта ===== */
+    .proj-pick { position: relative; display: flex; align-items: center; gap: 6px; }
+    .proj-pick h1 { cursor: default; }
+    .proj-arrow { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--border); background: var(--card); color: var(--text2); border-radius: 8px; cursor: pointer; transition: all .15s; }
+    .proj-arrow:hover, .proj-arrow.open { color: var(--blue); border-color: var(--blue); background: #eff6ff; }
+    .proj-arrow svg { transition: transform .15s; }
+    .proj-arrow.open svg { transform: rotate(180deg); }
+    .proj-menu { display: none; position: absolute; top: 100%; left: 0; margin-top: 6px; z-index: 300; min-width: 240px; max-height: 320px; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.15); padding: 6px; }
+    .proj-menu.open { display: block; }
+    .proj-item { display: block; width: 100%; text-align: left; border: none; background: transparent; padding: 8px 10px; border-radius: 6px; font-size: 14px; font-family: inherit; color: var(--text); cursor: pointer; }
+    .proj-item:hover { background: var(--bg); }
+    .proj-item.on { background: #eff6ff; color: var(--blue); font-weight: 600; }
+
+    /* ===== Легенда, подвал, документ ===== */
+    .legend { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 11px; color: var(--text2); margin-bottom: 10px; flex-shrink: 0; }
+    .legend .rel-chip { cursor: default; max-width: none; white-space: nowrap; }
+    .legend-note { margin-left: auto; }
+    .doc-text { font-size: 12px; color: var(--text2); }
+    .app-footer { flex-shrink: 0; text-align: center; font-size: 11px; color: #b6bbc4; padding: 6px 0 10px; letter-spacing: .02em; }
+
+    /* ===== Канбан: прокрутка вниз ===== */
+    #kanban-board { flex: 1; min-height: 0; overflow-y: auto; align-content: start; padding-bottom: 12px; -webkit-overflow-scrolling: touch; }
+
+    /* ===== Закреплённые 3 первых столбца (guide, №, Название) ===== */
+    th.col-guide, td.col-guide, th.col-num, td.col-num, th.col-name, td.col-name { position: -webkit-sticky; position: sticky; }
+    td.col-name, th.col-name { border-right: 1px solid var(--border); }
+
+    /* ===== Гант: ползунки ===== */
+    .g-slider { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text2); }
+    .g-slider input[type=range] { width: 110px; accent-color: var(--blue); }
+    .g-slider b { min-width: 34px; color: var(--text); font-weight: 600; }
+    .g-num { color: var(--text2); font-variant-numeric: tabular-nums; margin-right: 6px; font-weight: 500; }
   </style>
 </head>
 <body>
 <div class="app">
   <div class="header">
-    <h1>E-commerce Project 1.0</h1>
+    <div class="proj-pick" id="proj-pick">
+      <h1 id="proj-title" onclick="toggleProjMenu(event)">E-commerce Project 1.0</h1>
+      <button class="proj-arrow" id="proj-arrow" style="display:none" onclick="toggleProjMenu(event)" title="Выбрать проект" aria-label="Выбрать проект">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="proj-menu" id="proj-menu"></div>
+    </div>
     <button class="btn" onclick="refreshData()">↻ Обновить</button>
   </div>
 
@@ -351,7 +389,7 @@
 
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('hier', this)">Таблица</button>
-    <button class="tab-btn" onclick="switchTab('pivot', this)">Сводная связей</button>
+    <button class="tab-btn" onclick="switchTab('pivot', this)">Связи</button>
     <button class="tab-btn" onclick="switchTab('exch', this)">Обмен</button>
     <button class="tab-btn" onclick="switchTab('kanban', this)">Канбан</button>
     <button class="tab-btn" onclick="switchTab('gantt', this)">График Ганта</button>
@@ -368,6 +406,15 @@
         </div>
         <button class="tool-btn" id="btn-clear-filters" style="display:none" onclick="clearAllFilters()">✕ Сбросить фильтры</button>
         <span style="font-size:11px;color:var(--text2);margin-left:auto">Фильтр — клик по заголовку · ширина — тянем за край заголовка</span>
+      </div>
+      <div class="legend" id="rel-legend">
+        <b>Цвета связей:</b>
+        <span class="rel-chip">← / → в плане</span>
+        <span class="rel-chip st-risk">риск срока</span>
+        <span class="rel-chip st-blocking">блокирует / уже ждут</span>
+        <span class="rel-chip st-done">передано</span>
+        <span class="rel-chip">👤 человек или отдел вне таблицы</span>
+        <span class="legend-note">← получаем от · → передаем</span>
       </div>
       <div class="table-wrap" id="hier-table"><div class="loader">Загрузка...</div></div>
       <div class="hier-cards" id="hier-cards"></div>
@@ -398,7 +445,6 @@
           <option value="planned">Запланировано</option>
           <option value="done">Передано</option>
         </select>
-        <button class="tool-btn" onclick="writeExchangeSheet()">📋 Записать в лист «Обмен»</button>
         <span id="ex-info" style="margin-left:auto;font-size:12px;color:var(--text2)"></span>
       </div>
       <div class="ex-root" id="ex-root"><div class="loader">Загрузка...</div></div>
@@ -419,6 +465,10 @@
           <option value="month">Месяцы</option>
         </select>
         <label class="g-chk"><input type="checkbox" id="g-links" checked onchange="renderGantt()"> Стрелки связей</label>
+        <label class="g-slider" title="Расстояние между строками (вехами) по вертикали">Интервал строк
+          <input type="range" id="g-rowh" min="36" max="120" step="4" value="36" oninput="ganttSlider()"><b id="g-rowh-v">36</b></label>
+        <label class="g-slider" title="Растяжение шкалы времени по горизонтали">Ширина шкалы
+          <input type="range" id="g-hk" min="50" max="300" step="10" value="100" oninput="ganttSlider()"><b id="g-hk-v">100%</b></label>
         <select id="g-focus" onchange="renderGantt()">
           <option value="">Все задачи</option>
           <option value="issues">Только блокеры и триггеры</option>
@@ -434,6 +484,7 @@
     </div>
   </div>
 </div>
+<footer class="app-footer">CapProject 2026-2027</footer>
 
 <!-- Всплывающая подсказка Ганта -->
 <div class="g-tip" id="g-tip"></div>
@@ -460,7 +511,7 @@
     { key: 'Информируемые',     render: 'text',      def: false },
     { key: 'Старт',             render: 'date',      def: true },
     { key: 'Финиш',             render: 'date',      def: true },
-    { key: '__LINKS__',          render: 'links',     label: 'ID Связи (иерархия)', def: false },
+    { key: '__LINKS__',          render: 'links',     label: 'Связанные задачи', def: false },
     { key: 'Блокер',            render: 'blocker',   def: true },
     { key: 'Кем заблок.',       render: 'text',      def: false },
     { key: 'С какого числа',    render: 'date',      def: false },
@@ -468,9 +519,6 @@
     { key: '__IN__',            render: 'relin',     label: '← Получаем от', def: true },
     { key: '__OUT__',           render: 'relout',    label: '→ Передаем', def: true },
     { key: 'Результат',         render: 'textarea',  def: true },
-    { key: 'От кого получаем инф.', render: 'textarea', def: false },
-    { key: 'Кому передаем инф.',    render: 'textarea', def: false },
-    { key: 'ID Связи',          render: 'text',      def: false },
     { key: 'Документ',          render: 'doc',       def: false },
   ];
   // Служебные колонки (ID, ID Связи) скрыты в веб-приложении:
@@ -517,6 +565,42 @@
   }
 
   // silent = true — перезагрузка данных без «Загрузка…» (после правок на вкладке «Обмен»)
+  // === ПРОЕКТЫ (колонка «Проекты» листа «Справочник») ===
+  let curProject = '';
+  try { curProject = localStorage.getItem('project') || ''; } catch (e) {}
+  function renderProjects() {
+    const list = (appData.options && appData.options.projects) || [];
+    const title = document.getElementById('proj-title');
+    const arrow = document.getElementById('proj-arrow');
+    const menu = document.getElementById('proj-menu');
+    if (!list.length) { arrow.style.display = 'none'; return; }
+    if (list.indexOf(curProject) === -1) curProject = list[0];
+    title.textContent = curProject;
+    title.style.cursor = 'pointer';
+    arrow.style.display = '';
+    menu.innerHTML = list.map(p => `<button class="proj-item${p === curProject ? ' on' : ''}" data-p="${esc(p)}">${esc(p)}</button>`).join('');
+  }
+  function toggleProjMenu(ev) {
+    ev.stopPropagation();
+    const menu = document.getElementById('proj-menu');
+    if (!menu.children.length) return;
+    const open = menu.classList.toggle('open');
+    document.getElementById('proj-arrow').classList.toggle('open', open);
+  }
+  function closeProjMenu() {
+    document.getElementById('proj-menu').classList.remove('open');
+    document.getElementById('proj-arrow').classList.remove('open');
+  }
+  document.getElementById('proj-menu').addEventListener('click', ev => {
+    const b = ev.target.closest('.proj-item');
+    if (!b) return;
+    curProject = b.dataset.p;
+    try { localStorage.setItem('project', curProject); } catch (e) {}
+    closeProjMenu();
+    refreshData();
+  });
+  document.addEventListener('click', closeProjMenu);
+
   function refreshData(silent) {
     silent = silent === true;
     const hier = document.getElementById('hier-table');
@@ -545,6 +629,10 @@
             }
             debug.style.display = 'none';
             appData = data;
+            const requested = curProject;
+            renderProjects();
+            // проект по умолчанию выбран уже после ответа — перезагружаем с фильтром (только если есть колонка «Проект»)
+            if (curProject !== requested && data.headers.indexOf('Проект') >= 0) { refreshData(true); return; }
             buildRelations();
             renderHier();
             renderPivot();
@@ -556,7 +644,7 @@
             debug.style.display = 'block';
             debug.innerHTML = `<span class="err">❌ Ошибка: ${esc(err.message)}</span>`;
           })
-          .getProjectData();
+          .getProjectData(curProject);
       })
       .withFailureHandler(err => {
         debug.style.display = 'block';
@@ -647,7 +735,26 @@
       (childrenMap[p] = childrenMap[p] || []).push(r);
     });
     Object.keys(childrenMap).forEach(k => childrenMap[k].sort(numCmp));
+    computeStructNums();
     buildEdgeIndex();
+  }
+
+  // Структурная нумерация: из колонки «№», а если её нет — по порядку в иерархии (1, 1.1, 1.2.1 …)
+  let structNums = {};
+  function computeStructNums() {
+    structNums = {};
+    if (treeMode) { appData.rows.forEach(r => { structNums[r._rowIndex] = normNum(r._num); }); return; }
+    const seen = new Set();
+    (function walk(list, prefix) {
+      list.forEach((r, i) => {
+        const k = rowKey(r);
+        if (seen.has(k)) return;
+        seen.add(k);
+        const n = prefix ? prefix + '.' + (i + 1) : String(i + 1);
+        structNums[r._rowIndex] = n;
+        walk(childrenMap[k] || [], n);
+      });
+    })(childrenMap['R'] || [], '');
   }
 
   // Порядок строк: по «№» (родитель перед потомками), иначе по порядку строк листа
@@ -798,18 +905,15 @@
     if (r && String(r[col] || '').trim() === nv) return; // значение не изменилось
     upd(idx, col, nv);
   }
+  // «Документ»: кликабельная ссылка, добавленная в Google Таблице (без редактирования в веб-версии)
   function docCell(r) {
-    const v = String(r['Документ'] || '').trim();
-    if (!v) return txtCell(r, 'Документ');
-    // Google Таблица может хранить ссылку как текст "Текст (https://...)" — выделяем URL
-    let url = null;
-    const m = v.match(/https?:\/\/[^\s)]+/i);
-    if (m) url = m[0];
-    if (url) {
-      const label = v.replace(url, '').replace(/[()\s]+$/g, '').trim() || 'Открыть документ';
-      return `<a class="doc-link" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(url)}">📎 ${esc(label)}</a>`;
+    const url = String(r._docUrl || '').trim();
+    const text = String(r['Документ'] || '').trim();
+    if (/^https?:\/\//i.test(url)) {
+      const label = text && text !== url ? text : 'Открыть документ';
+      return `<a class="doc-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="${esc(url)}">📎 ${esc(label)}</a>`;
     }
-    return txtCell(r, 'Документ');
+    return text ? `<span class="doc-text">${esc(text)}</span>` : '<span class="no-link">—</span>';
   }
 
   // === ФИЛЬТРЫ СТОЛБЦОВ ===
@@ -1505,7 +1609,7 @@
     const dueCmp = (a, b) => ((parseRuDate(a.due) || 0) - (parseRuDate(b.due) || 0)) || a.srcName.localeCompare(b.srcName, 'ru');
     list = list.slice().sort(dueCmp);
     const head = mode === 'in'
-      ? ['От кого', 'Что мне передают', 'Из задачи', 'В мою задачу', 'Передать до', 'Нужно к', 'Статус', 'Получено']
+      ? ['От кого', 'Что мне передают', 'Из задачи', 'В мою задачу', 'Передать до', 'Нужно к', 'Статус']
       : mode === 'out'
         ? ['Кому', 'Что я передаю', 'Из моей задачи', 'В задачу', 'Передать до', 'Нужно к', 'Статус']
         : ['Кто передаёт', 'Что передаёт', 'Кому', 'Из задачи', 'В задачу', 'Передать до', 'Нужно к', 'Статус'];
@@ -1518,8 +1622,7 @@
       const dst = exTaskCell(e.dstRow, e.dstName, e.dstStage, e.dstLevel);
       const dates = `<td>${esc(e.due || '—')}</td><td>${esc(e.need || '—')}</td><td>${stBadge(e.state)}</td>`;
       if (mode === 'in') {
-        return `<tr><td>${esc(peopleStr(e.from))}</td><td>${infoFull}</td><td>${src}</td><td>${dst}</td>${dates}
-          <td><input type="checkbox" ${e.received ? 'checked' : ''} title="Подтвердить получение" onchange="markReceived(${e._i}, this.checked)"></td></tr>`;
+        return `<tr><td>${esc(peopleStr(e.from))}</td><td>${infoFull}</td><td>${src}</td><td>${dst}</td>${dates}</tr>`;
       }
       if (mode === 'out') {
         return `<tr><td>${esc(peopleStr(e.to))}</td><td>${infoFull}</td><td>${src}</td><td>${dst}</td>${dates}</tr>`;
@@ -1564,29 +1667,6 @@
     root.innerHTML = html;
   }
 
-  function markReceived(i, val) {
-    const e = edges[i];
-    if (!e) return;
-    google.script.run
-      .withSuccessHandler(r => {
-        if (r && r.success === false) { showMsg('❌ Не сохранено: ' + esc(r.message), true); return; }
-        refreshData(true);
-      })
-      .withFailureHandler(err => showMsg('❌ ' + esc(err.message), true))
-      .setExchangeReceived(e.key, !!val);
-  }
-
-  function writeExchangeSheet() {
-    showMsg('Обновляю лист «Обмен»…');
-    google.script.run
-      .withSuccessHandler(r => {
-        if (r && r.success) { showMsg(`✅ Лист «Обмен» обновлён: ${r.count} передач(и)`); refreshData(true); }
-        else showMsg('❌ ' + esc((r && r.message) || 'Ошибка'), true);
-      })
-      .withFailureHandler(err => showMsg('❌ ' + esc(err.message), true))
-      .refreshExchangeSheet();
-  }
-
   // ============================================================
   // ГАНТ: подсказки, триггеры и блокеры
   // ============================================================
@@ -1629,7 +1709,7 @@
         t.trg.map(e => `• ${esc(e.dstName)} (${esc(peopleStr(e.to))})${e.info ? ' — ' + esc(e.info) : ''}${e.state === 'blocking' ? ' — <b>уже ждёт</b>' : ''}`).join('<br>');
       if (t.crit && !t.blk.length) extra += '<br><b>Первопричина задержки цепочки</b>';
     }
-    tip.innerHTML = `<b>${esc(t.name)}</b><br>` +
+    tip.innerHTML = `<b>${t.num ? esc(t.num) + ' ' : ''}${esc(t.name)}</b><br>` +
       `👤 Ответственные: <span class="tip-resp">${esc(resp || 'не назначен')}</span><br>` +
       `📅 ${fmtDate(t.start)} — ${fmtDate(t.end)} · Прогресс: ${t.progress}%<br>` +
       `Статус: ${esc(t.status)}${t.stage ? '<br>Этап: ' + esc(t.stage) : ''}${extra}`;
@@ -1717,6 +1797,9 @@
   function renderGantt() {
     const root = document.getElementById('gantt-root');
     const zoom = document.getElementById('g-zoom').value;
+    const hk = Math.max(0.5, (+document.getElementById('g-hk').value || 100) / 100);
+    const prevTime = root.querySelector('.gantt-time');
+    const prevScroll = prevTime ? { l: prevTime.scrollLeft, t: prevTime.scrollTop } : null;
     const showLinks = document.getElementById('g-links').checked;
     const focus = document.getElementById('g-focus').value;
     const rows = appData.rows.filter(r => r['Этап'] || r['Задача'] || r['Под-задача']).slice().sort(numCmp);
@@ -1729,7 +1812,7 @@
       const fl = taskFlags(r);
       if (focus === 'issues' && !fl.blk.length && !fl.trg.length) return;
       tasks.push({
-        name: getRowName(r), lvl: getDisplayLevel(r), start, end,
+        name: getRowName(r), num: structNums[r._rowIndex] || '', lvl: getDisplayLevel(r), start, end,
         status: r['Статус'] || 'Планируется',
         progress: parseInt(r['Прогресс']) || 0,
         resp: String(r['Ответственный'] || '').trim(),
@@ -1754,11 +1837,11 @@
 
     const DAY = 86400000;
     function xOf(d) {
-      if (zoom === 'day') return Math.round((d - orig) / DAY) * 30;
-      if (zoom === 'week') return Math.round((d - orig) / DAY) / 7 * 60;
+      if (zoom === 'day') return Math.round((d - orig) / DAY) * 30 * hk;
+      if (zoom === 'week') return Math.round((d - orig) / DAY) / 7 * 60 * hk;
       const mi = (d.getFullYear() - orig.getFullYear()) * 12 + d.getMonth() - orig.getMonth();
       const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-      return (mi + (d.getDate() - 1) / dim) * 100;
+      return (mi + (d.getDate() - 1) / dim) * 100 * hk;
     }
     const nextDay = d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; };
 
@@ -1766,26 +1849,26 @@
     const mNames = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
     if (zoom === 'day') {
       for (let c = new Date(orig); c <= maxD; c.setDate(c.getDate() + 1)) {
-        cells.push({ label: c.getDate() + '.' + (c.getMonth() + 1), w: 30, we: c.getDay() === 0 || c.getDay() === 6 });
+        cells.push({ label: c.getDate() + '.' + (c.getMonth() + 1), w: 30 * hk, we: c.getDay() === 0 || c.getDay() === 6 });
       }
     } else if (zoom === 'week') {
       for (let c = new Date(orig); c <= maxD; c.setDate(c.getDate() + 7)) {
-        cells.push({ label: c.getDate() + '.' + (c.getMonth() + 1), w: 60, we: false });
+        cells.push({ label: c.getDate() + '.' + (c.getMonth() + 1), w: 60 * hk, we: false });
       }
     } else {
       for (let c = new Date(orig); c <= maxD; c.setMonth(c.getMonth() + 1)) {
-        cells.push({ label: mNames[c.getMonth()] + ' ' + c.getFullYear(), w: 100, we: false });
+        cells.push({ label: mNames[c.getMonth()] + ' ' + c.getFullYear(), w: 100 * hk, we: false });
       }
     }
 
     const totalW = cells.reduce((s, c) => s + c.w, 0);
-    const rowH = 36;
+    const rowH = Math.max(36, +document.getElementById('g-rowh').value || 36);
     document.getElementById('g-info').textContent = `${fmtDate(minD)} — ${fmtDate(maxD)} · ${tasks.length} задач`;
 
     let sideH = '<div class="g-row" style="height:36px;background:var(--bg)"></div>';
     tasks.forEach((t, i) => {
       const mk = (t.blk.length ? ' ⛔' : '') + (t.trg.length ? ' ⚡' : '');
-      sideH += `<div class="g-row lvl-${t.lvl}" data-gi="${i}">${esc(t.name)}${mk}</div>`;
+      sideH += `<div class="g-row lvl-${t.lvl}" data-gi="${i}" style="height:${rowH}px">${t.num ? `<span class="g-num">${esc(t.num)}</span>` : ''}${esc(t.name)}${mk}</div>`;
     });
 
     const headH = cells.map(c => `<div class="g-cell ${zoom} ${c.we ? 'we' : ''}" style="width:${c.w}px">${c.label}</div>`).join('');
@@ -1801,11 +1884,11 @@
 
     let barsH = '';
     tasks.forEach((t, i) => {
-      const p = pos[i], top = i * rowH + 7;
+      const p = pos[i], top = i * rowH + Math.round((rowH - 22) / 2);
       const cls = t.status === 'Готово' ? 'done' : t.status === 'В процессе' ? 'progress' : 'plan';
       barsH += `<div class="g-bar ${cls}${t.blk.length ? ' blocked' : ''}" data-gi="${i}" style="left:${p.left}px;width:${p.width}px;top:${top}px">
         <div class="g-bar-fill" style="width:${t.progress}%"></div>
-        <div class="g-bar-label">${esc(t.name)}</div>
+        <div class="g-bar-label">${t.num ? esc(t.num) + ' ' : ''}${esc(t.name)}</div>
       </div>`;
 
       // ⛔ Блокер: значок на старте бара + плашка «кто/что мешает» справа
@@ -1833,7 +1916,7 @@
       edges.forEach(e => {
         const a = idxByRow[e.srcRow], b = idxByRow[e.dstRow];
         if (a == null || b == null) return;
-        const y1 = a * rowH + 18, y2 = b * rowH + 18;
+        const y1 = a * rowH + rowH / 2, y2 = b * rowH + rowH / 2;
         const x1 = pos[a].right, x2 = pos[b].left;
         const col = G_EDGE_COLOR[e.state] || G_EDGE_COLOR.planned;
         let d;
@@ -1866,7 +1949,7 @@
       <div class="gantt-time">
         <div style="width:${totalW}px">
           <div class="g-header">${headH}</div>
-          <div class="g-bar-wrap" style="position:relative;height:${tasks.length * rowH}px">${todayH}${svg}${barsH}</div>
+          <div class="g-bar-wrap" style="position:relative;height:${tasks.length * rowH}px;background-size:100% ${rowH}px;background-position:0 ${rowH - 1}px">${todayH}${svg}${barsH}</div>
         </div>
       </div>
     </div>`;
@@ -1896,7 +1979,29 @@
       el.addEventListener('click', () => ganttBarClick(+el.dataset.gi));
     });
     bindGanttSync();
+    if (prevScroll) {
+      const nt = root.querySelector('.gantt-time');
+      if (nt) { nt.scrollLeft = prevScroll.l; nt.scrollTop = prevScroll.t; }
+    }
   }
+
+  // Ползунки Ганта: интервал строк и ширина шкалы (значения запоминаются)
+  function ganttSlider() {
+    const rh = document.getElementById('g-rowh'), hk = document.getElementById('g-hk');
+    document.getElementById('g-rowh-v').textContent = rh.value;
+    document.getElementById('g-hk-v').textContent = hk.value + '%';
+    try { localStorage.setItem('ganttRowH', rh.value); localStorage.setItem('ganttHk', hk.value); } catch (e) {}
+    renderGantt();
+  }
+  (function initGanttSliders() {
+    try {
+      const a = localStorage.getItem('ganttRowH'), b = localStorage.getItem('ganttHk');
+      if (a) document.getElementById('g-rowh').value = a;
+      if (b) document.getElementById('g-hk').value = b;
+    } catch (e) {}
+    document.getElementById('g-rowh-v').textContent = document.getElementById('g-rowh').value;
+    document.getElementById('g-hk-v').textContent = document.getElementById('g-hk').value + '%';
+  })();
 
   function upd(idx, col, val) {
     google.script.run.withSuccessHandler(r => {
