@@ -370,6 +370,55 @@
     .g-slider input[type=range] { width: 110px; accent-color: var(--blue); }
     .g-slider b { min-width: 34px; color: var(--text); font-weight: 600; }
     .g-num { color: var(--text2); font-variant-numeric: tabular-nums; margin-right: 6px; font-weight: 500; }
+    /* ===== Панель таблицы и легенда справа от кнопок ===== */
+    .legend { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; color: var(--text2); margin: 0 0 0 4px; padding-left: 12px; border-left: 1px solid var(--border); }
+    .tools-hint { font-size: 11px; color: var(--text2); margin-left: auto; }
+    @media (max-width: 1100px) { .tools-hint { display: none; } }
+
+    /* ===== Гант: плановые этапы (светло-серые) ===== */
+    .g-stage-sp { position: sticky; top: 36px; z-index: 19; background: #f3f4f6 !important; color: #9ca3af; font-size: 10px !important; text-transform: uppercase; letter-spacing: .05em; }
+    .g-stages { position: sticky; top: 36px; z-index: 19; background: #f9fafb; border-bottom: 1px solid var(--border); overflow: hidden; }
+    .g-stage { position: absolute; top: 4px; height: 16px; background: #eceff3; border: 1px dashed #c3c9d3; border-radius: 4px; color: #6b7280; font-size: 10px; font-weight: 600; line-height: 14px; padding: 0 6px; overflow: hidden; white-space: nowrap; }
+    .g-stage span { display: block; overflow: hidden; text-overflow: ellipsis; }
+    .g-sdot { position: absolute; top: 8px; width: 8px; height: 8px; border-radius: 50%; background: #fff; border: 2px solid #b4bbc7; }
+    .g-sdia { position: absolute; top: 7px; width: 10px; height: 10px; background: #fff; border: 2px solid #9ca3af; transform: rotate(45deg); }
+    .g-sband { position: absolute; top: 0; bottom: 0; background: rgba(148, 163, 184, .09); pointer-events: none; }
+    .g-sband.alt { background: rgba(148, 163, 184, .04); }
+    .g-sline { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed #c3c9d3; pointer-events: none; }
+    .g-legend-plan { color: #9ca3af; }
+
+    /* ===== Визуальная полировка ===== */
+    body { background: linear-gradient(180deg, #f8fafc 0%, #f1f4f9 100%); background-attachment: fixed; }
+    .card { box-shadow: 0 1px 3px rgb(16 24 40 / .06), 0 1px 2px rgb(16 24 40 / .04); }
+    .tabs { box-shadow: 0 1px 2px rgb(16 24 40 / .04); }
+    .tab-btn { transition: background .15s, color .15s; display: inline-flex; align-items: center; }
+    .tab-btn:hover { background: rgb(0 0 0 / .04); color: var(--text); }
+    .tab-btn.active { background: #eff6ff; color: var(--blue); font-weight: 600; box-shadow: inset 0 -2px 0 var(--blue); }
+    .tab-badge { background: var(--red); color: #fff; border-radius: 10px; font-size: 10px; font-weight: 700; padding: 1px 6px; margin-left: 6px; }
+    .btn { transition: background .15s, box-shadow .15s; box-shadow: 0 1px 2px rgb(37 99 235 / .3); }
+    .btn:hover { background: #1d4ed8; }
+    .tool-btn { transition: background .15s, color .15s, border-color .15s; }
+    .tool-btn:hover { border-color: #cbd5e1; }
+    button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+    select.inline.sel-done { background: #d1fae5; color: #065f46; border-radius: 12px; font-weight: 500; }
+    select.inline.sel-progress { background: #dbeafe; color: #1e40af; border-radius: 12px; font-weight: 500; }
+    select.inline.sel-plan { background: #fef3c7; color: #92400e; border-radius: 12px; font-weight: 500; }
+    tbody tr.hrow.lvl-1 > td.col-num { box-shadow: inset 3px 0 0 var(--blue); }
+    tbody tr.hrow.lvl-1 .task-name { letter-spacing: .005em; }
+    th { font-size: 12px; letter-spacing: .02em; }
+    .k-card { border-left: 4px solid var(--border); transition: transform .15s, box-shadow .15s; }
+    .k-card.k-done { border-left-color: var(--green); }
+    .k-card.k-progress { border-left-color: var(--blue); }
+    .k-card.k-plan { border-left-color: var(--yellow); }
+    .k-card:hover { box-shadow: 0 6px 14px rgb(16 24 40 / .08); }
+    table.ex tbody tr:nth-child(even) > td, table.pv tbody tr.pv-row:nth-child(even) > td { background-color: #fafbfc; }
+    table.ex tbody tr:hover > td { background: #f1f5fb; }
+    .loader::before { content: ''; display: block; width: 26px; height: 26px; margin: 0 auto 12px; border: 3px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    * { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+    *::-webkit-scrollbar { width: 10px; height: 10px; }
+    *::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+    *::-webkit-scrollbar-thumb:hover { background: #94a3b8; background-clip: content-box; border: 2px solid transparent; }
   </style>
 </head>
 <body>
@@ -390,7 +439,7 @@
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('hier', this)">Таблица</button>
     <button class="tab-btn" onclick="switchTab('pivot', this)">Связи</button>
-    <button class="tab-btn" onclick="switchTab('exch', this)">Обмен</button>
+    <button class="tab-btn" onclick="switchTab('exch', this)">Обмен<span class="tab-badge" id="ex-badge" style="display:none"></span></button>
     <button class="tab-btn" onclick="switchTab('kanban', this)">Канбан</button>
     <button class="tab-btn" onclick="switchTab('gantt', this)">График Ганта</button>
   </div>
@@ -405,16 +454,15 @@
           <div class="col-panel" id="col-panel"></div>
         </div>
         <button class="tool-btn" id="btn-clear-filters" style="display:none" onclick="clearAllFilters()">✕ Сбросить фильтры</button>
-        <span style="font-size:11px;color:var(--text2);margin-left:auto">Фильтр — клик по заголовку · ширина — тянем за край заголовка</span>
-      </div>
-      <div class="legend" id="rel-legend">
-        <b>Цвета связей:</b>
-        <span class="rel-chip">← / → в плане</span>
-        <span class="rel-chip st-risk">риск срока</span>
-        <span class="rel-chip st-blocking">блокирует / уже ждут</span>
-        <span class="rel-chip st-done">передано</span>
-        <span class="rel-chip">👤 человек или отдел вне таблицы</span>
-        <span class="legend-note">← получаем от · → передаем</span>
+        <div class="legend" id="rel-legend" title="Цвет чипов «← Получаем от» и «→ Передаем»">
+          <b>Связи:</b>
+          <span class="rel-chip">в плане</span>
+          <span class="rel-chip st-risk">риск срока</span>
+          <span class="rel-chip st-blocking">блокирует / ждут</span>
+          <span class="rel-chip st-done">передано</span>
+          <span class="rel-chip">👤 вне таблицы</span>
+        </div>
+        <span class="tools-hint">Фильтр — клик по заголовку · ширина — край заголовка</span>
       </div>
       <div class="table-wrap" id="hier-table"><div class="loader">Загрузка...</div></div>
       <div class="hier-cards" id="hier-cards"></div>
@@ -440,6 +488,7 @@
         <select id="ex-person" onchange="setExPerson(this.value)"></select>
         <select id="ex-state" onchange="exState=this.value;renderExchange()">
           <option value="">Любой статус</option>
+          <option value="progress">⏳ В работе</option>
           <option value="blocking">⛔ Блокирует</option>
           <option value="risk">⚠ Риск срока</option>
           <option value="planned">Запланировано</option>
@@ -465,6 +514,7 @@
           <option value="month">Месяцы</option>
         </select>
         <label class="g-chk"><input type="checkbox" id="g-links" checked onchange="renderGantt()"> Стрелки связей</label>
+        <label class="g-chk"><input type="checkbox" id="g-stages" checked onchange="renderGantt()"> Плановые этапы</label>
         <label class="g-slider" title="Расстояние между строками (вехами) по вертикали">Интервал строк
           <input type="range" id="g-rowh" min="36" max="120" step="4" value="36" oninput="ganttSlider()"><b id="g-rowh-v">36</b></label>
         <label class="g-slider" title="Растяжение шкалы времени по горизонтали">Ширина шкалы
@@ -476,6 +526,7 @@
         <span class="g-legend">
           <span>⛔ <b>Блокер</b> — задача стоит, кто/что мешает указано рядом</span>
           <span>⚡ <b>Триггер</b> — от её завершения зависят другие (красный — уже ждут)</span>
+          <span class="g-legend-plan">◆ ┆ плановые этапы (серый пунктир)</span>
           <span style="color:#dc2626">━▶ ждёт</span><span style="color:#d97706">━▶ риск срока</span><span style="color:#6b7280">━▶ в плане</span>
         </span>
         <span id="g-info" style="margin-left:auto;font-size:12px;color:var(--text2)"></span>
@@ -892,7 +943,8 @@
 
   // === РЕДАКТИРУЕМЫЕ ПОЛЯ ===
   function selCell(r, col, list, empty) {
-    return `<select class="inline" onchange="upd(${r._rowIndex},'${col}',this.value)">${buildOpts(list, r[col], empty)}</select>`;
+    const tint = col === 'Статус' ? (r[col] === 'Готово' ? ' sel-done' : r[col] === 'В процессе' ? ' sel-progress' : ' sel-plan') : '';
+    return `<select class="inline${tint}" onchange="upd(${r._rowIndex},'${col}',this.value)">${buildOpts(list, r[col], empty)}</select>`;
   }
   function txtCell(r, col, area) {
     const v = esc(r[col]);
@@ -1163,7 +1215,7 @@
   const NAME_COL = { key: '__NAME__', label: 'Название', render: 'name' };
 
   // Дефолтные ширины служебных колонок (можно менять мышкой — сохранится в colWidths)
-  const GUIDE_W_DEF = 26, NUM_W_DEF = 58, NAME_W_DEF = 260;
+  const NUM_W_DEF = 58, NAME_W_DEF = 260;
 
   function thHtml(col, cls) {
     const key = col.key;
@@ -1190,7 +1242,6 @@
 
   function buildColgroup(activeCols) {
     let cg = '<colgroup>';
-    cg += `<col data-fkey="__GUIDE__" style="width:${colW('__GUIDE__', GUIDE_W_DEF)}px">`;
     cg += `<col data-fkey="__NUM__" style="width:${colW('__NUM__', NUM_W_DEF)}px">`;
     cg += `<col data-fkey="__NAME__" style="width:${colW('__NAME__', NAME_W_DEF)}px">`;
     activeCols.forEach(c => {
@@ -1205,11 +1256,8 @@
   function applyStickyOffsets() {
     const wrap = document.getElementById('hier-table');
     if (!wrap) return;
-    const gL = colW('__GUIDE__', GUIDE_W_DEF);
-    const numL = gL + colW('__NUM__', NUM_W_DEF);
-    const nameL = numL + colW('__NAME__', NAME_W_DEF);
-    wrap.querySelectorAll('th.col-guide, td.col-guide').forEach(el => el.style.left = '0px');
-    wrap.querySelectorAll('th.col-num, td.col-num').forEach(el => el.style.left = gL + 'px');
+    const numL = colW('__NUM__', NUM_W_DEF);
+    wrap.querySelectorAll('th.col-num, td.col-num').forEach(el => el.style.left = '0px');
     wrap.querySelectorAll('th.col-name, td.col-name').forEach(el => el.style.left = numL + 'px');
   }
 
@@ -1272,7 +1320,6 @@
     if (btnCF) btnCF.style.display = anyFilter ? '' : 'none';
 
     let html = `<table>${buildColgroup(activeCols)}<thead><tr>
-      ${fixedTh('col-guide', '__GUIDE__', '')}
       ${fixedTh('col-num', '__NUM__', '№')}
       ${thHtml(NAME_COL, 'col-name')}
       ${activeCols.map(col => thHtml(col, '')).join('')}</tr></thead><tbody>`;
@@ -1297,8 +1344,8 @@
         : `<span class="twisty empty">+</span>`;
       const name = esc(getRowName(r));
       const stage = r['Этап'] && lvl > 1 ? `<div style="font-size:10px;color:var(--text2)">${esc(r['Этап'])}</div>` : '';
-      // Отступ вложенности — через padding ячейки направляющей (без лишних пустых колонок)
-      const guidePad = `<td class="col-guide" style="padding-left:${(lvl - 1) * 14}px"></td>`;
+      // Отступ вложенности — через padding ячейки «Название»
+      const indent = 8 + (lvl - 1) * 16;
       // Номер элемента структуры из колонки «№» листа «Таблица»
       const numHtml = displayNum(r) ? `<span class="row-num">${esc(displayNum(r))}</span>` : '';
       // Счётчик потомков у кнопки (видно, сколько задач скрыто)
@@ -1306,9 +1353,8 @@
 
       // ID (колонка A) и ID Связи (колонка W) НЕ отображаются — они служебные
       html += `<tr class="hrow lvl-${lvl}" data-row="${r._rowIndex}">
-        ${guidePad}
         <td class="col-num">${numHtml}</td>
-        <td class="col-name"><div class="name-cell">${twisty}<div class="task-name">${name}${countBadge}${stage}</div></div></td>`;
+        <td class="col-name" style="padding-left:${indent}px"><div class="name-cell">${twisty}<div class="task-name">${name}${countBadge}${stage}</div></div></td>`;
       activeCols.forEach(col => { html += `<td>${renderCell(r, col)}</td>`; });
       html += `</tr>`;
 
@@ -1358,7 +1404,7 @@
     // 1) Снимаем overflow:hidden с sticky-колонок (в WebKit он ломает position:sticky —
     //    из-за этого заголовки и колонки «Название/№» могли не отображаться).
     if (hierTabVisible()) {
-      c.querySelectorAll('.col-guide, .col-num, .col-name').forEach(el => { el.style.cssText += ';' + stickyFix; });
+      c.querySelectorAll('.col-num, .col-name').forEach(el => { el.style.cssText += ';' + stickyFix; });
 
       // 2) Обрезка текста в этих колонках — по фактическим ширинам colgroup (эмуляция ellipsis).
       const widths = {};
@@ -1374,7 +1420,8 @@
         c.querySelectorAll('td.col-name .task-name').forEach(el => {
           const tn = el.firstChild && el.firstChild.nodeType === 3 ? el.firstChild : null;
           if (!tn) return;
-          const short = fitText(tn.nodeValue, widths['__NAME__'] - 46); // запас на кнопку +/− и бейдж
+          const pad = parseFloat(el.closest('td').style.paddingLeft) || 8;
+          const short = fitText(tn.nodeValue, widths['__NAME__'] - 40 - pad); // запас на кнопку +/−, бейдж и отступ
           if (short !== tn.nodeValue) tn.nodeValue = short + '…';
         });
       }
@@ -1432,7 +1479,7 @@
         const name = getRowName(r);
         const bCls = r['Статус'] === 'Готово' ? 'b-done' : r['Статус'] === 'В процессе' ? 'b-progress' : 'b-plan';
         // ID в веб-приложении не показываем — переход по внутренней ссылке строки
-        html += `<div class="k-card" onclick="revealByRow(${r._rowIndex})">
+        html += `<div class="k-card k-${bCls.slice(2)}" onclick="revealByRow(${r._rowIndex})">
           <div class="k-title">${esc(name)}</div>
           <div class="k-meta">
             <span>👤 ${esc(r['Ответственный'] || '—')}</span>
@@ -1646,12 +1693,15 @@
     sel.innerHTML = '<option value="">Все сотрудники</option>' +
       people.map(p => `<option value="${esc(p)}" ${p === exPerson ? 'selected' : ''}>${esc(p)}</option>`).join('');
     document.getElementById('ex-state').value = exState;
+    const nBlk = edges.filter(e => e.state === 'blocking').length;
+    const bdg = document.getElementById('ex-badge');
+    bdg.textContent = nBlk; bdg.style.display = nBlk ? '' : 'none'; bdg.title = 'Передач блокирует: ' + nBlk;
 
     const warnings = (appData.exchange && appData.exchange.warnings) || [];
     let html = warnings.length
       ? `<div class="warn-box"><b>Проверьте связи:</b><br>${warnings.slice(0, 10).map(esc).join('<br>')}${warnings.length > 10 ? '<br>…и ещё ' + (warnings.length - 10) : ''}</div>` : '';
 
-    const all = edges.filter(e => !exState || e.state === exState);
+    const all = edges.filter(e => !exState || (exState === 'progress' ? e.srcStatus === 'В процессе' : e.state === exState));
     document.getElementById('ex-info').textContent = `Всего передач: ${edges.length}`;
 
     if (!edges.length) {
@@ -1801,6 +1851,7 @@
     const prevTime = root.querySelector('.gantt-time');
     const prevScroll = prevTime ? { l: prevTime.scrollLeft, t: prevTime.scrollTop } : null;
     const showLinks = document.getElementById('g-links').checked;
+    const showStages = document.getElementById('g-stages').checked;
     const focus = document.getElementById('g-focus').value;
     const rows = appData.rows.filter(r => r['Этап'] || r['Задача'] || r['Под-задача']).slice().sort(numCmp);
 
@@ -1826,8 +1877,21 @@
 
     if (!tasks.length) { root.innerHTML = '<div class="loader">Нет задач с заполненными датами Старт и Финиш</div>'; return; }
 
-    const minD = new Date(Math.min(...tasks.map(t => t.start.getTime())));
-    const maxD = new Date(Math.max(...tasks.map(t => t.end.getTime())));
+    // Плановые этапы: даты этапа (или, если не заполнены, охват всех его задач)
+    const stages = [];
+    if (showStages) {
+      appData.rows.forEach(r => {
+        if (getDisplayLevel(r) !== 1) return;
+        let st = parseRuDate(r['Старт']), en = parseRuDate(r['Финиш']);
+        if (!st || !en) { const u = pvRollup(r); st = st || u.start; en = en || u.finish; }
+        if (st && en) stages.push({ name: getRowName(r), num: structNums[r._rowIndex] || '', start: st, end: en });
+      });
+      stages.sort((a, b) => a.start - b.start);
+    }
+    const SH = stages.length ? 24 : 0;   // высота полосы этапов
+
+    const minD = new Date(Math.min(...tasks.map(t => t.start.getTime()), ...stages.map(t => t.start.getTime())));
+    const maxD = new Date(Math.max(...tasks.map(t => t.end.getTime()), ...stages.map(t => t.end.getTime())));
     minD.setDate(minD.getDate() - 3); maxD.setDate(maxD.getDate() + 3);
 
     // Начало шкалы: для недель — понедельник, для месяцев — 1-е число (бары и ячейки совпадают)
@@ -1866,6 +1930,7 @@
     document.getElementById('g-info').textContent = `${fmtDate(minD)} — ${fmtDate(maxD)} · ${tasks.length} задач`;
 
     let sideH = '<div class="g-row" style="height:36px;background:var(--bg)"></div>';
+    if (SH) sideH += `<div class="g-row g-stage-sp" style="height:${SH}px">Этапы (план)</div>`;
     tasks.forEach((t, i) => {
       const mk = (t.blk.length ? ' ⛔' : '') + (t.trg.length ? ' ⚡' : '');
       sideH += `<div class="g-row lvl-${t.lvl}" data-gi="${i}" style="height:${rowH}px">${t.num ? `<span class="g-num">${esc(t.num)}</span>` : ''}${esc(t.name)}${mk}</div>`;
@@ -1935,6 +2000,19 @@
       svg = `<svg class="g-links" width="${totalW}" height="${tasks.length * rowH}"><defs>${markers}</defs>${paths}</svg>`;
     }
 
+    // Плановые этапы: полоса сверху (светло-серая, пунктир) + вертикальные пунктиры начала/конца этапа
+    let stripH = '', bandsH = '';
+    stages.forEach((g, k) => {
+      const x1 = xOf(g.start), x2 = xOf(nextDay(g.end)), w = Math.max(6, x2 - x1);
+      const label = (g.num ? g.num + ' ' : '') + g.name;
+      const tip = `${label}: план ${fmtDate(g.start)} — ${fmtDate(g.end)}`;
+      stripH += `<div class="g-stage" style="left:${x1}px;width:${w}px" title="${esc(tip)}"><span>${esc(label)}</span></div>` +
+        `<i class="g-sdot" style="left:${x1 - 4}px" title="Плановый старт: ${esc(fmtDate(g.start))}"></i>` +
+        `<i class="g-sdia" style="left:${x1 + w - 5}px" title="Плановое завершение этапа: ${esc(fmtDate(g.end))}"></i>`;
+      bandsH += `<div class="g-sband${k % 2 ? ' alt' : ''}" style="left:${x1}px;width:${w}px"></div>` +
+        `<div class="g-sline" style="left:${x1}px"></div><div class="g-sline" style="left:${x1 + w}px"></div>`;
+    });
+
     // Линия «сегодня»
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const tx = xOf(today);
@@ -1949,7 +2027,8 @@
       <div class="gantt-time">
         <div style="width:${totalW}px">
           <div class="g-header">${headH}</div>
-          <div class="g-bar-wrap" style="position:relative;height:${tasks.length * rowH}px;background-size:100% ${rowH}px;background-position:0 ${rowH - 1}px">${todayH}${svg}${barsH}</div>
+          ${SH ? `<div class="g-stages" style="height:${SH}px">${stripH}</div>` : ''}
+          <div class="g-bar-wrap" style="position:relative;height:${tasks.length * rowH}px;background-size:100% ${rowH}px;background-position:0 ${rowH - 1}px">${bandsH}${todayH}${svg}${barsH}</div>
         </div>
       </div>
     </div>`;
