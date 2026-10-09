@@ -304,20 +304,29 @@ function buildExchange_(rows) {
     const dueD = s ? parseDate_(s['Финиш']) : null;
     const needD = d ? parseDate_(d['Старт']) : null;
     const srcDone = srcStatus === 'Готово';
-    const dstStarted = d && ((dstStatus !== '' && dstStatus !== 'Планируется') || (needD && needD <= today));
+    // Блокер источника — по колонкам таблицы «Блокер» / «Кем заблок.» / «С какого числа»
+    const srcBlocker = s ? String(s['Блокер'] || '').trim() : '';
+    const srcBlockedBy = s ? String(s['Кем заблок.'] || '').trim() : '';
+    const srcSince = s ? String(s['С какого числа'] || '').trim() : '';
+    const srcBlocked = !!(srcBlocker || srcBlockedBy);
 
+    // Статус передачи определяется СТАТУСОМ ЗАДАЧИ-ИСТОЧНИКА (колонки таблицы), по приоритету:
+    //  Передано (Готово) > Блокирует (заполнен Блокер / Кем заблок.) > Риск срока (просрочен Финиш
+    //  или Финиш источника позже Старта получателя) > В работе (В процессе) > Запланировано
     let state = 'planned', reason = '';
     if (srcDone || dstStatus === 'Готово') {
       state = 'done';
-    } else if ((dueD && dueD < today) || (s && dstStarted)) {
+    } else if (srcBlocked) {
       state = 'blocking';
-      const parts = [];
-      if (dueD && dueD < today) parts.push(`источник просрочил передачу (срок ${s['Финиш']})`);
-      if (s && dstStarted) parts.push('получатель уже ждёт информацию');
-      reason = parts.join('; ');
+      reason = 'Источник заблокирован: ' + [srcBlocker, srcBlockedBy ? 'кем: ' + srcBlockedBy : ''].filter(Boolean).join(', ') + (srcSince ? ' (с ' + srcSince + ')' : '');
+    } else if (dueD && dueD < today) {
+      state = 'risk';
+      reason = `срок передачи просрочен (Финиш источника ${s['Финиш']})`;
     } else if (dueD && needD && dueD > needD) {
       state = 'risk';
       reason = `источник заканчивает ${s['Финиш']}, а получателю нужно с ${d['Старт']}`;
+    } else if (srcStatus === 'В процессе') {
+      state = 'progress';
     }
 
     // «Результат» источника; если источник — человек вне таблицы, берём «Результат» его строк
@@ -331,6 +340,9 @@ function buildExchange_(rows) {
       srcStage: s ? String(s['Этап'] || '') : '', dstStage: d ? String(d['Этап'] || '') : '',
       srcLevel: s ? levelOf_(s) : '', dstLevel: d ? levelOf_(d) : '',
       from: s ? rowPeople_(s) : [e.srcPerson], to: d ? rowPeople_(d) : [e.dstPerson],
+      srcOwner: s ? splitPeople_(s['Владелец результата']).join(', ') : '',
+      srcDecider: s ? String(s['Решающий'] || '').trim() : '',
+      srcBlocker: srcBlocker, srcBlockedBy: srcBlockedBy, srcSince: srcSince,
       info: result,
       due: s ? String(s['Финиш'] || '') : '', need: d ? String(d['Старт'] || '') : '',
       srcStatus: srcStatus, dstStatus: dstStatus,

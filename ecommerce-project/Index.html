@@ -157,7 +157,8 @@
     .hc-full { grid-column: 1 / -1; }
 
     /* Канбан */
-    .kanban { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .kanban { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+    @media (max-width: 1100px) { .kanban { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     .k-col { background: var(--bg); border-radius: var(--radius); padding: 14px; min-height: 300px; min-width: 0; }
     .k-col h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; display: flex; justify-content: space-between; gap: 8px; }
     .k-col h3 span { background: var(--border); padding: 2px 8px; border-radius: 10px; font-size: 11px; color: var(--text2); flex-shrink: 0; }
@@ -281,6 +282,8 @@
     .st-done.st { background: #d1fae5; color: #065f46; }
     .st-risk.st { background: #fef3c7; color: #92400e; }
     .st-blocking.st { background: #fee2e2; color: #991b1b; }
+    .st-progress.st { background: #dbeafe; color: #1e40af; }
+    .rel-chip.st-progress { background: #dbeafe; border-color: #93c5fd; color: #1e40af; }
 
     /* ===== Сводная таблица связей (drill-down) ===== */
     .pv-wrap { overflow: auto; flex: 1; min-height: 0; }
@@ -311,7 +314,8 @@
     .ex-root { overflow: auto; flex: 1; min-height: 0; }
     .ex-section { margin-bottom: 24px; }
     .ex-section h3 { font-size: 14px; margin-bottom: 8px; display: flex; gap: 8px; align-items: center; }
-    table.ex { table-layout: auto; min-width: 860px; }
+    table.ex { table-layout: auto; min-width: 1650px; }
+    table.ex th small { display: block; font-size: 9px; font-weight: 500; color: #9ca3af; text-transform: none; letter-spacing: 0; }
     table.ex th { position: static; height: auto; white-space: nowrap; }
     table.ex td { vertical-align: top; white-space: normal; }
     .ex-sub { font-size: 10px; color: var(--text2); }
@@ -386,6 +390,42 @@
     .g-sband.alt { background: rgba(148, 163, 184, .04); }
     .g-sline { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed #c3c9d3; pointer-events: none; }
     .g-legend-plan { color: #9ca3af; }
+    .g-legend .lg { cursor: help; border-bottom: 1px dotted #cbd5e1; }
+    .g-legend .lg-plan { color: #9ca3af; }
+    .k-col-wait { background: #fef2f2; border: 1px solid #fecaca; }
+    .k-col-wait h3 { color: #991b1b; }
+    .k-col-wait h3 span { background: #fecaca; color: #991b1b; }
+    .k-card.k-wait { border-left-color: var(--red); }
+    .k-wait-info { font-size: 11px; color: #7f1d1d; background: #fef2f2; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; line-height: 1.6; }
+    .k-wait-info b { color: #111827; }
+    .g-num { display: inline-block; }
+    table.ex tr.ex-blocking > td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+    table.ex tr.ex-risk > td:first-child { box-shadow: inset 3px 0 0 var(--yellow); }
+    table.ex tr.ex-done > td:first-child { box-shadow: inset 3px 0 0 var(--green); }
+
+    /* ===== Подсказка Ганта: структурированная карточка ===== */
+    .g-tip { background: #fff; color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 12px; line-height: 1.45; width: 340px; max-width: calc(100vw - 24px); box-shadow: 0 10px 30px rgb(16 24 40 / .18); }
+    .g-tip .tp-head { display: flex; gap: 8px; align-items: baseline; font-size: 14px; margin-bottom: 4px; }
+    .g-tip .tp-head b { font-size: 14px; }
+    .g-tip .tp-num { color: var(--text2); font-weight: 600; font-size: 12px; }
+    .g-tip .tp-sub { display: flex; gap: 10px; align-items: center; color: var(--text2); font-size: 11px; margin-bottom: 8px; flex-wrap: wrap; }
+    .g-tip .tp-grid { display: grid; grid-template-columns: 120px 1fr; gap: 3px 10px; padding: 8px 0; border-top: 1px solid var(--border); }
+    .g-tip .tp-grid span { color: var(--text2); }
+    .g-tip .tp-grid b { font-weight: 600; font-size: 12px; }
+    .g-tip .tp-grid em { font-style: normal; font-weight: 500; color: var(--text2); }
+    .g-tip .tp-grid em.late { color: #b91c1c; font-weight: 700; }
+    .g-tip .tp-sec { margin-top: 8px; border-radius: 8px; padding: 8px 10px; }
+    .g-tip .tp-sec h5 { font-size: 11px; margin-bottom: 4px; text-transform: none; }
+    .g-tip .tp-sec.blk { background: #fef2f2; border: 1px solid #fecaca; }
+    .g-tip .tp-sec.blk h5 { color: #991b1b; }
+    .g-tip .tp-sec.trg { background: #fffbeb; border: 1px solid #fde68a; }
+    .g-tip .tp-sec.trg h5 { color: #92400e; }
+    .g-tip .tp-item { padding: 4px 0; border-top: 1px dashed rgb(0 0 0 / .08); }
+    .g-tip .tp-item:first-of-type { border-top: none; }
+    .g-tip .tp-item div { color: #4b5563; font-size: 11px; margin-top: 1px; }
+    .g-tip .tp-text { color: #374151; font-size: 12px; line-height: 1.55; }
+    .g-tip.legend-tip { width: 360px; }
+    .g-tip.legend-tip .tp-head { margin-bottom: 6px; }
     .ex-result { white-space: pre-wrap; }
     /* плановые даты задач — светло-серые маркеры */
     .g-plan { position: absolute; height: 22px; display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: #9ca3af; z-index: 10; pointer-events: auto; cursor: default; white-space: nowrap; }
@@ -464,7 +504,8 @@
         <button class="tool-btn" id="btn-clear-filters" style="display:none" onclick="clearAllFilters()">✕ Сбросить фильтры</button>
         <div class="legend" id="rel-legend" title="Цвет чипов «← Получаем от» и «→ Передаем»">
           <b>Связи:</b>
-          <span class="rel-chip">в плане</span>
+          <span class="rel-chip">запланировано</span>
+          <span class="rel-chip st-progress">в работе</span>
           <span class="rel-chip st-risk">риск срока</span>
           <span class="rel-chip st-blocking">блокирует / ждут</span>
           <span class="rel-chip st-done">передано</span>
@@ -496,11 +537,11 @@
         <select id="ex-person" onchange="setExPerson(this.value)"></select>
         <select id="ex-state" onchange="exState=this.value;renderExchange()">
           <option value="">Любой статус</option>
-          <option value="progress">⏳ В работе</option>
           <option value="blocking">⛔ Блокирует</option>
           <option value="risk">⚠ Риск срока</option>
+          <option value="progress">⏳ В работе</option>
           <option value="planned">Запланировано</option>
-          <option value="done">Передано</option>
+          <option value="done">✔ Передано</option>
         </select>
         <span id="ex-info" style="margin-left:auto;font-size:12px;color:var(--text2)"></span>
       </div>
@@ -532,10 +573,13 @@
           <option value="issues">Только блокеры и триггеры</option>
         </select>
         <span class="g-legend">
-          <span>⛔ <b>Блокер</b> — задача стоит, кто/что мешает указано рядом</span>
-          <span>⚡ <b>Триггер</b> — от её завершения зависят другие (красный — уже ждут)</span>
-          <span class="g-legend-plan">◆ ┆ плановые даты и этапы (серый пунктир, ◆ — будущая дата)</span>
-          <span style="color:#dc2626">━▶ ждёт</span><span style="color:#d97706">━▶ риск срока</span><span style="color:#6b7280">━▶ в плане</span>
+          <span class="lg" data-title="⛔ Блокер" data-tip="Задача не «Готово», и её что-то останавливает:&#10;1) у неё самой заполнены «Блокер» / «Кем заблок.»;&#10;2) или заблокирован источник её входящей информации (колонки «ID Связи» / «От кого получаем инф.»).&#10;Рядом со значком указано, кто или что мешает.">⛔ <b>Блокер</b></span>
+          <span class="lg" data-title="⚡ Триггер" data-tip="Задача не «Готово», а от её результата зависят другие задачи или этапы («Кому передаем инф.», «ID Связи»).&#10;Красный триггер — её источник уже заблокирован (поля «Блокер» / «Кем заблок.»), цепочка стоит.">⚡ <b>Триггер</b></span>
+          <span class="lg lg-plan" data-title="◆ Плановые даты и этапы" data-tip="Серый пунктир — плановые даты из колонок «Старт» и «Финиш».&#10;Для этапа берутся его даты, а если они пусты — охват всех его задач.&#10;◆ с датой — плановый финиш в будущем (позже сегодняшнего дня), ○ — плановый старт.&#10;Снимите флажок «Плановые даты», чтобы скрыть.">◆ ┆ плановые даты</span>
+          <span class="lg" style="color:#dc2626" data-title="━▶ Блокирует" data-tip="Источник передачи заблокирован: у задачи-источника заполнены «Блокер» или «Кем заблок.», а статус не «Готово».&#10;Получатель не получит результат, пока блокер не снят.">━▶ блокирует</span>
+          <span class="lg" style="color:#d97706" data-title="━▶ Риск срока — как считается" data-tip="Источник ещё не «Готово», не заблокирован, и выполняется одно из условий:&#10;1) Финиш источника ПОЗЖЕ Старта задачи-получателя (результат придёт, когда получателю уже пора начинать);&#10;2) Финиш источника уже ПРОШЁЛ (срок передачи просрочен).&#10;Формула: Финиш(источник) &gt; Старт(получатель) или Финиш(источник) &lt; сегодня.&#10;Даты берутся из колонок «Старт» и «Финиш».">━▶ риск срока</span>
+          <span class="lg" style="color:#2563eb" data-title="━▶ В работе" data-tip="Источник в статусе «В процессе», блокеров и рисков по срокам нет.">━▶ в работе</span>
+          <span class="lg" style="color:#6b7280" data-title="┈▶ Запланировано / передано" data-tip="Серый пунктир: источник ещё «Планируется» (без рисков) или уже «Готово» (передано).">┈▶ план / передано</span>
         </span>
         <span id="g-info" style="margin-left:auto;font-size:12px;color:var(--text2)"></span>
       </div>
@@ -830,7 +874,7 @@
   // === ПЕРЕДАЧИ ИНФОРМАЦИИ («ID Связи», «От кого получаем инф.», «Кому передаем инф.») — считаются на сервере ===
   // Конец связи может быть не строкой, а человеком/отделом: тогда srcRow/dstRow = null, имя — в srcName/dstName.
   let edges = [], edgesIn = {}, edgesOut = {}, rowMap = {};
-  const STATE_TXT = { done: 'Передано', blocking: '⛔ Блокирует', risk: '⚠ Риск срока', planned: 'Запланировано' };
+  const STATE_TXT = { done: '✔ Передано', blocking: '⛔ Блокирует', risk: '⚠ Риск срока', progress: '⏳ В работе', planned: 'Запланировано' };
   function buildEdgeIndex() {
     edges = (appData.exchange && appData.exchange.edges) || [];
     edgesIn = {}; edgesOut = {}; rowMap = {};
@@ -1471,30 +1515,52 @@
     return h;
   }
 
+  // Колонка «Ожидает решения»: просроченные (Финиш раньше сегодняшнего дня, статус не «Готово») этапы / задачи / под-задачи
+  function isOverdueRow(r) {
+    const f = parseRuDate(r['Финиш']);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return !!(f && f < today && String(r['Статус'] || '').trim() !== 'Готово');
+  }
   function renderKanban() {
     const b = document.getElementById('kanban-board');
-    const cols = { 'В процессе': [], 'Планируется': [], 'Готово': [] };
+    const cols = { 'В процессе': [], 'Планируется': [], 'Готово': [], 'Ожидает решения': [] };
     appData.rows.forEach(r => {
       const name = getRowName(r);
       if (!name || (!r['Этап'] && !r['Задача'] && !r['Под-задача'])) return;
+      if (isOverdueRow(r)) { cols['Ожидает решения'].push(r); return; }
       const s = r['Статус'] || 'Планируется';
       (cols[s] || cols['Планируется']).push(r);
     });
+    cols['Ожидает решения'].sort((a, b) => (parseRuDate(a['Финиш']) || 0) - (parseRuDate(b['Финиш']) || 0));
+    const today = new Date(); today.setHours(0, 0, 0, 0);
     let html = '';
     for (const [col, tasks] of Object.entries(cols)) {
-      html += `<div class="k-col"><h3>${col} <span>${tasks.length}</span></h3>`;
+      const wait = col === 'Ожидает решения';
+      html += `<div class="k-col${wait ? ' k-col-wait' : ''}"${wait ? ' title="Просроченные (блокирующие) этапы, задачи и под-задачи: Финиш раньше сегодняшнего дня, статус не «Готово»"' : ''}><h3>${wait ? '⚖ ' : ''}${col} <span>${tasks.length}</span></h3>`;
       tasks.forEach(r => {
         const name = getRowName(r);
+        const num = structNums[r._rowIndex] ? `<span class="g-num">${esc(structNums[r._rowIndex])}</span>` : '';
         const bCls = r['Статус'] === 'Готово' ? 'b-done' : r['Статус'] === 'В процессе' ? 'b-progress' : 'b-plan';
-        // ID в веб-приложении не показываем — переход по внутренней ссылке строки
-        html += `<div class="k-card k-${bCls.slice(2)}" onclick="revealByRow(${r._rowIndex})">
-          <div class="k-title">${esc(name)}</div>
+        let extra = '';
+        if (wait) {
+          const days = Math.round((today - parseRuDate(r['Финиш'])) / 86400000);
+          const decider = String(r['Решающий'] || '').trim();
+          extra = `<div class="k-wait-info">
+            <div>⚖ Решающий: <b>${esc(decider || 'не назначен')}</b></div>
+            <div>⏰ Финиш ${esc(r['Финиш'])} · просрочено на ${days} дн.</div>
+            ${r['Статус'] ? `<div>Статус: ${esc(r['Статус'])}</div>` : ''}
+          </div>`;
+        }
+        html += `<div class="k-card k-${wait ? 'wait' : bCls.slice(2)}" onclick="revealByRow(${r._rowIndex})">
+          <div class="k-title">${num}${esc(name)}</div>
+          ${extra}
           <div class="k-meta">
             <span>👤 ${esc(r['Ответственный'] || '—')}</span>
             <span class="badge ${bCls}">${esc(r['Прогресс'] || '0%')}</span>
           </div>
         </div>`;
       });
+      if (!tasks.length) html += '<div class="empty-note" style="padding:12px;font-size:12px">Нет задач</div>';
       html += `</div>`;
     }
     b.innerHTML = html;
@@ -1659,36 +1725,40 @@
   }
 
   // mode: 'in' — мне поступает, 'out' — я передаю, 'all' — общий список
-  function exTable(list, mode) {
+  function exTable(list) {
     if (!list.length) return '<div class="empty-note">Нет передач</div>';
     const dueCmp = (a, b) => ((parseRuDate(a.due) || 0) - (parseRuDate(b.due) || 0)) || a.srcName.localeCompare(b.srcName, 'ru');
     list = list.slice().sort(dueCmp);
-    const head = mode === 'in'
-      ? ['От кого', 'Что мне передают', 'Из задачи', 'В мою задачу', 'Передать до', 'Нужно к', 'Статус']
-      : mode === 'out'
-        ? ['Кому', 'Что я передаю', 'Из моей задачи', 'В задачу', 'Передать до', 'Нужно к', 'Статус']
-        : ['Кто передаёт', 'Что передаёт', 'Кому', 'Из задачи', 'В задачу', 'Передать до', 'Нужно к', 'Статус'];
+    const head = ['Ответственный<small>кто передаёт</small>', 'Владелец результата', 'Решающий', 'Что передаётся<small>«Результат»</small>',
+      'Кому<small>получатель</small>', 'Из задачи', 'В задачу', 'Передать до', 'Нужно к', 'Статус передачи', 'Статус задачи',
+      'Блокер', 'Кем заблок.', 'С какого числа'];
+    const dash = '<span class="no-link">—</span>';
+    const val = v => (v && String(v).trim()) ? esc(v) : dash;
     const rows = list.map(e => {
       const info = e.info ? `<div class="ex-result">${esc(e.info).replace(/\n/g, '<br>')}</div>` : '<i class="no-link">«Результат» не заполнен</i>';
-      const infoFull = info +
-        (e.reason ? `<div class="ex-sub" style="color:#b91c1c">⚠ ${esc(e.reason)}</div>` : '');
-      const src = exTaskCell(e.srcRow, e.srcName, e.srcStage, e.srcLevel);
-      const dst = exTaskCell(e.dstRow, e.dstName, e.dstStage, e.dstLevel);
-      const dates = `<td>${esc(e.due || '—')}</td><td>${esc(e.need || '—')}</td><td>${stBadge(e.state)}</td>`;
-      if (mode === 'in') {
-        return `<tr><td>${esc(peopleStr(e.from))}</td><td>${infoFull}</td><td>${src}</td><td>${dst}</td>${dates}</tr>`;
-      }
-      if (mode === 'out') {
-        return `<tr><td>${esc(peopleStr(e.to))}</td><td>${infoFull}</td><td>${src}</td><td>${dst}</td>${dates}</tr>`;
-      }
-      return `<tr><td>${esc(peopleStr(e.from))}</td><td>${infoFull}</td><td>${esc(peopleStr(e.to))}</td><td>${src}</td><td>${dst}</td>${dates}</tr>`;
+      const stCls = e.srcStatus === 'Готово' ? 'b-done' : e.srcStatus === 'В процессе' ? 'b-progress' : 'b-plan';
+      return `<tr class="ex-${e.state}">
+        <td>${esc(peopleStr(e.from).replace('не назначен', '—'))}</td>
+        <td>${val(e.srcOwner)}</td>
+        <td>${val(e.srcDecider)}</td>
+        <td>${info}</td>
+        <td>${esc(peopleStr(e.to).replace('не назначен', '—'))}</td>
+        <td>${exTaskCell(e.srcRow, e.srcName, e.srcStage, e.srcLevel)}</td>
+        <td>${exTaskCell(e.dstRow, e.dstName, e.dstStage, e.dstLevel)}</td>
+        <td>${val(e.due)}</td>
+        <td>${val(e.need)}</td>
+        <td>${stBadge(e.state)}${e.reason ? `<div class="ex-sub" style="color:#b91c1c;max-width:220px">${esc(e.reason)}</div>` : ''}</td>
+        <td>${e.srcStatus ? `<span class="badge ${stCls}">${esc(e.srcStatus)}</span>` : dash}</td>
+        <td>${val(e.srcBlocker)}</td>
+        <td>${val(e.srcBlockedBy)}</td>
+        <td>${val(e.srcSince)}</td></tr>`;
     }).join('');
     return `<div style="overflow:auto"><table class="ex"><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function exSection(title, list, mode) {
     const blk = list.filter(e => e.state === 'blocking').length;
-    return `<div class="ex-section"><h3>${title} <span class="cnt">${list.length}</span>${blk ? `<span class="cnt cnt-red">⛔ ${blk}</span>` : ''}</h3>${exTable(list, mode)}</div>`;
+    return `<div class="ex-section"><h3>${title} <span class="cnt">${list.length}</span>${blk ? `<span class="cnt cnt-red">⛔ ${blk}</span>` : ''}</h3>${exTable(list)}</div>`;
   }
 
   function renderExchange() {
@@ -1708,7 +1778,7 @@
     let html = warnings.length
       ? `<div class="warn-box"><b>Проверьте связи:</b><br>${warnings.slice(0, 10).map(esc).join('<br>')}${warnings.length > 10 ? '<br>…и ещё ' + (warnings.length - 10) : ''}</div>` : '';
 
-    const all = edges.filter(e => !exState || (exState === 'progress' ? e.srcStatus === 'В процессе' : e.state === exState));
+    const all = edges.filter(e => !exState || e.state === exState);
     document.getElementById('ex-info').textContent = `Всего передач: ${edges.length}`;
 
     if (!edges.length) {
@@ -1738,13 +1808,17 @@
     const res = { blk: [], blockers: [], trg: [], crit: false };
     if (String(r['Статус'] || '').trim() === 'Готово') return res;
     (edgesIn[r._rowIndex] || []).filter(e => e.state === 'blocking').forEach(e => {
-      res.blk.push(`Ждёт «${e.srcName}» от ${peopleStr(e.from)}${e.info ? ' — ' + e.info : ''} (${e.reason})`);
-      if (e.from.length) e.from.forEach(p => res.blockers.push(p)); else res.blockers.push(e.srcName);
+      res.blk.push({
+        head: `Ждёт «${e.srcName}»`,
+        body: `${e.from.length ? 'Передаёт: ' + peopleStr(e.from) : ''}${e.info ? '\nРезультат: ' + e.info : ''}${e.reason ? '\n' + e.reason : ''}`.trim()
+      });
+      if (e.srcBlockedBy) res.blockers.push(e.srcBlockedBy);
+      else if (e.from.length) e.from.forEach(p => res.blockers.push(p)); else res.blockers.push(e.srcName);
     });
     const own = String(r['Блокер'] || '').trim(), by = String(r['Кем заблок.'] || '').trim();
     const since = String(r['С какого числа'] || '').trim();
     if (own || by) {
-      res.blk.push('Блокер: ' + [own, by].filter(Boolean).join(' / ') + (since ? ' (с ' + since + ')' : ''));
+      res.blk.push({ head: 'Отмечено в таблице', body: [own ? 'Блокер: ' + own : '', by ? 'Кем заблокировано: ' + by : '', since ? 'С какого числа: ' + since : ''].filter(Boolean).join('\n') });
       res.blockers.push(by || own);
     }
     res.trg = (edgesOut[r._rowIndex] || []).filter(e => e.state !== 'done');
@@ -1753,26 +1827,59 @@
     return res;
   }
 
+  const nl2br = x => esc(x).replace(/\n/g, '<br>');
   function showGTip(ev, t, kind) {
     const tip = document.getElementById('g-tip');
     if (!tip || !t) return;
-    const resp = [t.resp, t.owner].filter(v => v && String(v).trim()).join(', ');
-    let extra = '';
+    tip.className = 'g-tip';
+    const stCls = t.status === 'Готово' ? 'b-done' : t.status === 'В процессе' ? 'b-progress' : 'b-plan';
+    const days = Math.round((t.end - new Date().setHours(0, 0, 0, 0)) / 86400000);
+    const left = t.status === 'Готово' ? '' : days > 0 ? `через ${days} дн.` : days === 0 ? 'сегодня' : `просрочено на ${-days} дн.`;
+    let h = `<div class="tp-head">${t.num ? `<span class="tp-num">${esc(t.num)}</span>` : ''}<b>${esc(t.name)}</b></div>
+      <div class="tp-sub"><span class="badge ${stCls}">${esc(t.status)}</span>${t.stage ? `<span>Этап: ${esc(t.stage)}</span>` : ''}</div>
+      <div class="tp-grid">
+        <span>Ответственный</span><b>${esc(t.resp || 'не назначен')}</b>
+        ${t.owner ? `<span>Владелец результата</span><b>${esc(t.owner)}</b>` : ''}
+        ${t.decider ? `<span>Решающий</span><b>${esc(t.decider)}</b>` : ''}
+        <span>План</span><b>${esc(fmtDate(t.start))} — ${esc(fmtDate(t.end))}${left ? `<em class="${days < 0 && t.status !== 'Готово' ? 'late' : ''}"> · ${left}</em>` : ''}</b>
+        <span>Прогресс</span><b>${t.progress}%</b>
+      </div>`;
     if (kind !== 'trg' && t.blk.length) {
-      extra += '<br><span class="tip-blk">⛔ Блокер:</span><br>' + t.blk.map(x => '• ' + esc(x)).join('<br>');
+      h += `<div class="tp-sec blk"><h5>⛔ Блокер — почему задача стоит</h5>` +
+        t.blk.map(x => `<div class="tp-item"><b>${esc(x.head)}</b>${x.body ? `<div>${nl2br(x.body)}</div>` : ''}</div>`).join('') + '</div>';
     }
     if (kind !== 'blk' && t.trg.length) {
-      extra += '<br><span class="tip-trg">⚡ Триггер — после завершения запускает:</span><br>' +
-        t.trg.map(e => `• ${esc(e.dstName)} (${esc(peopleStr(e.to))})${e.info ? ' — ' + esc(e.info) : ''}${e.state === 'blocking' ? ' — <b>уже ждёт</b>' : ''}`).join('<br>');
-      if (t.crit && !t.blk.length) extra += '<br><b>Первопричина задержки цепочки</b>';
+      h += `<div class="tp-sec trg"><h5>⚡ Триггер — что запустит завершение</h5>` +
+        t.trg.map(e => `<div class="tp-item"><b>${esc(e.dstName)}</b> · ${esc(peopleStr(e.to))}
+          ${e.info ? `<div>Результат: ${nl2br(e.info)}</div>` : ''}
+          <div>${stBadge(e.state)} ${e.reason ? esc(e.reason) : ''}</div></div>`).join('');
+      if (t.crit && !t.blk.length) h += '<div class="tp-item"><b>Первопричина:</b> задача блокирует цепочку.</div>';
+      h += '</div>';
     }
-    tip.innerHTML = `<b>${t.num ? esc(t.num) + ' ' : ''}${esc(t.name)}</b><br>` +
-      `👤 Ответственные: <span class="tip-resp">${esc(resp || 'не назначен')}</span><br>` +
-      `📅 ${fmtDate(t.start)} — ${fmtDate(t.end)} · Прогресс: ${t.progress}%<br>` +
-      `Статус: ${esc(t.status)}${t.stage ? '<br>Этап: ' + esc(t.stage) : ''}${extra}`;
+    tip.innerHTML = h;
     tip.style.display = 'block';
     moveGTip(ev);
   }
+
+  // Подсказки легенды: объяснение, как считается каждый индикатор
+  function showLegendTip(ev, el) {
+    const tip = document.getElementById('g-tip');
+    tip.className = 'g-tip legend-tip';
+    tip.innerHTML = `<div class="tp-head"><b>${esc(el.dataset.title || '')}</b></div><div class="tp-text">${nl2br(el.dataset.tip)}</div>`;
+    tip.style.display = 'block';
+    moveGTip(ev);
+  }
+  document.addEventListener('mouseover', ev => {
+    const el = ev.target.closest && ev.target.closest('[data-tip]');
+    if (el) showLegendTip(ev, el);
+  });
+  document.addEventListener('mousemove', ev => {
+    if (ev.target.closest && ev.target.closest('[data-tip]')) moveGTip(ev);
+  });
+  document.addEventListener('mouseout', ev => {
+    const el = ev.target.closest && ev.target.closest('[data-tip]');
+    if (el && !(ev.relatedTarget && el.contains(ev.relatedTarget))) hideGTip();
+  });
   function moveGTip(ev) {
     const tip = document.getElementById('g-tip');
     if (!tip || tip.style.display === 'none') return;
@@ -1849,7 +1956,7 @@
     document.addEventListener('touchend', onUp);
   }
 
-  const G_EDGE_COLOR = { blocking: '#dc2626', risk: '#d97706', planned: '#9ca3af', done: '#86efac' };
+  const G_EDGE_COLOR = { blocking: '#dc2626', risk: '#d97706', progress: '#3b82f6', planned: '#9ca3af', done: '#86efac' };
 
   function renderGantt() {
     const root = document.getElementById('gantt-root');
@@ -1874,6 +1981,7 @@
         status: r['Статус'] || 'Планируется',
         progress: parseInt(r['Прогресс']) || 0,
         resp: String(r['Ответственный'] || '').trim(),
+        decider: String(r['Решающий'] || '').trim(),
         owner: String(r['Владелец результата'] || '').trim(),
         stage: String(r['Этап'] || '').trim(),
         rowIndex: r._rowIndex,
