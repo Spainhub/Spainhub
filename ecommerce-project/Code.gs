@@ -14,6 +14,8 @@
 //    ID → связь с конкретной задачей/этапом; ФИО/отдел → передача между людьми в рамках этой задачи.
 //  • «Результат» — ЧТО передаётся (информация/артефакт), показывается в «Обмен».
 // Вкладка «Обмен» в веб-приложении только показывает данные — в таблицу ничего не пишется.
+// Лист «Митинг»: встречи и протоколы; связь с Таблицей — по «Этап / Задача / Под-задача», а если они пусты — по «№».
+// Лист «Главная»: содержимое A1:H40 (текст, ссылки, цвета, объединения) показывается на вкладке «Главная».
 // Заголовок страницы: список проектов берётся из колонки «Проекты» листа «Справочник».
 // Если в «Таблице» есть колонка «Проект», строки фильтруются по выбранному проекту.
 // ============================================================
@@ -24,6 +26,9 @@ const LINK_MODE = 'depends_on';
 
 const SHEET_NAME = 'Таблица';
 const SHEET_NAME_OLD = 'Data';
+const MEET_SHEET_NAME = 'Митинг';   // встречи, привязанные к этапам / задачам / под-задачам
+const HOME_SHEET_NAME = 'Главная';  // диапазон A1:H40 выводится на вкладке «Главная»
+const HOME_RANGE = { rows: 40, cols: 8 };
 const REF_SHEET_NAME = 'Справочник';
 const EXPECTED_HEADERS = [
   'ID', 'ID Связи', '№', 'Этап', 'Задача', 'Под-задача', 'Владелец результата', 'Ответственный',
@@ -147,12 +152,16 @@ function getProjectData(project) {
     if (project && parsed.headers.indexOf('Проект') >= 0) {
       rows = rows.filter(r => String(r['Проект'] || '').trim() === project);
     }
+    const meet = safe_(() => readMeetings_(rows, project), { missing: false, items: [] });
     return {
       headers: parsed.headers,
       rows: rows,
       options: options,
       project: project || '',
       exchange: buildExchange_(rows),
+      meetings: meet.items,
+      meetingsMissing: meet.missing,
+      home: safe_(readHome_, null),
       _debug: `Успех! Загружено строк: ${rows.length}`
     };
   } catch (e) {
@@ -355,3 +364,138 @@ function buildExchange_(rows) {
 
 function levelOf_(r) { return r['Под-задача'] ? 'Под-задача' : (r['Задача'] ? 'Задача' : 'Этап'); }
 
+
+
+// ============================================================
+// ВСПОМОГАТЕЛЬНОЕ
+// ============================================================
+
+// Ошибка в дополнительном блоке (митинги, главная) не должна ломать основную загрузку
+function safe_(fn, fallback) {
+  try { return fn(); } catch (e) { console.error(e); return fallback; }
+}
+
+// Ссылки в колонке (для «Протокол встречи», «Повестка встречи»): по ячейкам, как для «Документ»
+function readLinkColumn_(sheet, range, nRows, colIdx) {
+  if (colIdx < 0 || nRows < 1) return null;
+  const col = sheet.getRange(2, range.getColumn() + colIdx, nRows, 1);
+  return { rich: col.getRichTextValues(), formulas: col.getFormulas() };
+}
+
+// ============================================================
+// МИТИНГИ (лист «Митинг»)
+// ============================================================
+
+function readMeetings_(rows, project) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(MEET_SHEET_NAME) || ss.getSheetByName('Митинги');
+  if (!sh) return { missing: true, items: [] };
+  const range = sh.getDataRange();
+  const data = range.getDisplayValues();
+  if (data.length < 2) return { missing: false, items: [] };
+
+  const headers = data[0].map(h => String(h || '').trim());
+  const n = data.length - 1;
+  const protocol = readLinkColumn_(sh, range, n, headers.indexOf('Протокол встречи'));
+  const agenda = readLinkColumn_(sh, range, n, headers.indexOf('Повестка встречи'));
+
+  // Индексы для привязки к Таблице
+  const norm = v => String(v == null ? '' : v).trim().toLowerCase();
+  const normNum = v => String(v == null ? '' : v).trim().replace(/,$/, '').replace(/\s+/g, '');
+  const byNum = {};
+  rows.forEach(r => { const k = normNum(r['№']); if (k && !byNum[k]) byNum[k] = r; });
+
+  function findTask(m) {
+    const st = norm(m['Этап']), tk = norm(m['Задача']), sb = norm(m['Под-задача']);
+    let hit = null;
+    if (sb) hit = rows.find(r => norm(r['Под-задача']) === sb && (!tk || norm(r['Задача']) === tk) && (!st || norm(r['Этап']) === st));
+    else if (tk) hit = rows.find(r => !norm(r['Под-задача']) && norm(r['Задача']) === tk && (!st || norm(r['Этап']) === st));
+    else if (st) hit = rows.find(r => !norm(r['Задача']) && !norm(r['Под-задача']) && norm(r['Этап']) === st);
+    if (hit) return hit;
+    // имена не заданы или не найдены — пробуем «№» (структурный номер из Таблицы)
+    const num = normNum(m['№']);
+    return num && byNum[num] ? byNum[num] : null;
+  }
+
+  const items = [];
+  data.slice(1).forEach((row, i) => {
+    const m = { _rowIndex: i + 2 };
+    headers.forEach((h, c) => { if (h) m[h] = row[c]; });
+    const has = ['ID', 'Дата', 'Тема встречи', 'Повестка встречи', 'Протокол встречи', 'Участники встречи']
+      .some(h => String(m[h] || '').trim() !== '');
+    if (!has) return;
+    if (project && headers.indexOf('Проект') >= 0 && String(m['Проект'] || '').trim() !== project) return;
+    const t = findTask(m);
+    m._taskRow = t ? t._rowIndex : null;
+    m._taskName = t ? rowName_(t) : '';
+    m._taskLevel = t ? levelOf_(t) : '';
+    m._protocolUrl = protocol ? extractUrl_(protocol.rich[i][0], protocol.formulas[i][0], row[headers.indexOf('Протокол встречи')]) : '';
+    m._agendaUrl = agenda ? extractUrl_(agenda.rich[i][0], agenda.formulas[i][0], row[headers.indexOf('Повестка встречи')]) : '';
+    items.push(m);
+  });
+  return { missing: false, items: items };
+}
+
+// ============================================================
+// ГЛАВНАЯ: диапазон A1:H40 листа «Главная» (текст, ссылки, цвета, объединённые ячейки)
+// ============================================================
+
+function readHome_() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HOME_SHEET_NAME);
+  if (!sh) return null;
+  const R = HOME_RANGE.rows, C = HOME_RANGE.cols;
+  const rng = sh.getRange(1, 1, R, C);
+  const disp = rng.getDisplayValues(), rich = rng.getRichTextValues(), fml = rng.getFormulas();
+  const bgs = rng.getBackgrounds(), fw = rng.getFontWeights(), fc = rng.getFontColors();
+  const fsz = rng.getFontSizes(), ha = rng.getHorizontalAlignments(), fst = rng.getFontStyles();
+
+  const isWhite = c => !c || /^#?f{6}$/i.test(String(c).replace('#', ''));
+  const cells = [];
+  let lastR = -1, lastC = -1;
+  for (let r = 0; r < R; r++) {
+    const rowArr = [];
+    for (let c = 0; c < C; c++) {
+      const text = disp[r][c];
+      const bg = isWhite(bgs[r][c]) ? '' : bgs[r][c];
+      if (text === '' && !bg) { rowArr.push(null); continue; }
+      let runs = [];
+      try {
+        runs = (rich[r][c] ? rich[r][c].getRuns() : []).map(run => {
+          const st = run.getTextStyle();
+          let col = '';
+          try { col = st.getForegroundColor() || ''; } catch (e) { /* нет цвета */ }
+          return { t: run.getText(), u: run.getLinkUrl() || '', b: st.isBold(), i: st.isItalic(), c: col };
+        });
+      } catch (e) { runs = []; }
+      if (!runs.length) runs = [{ t: text, u: '', b: false, i: false, c: '' }];
+      // формула =HYPERLINK("url";"текст"): ссылка на всю ячейку
+      const f = String(fml[r][c] || '').match(/HYPERLINK\(\s*"([^"]+)"/i);
+      if (f && !runs.some(x => x.u)) runs.forEach(x => { x.u = f[1]; });
+      rowArr.push({
+        runs: runs, bg: bg,
+        b: String(fw[r][c]) === 'bold', i: String(fst[r][c]) === 'italic',
+        c: fc[r][c] && fc[r][c] !== '#000000' ? fc[r][c] : '',
+        fs: fsz[r][c], ha: ha[r][c]
+      });
+      lastR = Math.max(lastR, r); lastC = Math.max(lastC, c);
+    }
+    cells.push(rowArr);
+  }
+  if (lastR < 0) return { rows: 0, cols: 0, cells: [], widths: [], heights: [], merges: [] };
+
+  const merges = rng.getMergedRanges().map(m => ({
+    r: m.getRow() - 1, c: m.getColumn() - 1, rs: m.getNumRows(), cs: m.getNumColumns()
+  }));
+  merges.forEach(m => { lastR = Math.max(lastR, m.r + m.rs - 1); lastC = Math.max(lastC, m.c + m.cs - 1); });
+  lastR = Math.min(lastR, R - 1); lastC = Math.min(lastC, C - 1);
+
+  const widths = [], heights = [];
+  for (let c = 0; c <= lastC; c++) widths.push(sh.getColumnWidth(c + 1));
+  for (let r = 0; r <= lastR; r++) heights.push(sh.getRowHeight(r + 1));
+  return {
+    rows: lastR + 1, cols: lastC + 1,
+    cells: cells.slice(0, lastR + 1).map(row => row.slice(0, lastC + 1)),
+    widths: widths, heights: heights,
+    merges: merges.filter(m => m.r <= lastR && m.c <= lastC)
+  };
+}

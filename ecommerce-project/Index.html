@@ -467,6 +467,76 @@
     *::-webkit-scrollbar { width: 10px; height: 10px; }
     *::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
     *::-webkit-scrollbar-thumb:hover { background: #94a3b8; background-clip: content-box; border: 2px solid transparent; }
+    /* ===== Главная ===== */
+    .home-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .kpi { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: 0 1px 3px rgb(16 24 40 / .05); transition: transform .15s, box-shadow .15s; border-top: 3px solid var(--border); }
+    .kpi[onclick]:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgb(16 24 40 / .08); }
+    .kpi.k-blue { border-top-color: var(--blue); } .kpi.k-green { border-top-color: var(--green); } .kpi.k-red { border-top-color: var(--red); background: #fffafa; }
+    .kpi-val { font-size: 26px; font-weight: 700; line-height: 1.1; }
+    .kpi.k-red .kpi-val { color: #b91c1c; }
+    .kpi-label { font-size: 12px; font-weight: 600; margin-top: 4px; }
+    .kpi-sub { font-size: 11px; color: var(--text2); margin-top: 4px; }
+    .mini-bar { height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 6px; }
+    .mini-bar i { display: block; height: 100%; background: var(--blue); }
+    .statbar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: var(--border); }
+    .statbar i, .statbar-legend i { display: inline-block; }
+    .sb-done { background: var(--green); } .sb-prog { background: var(--blue); } .sb-plan { background: #fcd34d; }
+    .statbar-legend { display: flex; gap: 16px; font-size: 11px; color: var(--text2); margin: 6px 0 16px; }
+    .statbar-legend i { width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+    .home-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+    @media (max-width: 1000px) { .home-grid { grid-template-columns: 1fr; } }
+    .widget { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: 0 1px 3px rgb(16 24 40 / .05); min-width: 0; }
+    .widget h3 { font-size: 14px; margin-bottom: 10px; display: flex; gap: 8px; align-items: center; }
+    .widget h3 small { font-size: 11px; font-weight: 400; color: var(--text2); }
+    .sheet-wrap { overflow: auto; max-height: 560px; }
+    table.sheet-tbl { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+    table.sheet-tbl td { padding: 4px 8px; vertical-align: middle; word-break: break-word; border: none; overflow: visible; white-space: normal; }
+    table.sheet-tbl a { color: var(--blue); text-decoration: none; font-weight: 500; }
+    table.sheet-tbl a:hover { text-decoration: underline; }
+    .pc-list { display: grid; gap: 8px; max-height: 560px; overflow-y: auto; padding-right: 2px; }
+    .pc { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: background .15s, border-color .15s; }
+    .pc:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .pc-ava { width: 36px; height: 36px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .pc-main { min-width: 0; flex: 1; }
+    .pc-name { font-weight: 600; font-size: 13px; }
+    .pc-roles { font-size: 11px; color: var(--text2); }
+    .pc-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; align-items: center; }
+    .pc-x { font-size: 10px; color: var(--text2); margin-left: 4px; }
+    .cnt-green { background: #d1fae5; border-color: #a7f3d0; color: #065f46; }
+    .hl-row { display: flex; gap: 10px; align-items: baseline; padding: 7px 4px; border-bottom: 1px dashed var(--border); cursor: pointer; font-size: 12px; }
+    .hl-row:hover { background: #f8fafc; }
+    .hl-row:last-child { border-bottom: none; }
+    .hl-d { color: var(--text2); width: 82px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .hl-t { flex: 1; min-width: 0; font-weight: 500; }
+    .hl-s { color: var(--text2); font-size: 11px; flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ===== Митинг ===== */
+    .mt-search { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; min-width: 240px; }
+    .mt-filter-chip { background: #eff6ff; color: var(--blue); border: 1px solid #bfdbfe; border-radius: 10px; padding: 3px 10px; font-size: 12px; }
+    .mt-filter-chip button { border: none; background: transparent; cursor: pointer; color: inherit; font-size: 12px; margin-left: 4px; }
+    .mt-item { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; background: var(--card); overflow: hidden; }
+    .mt-item.upcoming { border-left: 4px solid var(--blue); }
+    .mt-head { display: flex; gap: 14px; align-items: center; padding: 10px 14px; cursor: pointer; }
+    .mt-head:hover { background: #f8fafc; }
+    .mt-date { width: 62px; text-align: center; flex-shrink: 0; line-height: 1.1; }
+    .mt-date b { display: block; font-size: 22px; }
+    .mt-date span { font-size: 10px; color: var(--text2); text-transform: uppercase; }
+    .mt-main { flex: 1; min-width: 0; }
+    .mt-topic { font-weight: 600; font-size: 14px; }
+    .mt-sub { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 11px; color: var(--text2); margin-top: 4px; }
+    .mt-status { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .ms-done { background: #d1fae5; color: #065f46; } .ms-plan { background: #dbeafe; color: #1e40af; }
+    .ms-cancel { background: #fee2e2; color: #991b1b; } .ms-move { background: #fef3c7; color: #92400e; }
+    .mt-caret { color: var(--text2); transition: transform .15s; }
+    .mt-item.open .mt-caret { transform: rotate(180deg); }
+    .mt-body { display: none; padding: 4px 16px 14px 90px; border-top: 1px solid var(--border); background: #fafbfc; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 24px; font-size: 12px; }
+    .mt-item.open .mt-body { display: grid; }
+    .mt-sec { padding-top: 10px; min-width: 0; }
+    .mt-sec h5 { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--text2); margin-bottom: 4px; }
+    .mt-sec ul { padding-left: 16px; } .mt-sec li { margin-bottom: 2px; }
+    .person-chip { display: inline-block; background: #eef2f8; border-radius: 10px; padding: 2px 9px; margin: 0 4px 4px 0; font-size: 11px; }
+    @media (max-width: 700px) { .mt-body { padding-left: 16px; } }
   </style>
 </head>
 <body>
@@ -485,14 +555,20 @@
   <div id="debug" class="debug-box"></div>
 
   <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('hier', this)">Таблица</button>
-    <button class="tab-btn" onclick="switchTab('pivot', this)">Связи</button>
-    <button class="tab-btn" onclick="switchTab('exch', this)">Обмен<span class="tab-badge" id="ex-badge" style="display:none"></span></button>
-    <button class="tab-btn" onclick="switchTab('kanban', this)">Канбан</button>
-    <button class="tab-btn" onclick="switchTab('gantt', this)">График Ганта</button>
+    <button class="tab-btn active" data-tab="home" onclick="switchTab('home', this)">Главная</button>
+    <button class="tab-btn" data-tab="hier" onclick="switchTab('hier', this)">Таблица</button>
+    <button class="tab-btn" data-tab="pivot" onclick="switchTab('pivot', this)">Связи</button>
+    <button class="tab-btn" data-tab="exch" onclick="switchTab('exch', this)">Обмен<span class="tab-badge" id="ex-badge" style="display:none"></span></button>
+    <button class="tab-btn" data-tab="meet" onclick="switchTab('meet', this)">Митинг</button>
+    <button class="tab-btn" data-tab="kanban" onclick="switchTab('kanban', this)">Канбан</button>
+    <button class="tab-btn" data-tab="gantt" onclick="switchTab('gantt', this)">График Ганта</button>
   </div>
 
-  <div id="tab-hier" class="tab-content">
+  <div id="tab-home" class="tab-content">
+    <div class="home-scroll" id="home-root"><div class="loader">Загрузка...</div></div>
+  </div>
+
+  <div id="tab-hier" class="tab-content hidden-tab">
     <div class="card">
       <div class="table-tools">
         <button class="tool-btn" onclick="expandAll(true)">▼ Раскрыть все</button>
@@ -546,6 +622,21 @@
         <span id="ex-info" style="margin-left:auto;font-size:12px;color:var(--text2)"></span>
       </div>
       <div class="ex-root" id="ex-root"><div class="loader">Загрузка...</div></div>
+    </div>
+  </div>
+
+  <div id="tab-meet" class="tab-content hidden-tab">
+    <div class="card">
+      <div class="ex-tools">
+        <input type="search" id="mt-q" class="mt-search" placeholder="Поиск: тема, участники, протокол…" oninput="mtQuery=this.value;renderMeetings()">
+        <select id="mt-status" onchange="mtStatus=this.value;renderMeetings()"></select>
+        <select id="mt-when" onchange="mtWhen=this.value;renderMeetings()">
+          <option value="">Все даты</option><option value="upcoming">Предстоящие</option><option value="past">Прошедшие</option>
+        </select>
+        <span id="mt-task-chip" class="mt-filter-chip" style="display:none"></span>
+        <span id="mt-info" style="margin-left:auto;font-size:12px;color:var(--text2)"></span>
+      </div>
+      <div class="ex-root" id="mt-root"><div class="loader">Загрузка...</div></div>
     </div>
   </div>
 
@@ -621,6 +712,7 @@
     { key: 'Комментарий',       render: 'comment',   def: true },
     { key: '__IN__',            render: 'relin',     label: '← Получаем от', def: true },
     { key: '__OUT__',           render: 'relout',    label: '→ Передаем', def: true },
+    { key: '__MEET__',          render: 'meet',      label: 'Митинги', def: true },
     { key: 'Результат',         render: 'textarea',  def: true },
     { key: 'Документ',          render: 'doc',       def: false },
   ];
@@ -738,8 +830,10 @@
             if (curProject !== requested && data.headers.indexOf('Проект') >= 0) { refreshData(true); return; }
             buildRelations();
             renderHier();
+            renderHome();
             renderPivot();
             renderExchange();
+            renderMeetings();
             renderKanban();
             renderGantt();
           })
@@ -840,6 +934,7 @@
     Object.keys(childrenMap).forEach(k => childrenMap[k].sort(numCmp));
     computeStructNums();
     buildEdgeIndex();
+    buildMeetIndex();
   }
 
   // Структурная нумерация: из колонки «№», а если её нет — по порядку в иерархии (1, 1.1, 1.2.1 …)
@@ -1031,6 +1126,7 @@
   function cellValueStr(r, c) {
     if (c.key === '__NAME__') return getRowName(r);
     if (c.key === '__NUM__') return displayNum(r); // колонка «№» листа «Таблица»
+    if (c.render === 'meet') return String(meetsOfTree(r).length);
     if (c.render === 'relin') return (edgesIn[r._rowIndex] || []).map(e => e.srcName).join(', ');
     if (c.render === 'relout') return (edgesOut[r._rowIndex] || []).map(e => e.dstName).join(', ');
     if (c.render === 'links') {
@@ -1257,6 +1353,7 @@
       case 'comment':  return txtCell(r, 'Комментарий', true);
       case 'doc':      return docCell(r);
       case 'links':    return linksCell(r);
+      case 'meet':     return meetCell(r);
       case 'relin':    return relCell(edgesIn[r._rowIndex], 'in');
       case 'relout':   return relCell(edgesOut[r._rowIndex], 'out');
       default:         return txtCell(r, c.key);
@@ -1495,6 +1592,8 @@
     tc.classList.remove('hidden-tab');
     btn.classList.add('active');
     if (id === 'gantt') bindGanttSync();
+    if (id === 'home' && appData.rows.length) renderHome();
+    if (id === 'meet' && appData.rows.length) renderMeetings();
     if (id === 'pivot' && appData.rows.length) renderPivot();
     if (id === 'exch' && appData.rows.length) renderExchange();
     // Таблица с table-layout:fixed пересчитывает ширину по ширине контейнера —
@@ -1570,16 +1669,333 @@
     const r = appData.rows.find(x => x._rowIndex === idx);
     if (!r) return;
     // переход по позиции строки
-    if (!hierTabVisible()) {
-      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden-tab'));
-      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-      document.getElementById('tab-hier').classList.remove('hidden-tab');
-      document.querySelectorAll('.tab-btn')[0].classList.add('active');
-    }
+    if (!hierTabVisible()) goTab('hier');
     revealRow(r);
     renderHier();
     // двойной requestAnimationFrame: ждём, пока браузер разложит таблицу после показа вкладки
     requestAnimationFrame(() => requestAnimationFrame(() => scrollToRow(idx)));
+  }
+
+  // ============================================================
+  // НАВИГАЦИЯ МЕЖДУ ВКЛАДКАМИ
+  // ============================================================
+  function goTab(id) {
+    const b = document.querySelector('.tab-btn[data-tab="' + id + '"]');
+    if (b) switchTab(id, b);
+  }
+  function openExchangeFor(name) {
+    exPerson = name || '';
+    try { localStorage.setItem('exPerson', exPerson); } catch (e) {}
+    exState = '';
+    goTab('exch');
+  }
+  function openExchangeState(st) { exState = st; exPerson = ''; goTab('exch'); }
+
+  // ============================================================
+  // МИТИНГИ (лист «Митинг») — привязаны к этапам / задачам / под-задачам
+  // ============================================================
+  let mtQuery = '', mtStatus = '', mtWhen = '', mtTask = null;
+  let meetByRow = {};
+
+  function buildMeetIndex() {
+    meetByRow = {};
+    (appData.meetings || []).forEach(m => {
+      if (m._taskRow != null) (meetByRow[m._taskRow] = meetByRow[m._taskRow] || []).push(m);
+    });
+  }
+  function subtreeRows(r) {
+    const seen = new Set(), res = [];
+    (function walk(x) {
+      const k = rowKey(x);
+      if (seen.has(k)) return;
+      seen.add(k); res.push(x._rowIndex);
+      (childrenMap[k] || []).forEach(walk);
+    })(r);
+    return res;
+  }
+  function meetsOfTree(r) {
+    let list = [];
+    subtreeRows(r).forEach(i => { if (meetByRow[i]) list = list.concat(meetByRow[i]); });
+    return list;
+  }
+  // Ячейка «Митинги» в таблице: число встреч этапа/задачи вместе с вложенными
+  function meetCell(r) {
+    const list = meetsOfTree(r);
+    if (!list.length) return '<span class="no-link">—</span>';
+    const own = (meetByRow[r._rowIndex] || []).length;
+    return `<button class="rel-chip" title="Митингов: ${list.length}${own !== list.length ? ' (в т.ч. вложенные)' : ''} — открыть" onclick="openMeetingsFor(${r._rowIndex})">📅 ${list.length}</button>`;
+  }
+  function openMeetingsFor(rowIndex) { mtTask = rowIndex; mtQuery = ''; mtStatus = ''; mtWhen = ''; goTab('meet'); }
+  function clearMeetTask() { mtTask = null; renderMeetings(); }
+
+  function meetStatusCls(s) {
+    const v = String(s || '').toLowerCase();
+    if (/состоя|прове|заверш|готов|held|done/.test(v)) return 'ms-done';
+    if (/отмен|cancel/.test(v)) return 'ms-cancel';
+    if (/перен|resched/.test(v)) return 'ms-move';
+    return 'ms-plan';
+  }
+  const splitList = v => String(v == null ? '' : v).split(/[;\n]+/).map(x => x.trim()).filter(Boolean);
+  const splitNames = v => String(v == null ? '' : v).split(/[;,\n]+/).map(x => x.trim()).filter(Boolean);
+
+  function linkOrText(url, text, label) {
+    const t = String(text || '').trim();
+    if (url && /^https?:\/\//i.test(url)) {
+      const shown = t && t !== url ? t : label;
+      return `<a class="doc-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="${esc(url)}">📎 ${esc(shown)}</a>`;
+    }
+    return t ? `<div class="ex-result">${esc(t).replace(/\n/g, '<br>')}</div>` : '';
+  }
+
+  function renderMeetings() {
+    const root = document.getElementById('mt-root');
+    if (!root) return;
+    const all = appData.meetings || [];
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    if (appData.meetingsMissing) {
+      root.innerHTML = '<div class="warn-box">Лист «Митинг» не найден. Создайте лист «Митинг» со столбцами: ID, №, Этап, Задача, Под-задача, Старт, Финиш, Дата, Статус встречи, Тема встречи, Повестка встречи, Участники встречи, Вопросы, Протокол встречи, Комментарий.</div>';
+      return;
+    }
+    // выпадающий список статусов
+    const statuses = [...new Set(all.map(m => String(m['Статус встречи'] || '').trim()).filter(Boolean))];
+    const selSt = document.getElementById('mt-status');
+    selSt.innerHTML = '<option value="">Любой статус</option>' + statuses.map(s => `<option ${s === mtStatus ? 'selected' : ''}>${esc(s)}</option>`).join('');
+    document.getElementById('mt-when').value = mtWhen;
+    document.getElementById('mt-q').value = mtQuery;
+
+    let allowed = null;
+    const chip = document.getElementById('mt-task-chip');
+    if (mtTask != null && rowMap[mtTask]) {
+      allowed = new Set(subtreeRows(rowMap[mtTask]));
+      chip.style.display = '';
+      chip.innerHTML = `Фильтр: ${esc((structNums[mtTask] ? structNums[mtTask] + ' ' : '') + getRowName(rowMap[mtTask]))} <button onclick="clearMeetTask()" title="Сбросить">✕</button>`;
+    } else { mtTask = null; chip.style.display = 'none'; }
+
+    const q = mtQuery.trim().toLowerCase();
+    const dateOf = m => parseRuDate(m['Дата']);
+    let list = all.filter(m => {
+      if (allowed && !allowed.has(m._taskRow)) return false;
+      if (mtStatus && String(m['Статус встречи'] || '').trim() !== mtStatus) return false;
+      const d = dateOf(m);
+      if (mtWhen === 'upcoming' && !(d && d >= today)) return false;
+      if (mtWhen === 'past' && !(d && d < today)) return false;
+      if (q) {
+        const hay = ['Тема встречи', 'Повестка встречи', 'Участники встречи', 'Вопросы', 'Протокол встречи', 'Комментарий', '_taskName']
+          .map(k => String(m[k] || '')).join(' ').toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+    list.sort((a, b) => (dateOf(b) ? dateOf(b).getTime() : -1) - (dateOf(a) ? dateOf(a).getTime() : -1));
+
+    const unlinked = all.filter(m => m._taskRow == null).length;
+    const held = all.filter(m => meetStatusCls(m['Статус встречи']) === 'ms-done').length;
+    document.getElementById('mt-info').textContent = `Всего: ${all.length} · состоялось: ${held}` + (unlinked ? ` · без привязки: ${unlinked}` : '');
+
+    if (!list.length) {
+      root.innerHTML = '<div class="empty-note">' + (all.length ? 'Нет встреч по выбранным условиям' : 'В листе «Митинг» пока нет встреч') + '</div>';
+      return;
+    }
+    const mNames = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+    root.innerHTML = list.map(m => {
+      const id = m._rowIndex;
+      const d = dateOf(m);
+      const dateH = d
+        ? `<b>${d.getDate()}</b><span>${mNames[d.getMonth()]} ${d.getFullYear()}</span>`
+        : `<span>${esc(m['Дата'] || 'без даты')}</span>`;
+      const upcoming = d && d >= today;
+      const people = splitNames(m['Участники встречи']);
+      const qs = splitList(m['Вопросы']);
+      const hasProto = !!(m._protocolUrl || String(m['Протокол встречи'] || '').trim());
+      const tRow = m._taskRow != null ? rowMap[m._taskRow] : null;
+      const task = tRow
+        ? `<button class="link-chip" onclick="event.stopPropagation();revealByRow(${tRow._rowIndex})" title="Открыть в таблице"><span>${esc((structNums[tRow._rowIndex] ? structNums[tRow._rowIndex] + ' ' : '') + m._taskName)}</span></button><span class="ex-sub">${esc(m._taskLevel)}</span>`
+        : `<span class="no-link" title="Укажите Этап / Задачу / Под-задачу или «№» из Таблицы">не привязано к задаче</span>`;
+      const raw = [m['Этап'], m['Задача'], m['Под-задача']].filter(x => String(x || '').trim()).join(' › ');
+      const stCls = meetStatusCls(m['Статус встречи']);
+      const topic = String(m['Тема встречи'] || '').trim() || '(без темы)';
+      const agenda = linkOrText(m._agendaUrl, m['Повестка встречи'], 'Открыть повестку');
+      const proto = linkOrText(m._protocolUrl, m['Протокол встречи'], 'Открыть протокол');
+      return `<div class="mt-item${upcoming ? ' upcoming' : ''}" id="mt-${id}">
+        <div class="mt-head" onclick="mtToggle(${id})">
+          <div class="mt-date">${dateH}</div>
+          <div class="mt-main">
+            <div class="mt-topic">${esc(topic)}</div>
+            <div class="mt-sub">${task}
+              ${people.length ? `<span>👥 ${people.length}</span>` : ''}${qs.length ? `<span>❓ ${qs.length}</span>` : ''}${hasProto ? '<span title="Есть протокол">📄 протокол</span>' : '<span class="no-link">нет протокола</span>'}</div>
+          </div>
+          ${m['Статус встречи'] ? `<span class="mt-status ${stCls}">${esc(m['Статус встречи'])}</span>` : ''}
+          <span class="mt-caret">▾</span>
+        </div>
+        <div class="mt-body">
+          <div class="mt-sec"><h5>Повестка</h5>${agenda || '<span class="no-link">не заполнена</span>'}</div>
+          <div class="mt-sec"><h5>Участники</h5>${people.length ? people.map(p => `<span class="person-chip">${esc(p)}</span>`).join('') : '<span class="no-link">не указаны</span>'}</div>
+          <div class="mt-sec"><h5>Вопросы</h5>${qs.length ? '<ul>' + qs.map(x => `<li>${esc(x)}</li>`).join('') + '</ul>' : '<span class="no-link">нет</span>'}</div>
+          <div class="mt-sec"><h5>Протокол встречи</h5>${proto || '<span class="no-link">не заполнен</span>'}</div>
+          ${String(m['Комментарий'] || '').trim() ? `<div class="mt-sec"><h5>Комментарий</h5><div class="ex-result">${esc(m['Комментарий']).replace(/\n/g, '<br>')}</div></div>` : ''}
+          <div class="mt-sec"><h5>Привязка и период задачи</h5>
+            <div class="ex-sub" style="font-size:11px">${esc(raw || '—')}${m['Старт'] || m['Финиш'] ? ' · ' + esc(m['Старт'] || '…') + ' — ' + esc(m['Финиш'] || '…') : ''}</div></div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  function mtToggle(id) {
+    const el = document.getElementById('mt-' + id);
+    if (el) el.classList.toggle('open');
+  }
+
+  // ============================================================
+  // ГЛАВНАЯ: виджеты проекта + содержимое листа «Главная» (A1:H40)
+  // ============================================================
+  const safeUrl = u => /^(https?:\/\/|mailto:)/i.test(String(u || '').trim());
+  const safeColor = c => /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i.test(String(c || '').trim()) ? c : '';
+  function linkifyEsc(txt) {
+    return txt.replace(/(https?:\/\/[^\s<]+)/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+  }
+  function sheetRunsHtml(runs) {
+    return runs.map(x => {
+      const st = [x.b ? 'font-weight:700' : '', x.i ? 'font-style:italic' : '', safeColor(x.c) ? 'color:' + x.c : ''].filter(Boolean).join(';');
+      const txt = esc(x.t).replace(/\n/g, '<br>');
+      if (x.u && safeUrl(x.u)) return `<a href="${esc(x.u)}" target="_blank" rel="noopener noreferrer"${st ? ` style="${st}"` : ''}>${txt}</a>`;
+      const body = linkifyEsc(txt);
+      return st ? `<span style="${st}">${body}</span>` : body;
+    }).join('');
+  }
+  // Лист «Главная» A1:H40 → таблица: сохраняются объединения, цвета заливки, жирность, ссылки, ширины столбцов
+  function sheetHtml(h) {
+    if (!h) return '<div class="empty-note">Лист «Главная» не найден.<br>Создайте лист «Главная» и добавьте в диапазон A1:H40 текст и ссылки.</div>';
+    if (!h.rows) return '<div class="empty-note">Диапазон A1:H40 листа «Главная» пока пуст.<br>Добавьте текст и ссылки — они появятся здесь.</div>';
+    const covered = {}, mergeAt = {};
+    h.merges.forEach(m => {
+      mergeAt[m.r + ',' + m.c] = m;
+      for (let r = m.r; r < m.r + m.rs; r++) for (let c = m.c; c < m.c + m.cs; c++) if (r !== m.r || c !== m.c) covered[r + ',' + c] = 1;
+    });
+    const total = h.widths.reduce((a, b) => a + b, 0) || 1;
+    let html = '<table class="sheet-tbl"><colgroup>' + h.widths.map(w => `<col style="width:${(w / total * 100).toFixed(2)}%">`).join('') + '</colgroup><tbody>';
+    for (let r = 0; r < h.rows; r++) {
+      html += `<tr style="height:${Math.max(18, h.heights[r] || 21)}px">`;
+      for (let c = 0; c < h.cols; c++) {
+        if (covered[r + ',' + c]) continue;
+        const cell = h.cells[r][c], m = mergeAt[r + ',' + c];
+        const span = m ? `${m.rs > 1 ? ` rowspan="${m.rs}"` : ''}${m.cs > 1 ? ` colspan="${m.cs}"` : ''}` : '';
+        if (!cell) { html += `<td${span}></td>`; continue; }
+        const st = [
+          safeColor(cell.bg) ? 'background:' + cell.bg : '',
+          cell.b ? 'font-weight:700' : '', cell.i ? 'font-style:italic' : '',
+          safeColor(cell.c) ? 'color:' + cell.c : '',
+          cell.fs ? `font-size:${Math.min(26, Math.max(11, Math.round(cell.fs * 1.25)))}px` : '',
+          (cell.ha === 'center' || cell.ha === 'right') ? 'text-align:' + cell.ha : ''
+        ].filter(Boolean).join(';');
+        html += `<td${span}${st ? ` style="${st}"` : ''}>${sheetRunsHtml(cell.runs)}</td>`;
+      }
+      html += '</tr>';
+    }
+    return html + '</tbody></table>';
+  }
+
+  function initials(name) {
+    const p = String(name).trim().split(/\s+/).filter(Boolean);
+    return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase();
+  }
+  function avatarColor(name) {
+    let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+    return `hsl(${h} 55% 45%)`;
+  }
+
+  function renderHome() {
+    const root = document.getElementById('home-root');
+    if (!root) return;
+    if (!appData.rows.length) { root.innerHTML = '<div class="loader">Загрузка...</div>'; return; }
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const items = appData.rows.filter(r => r['Этап'] || r['Задача'] || r['Под-задача']);
+    const isLeaf = r => !(childrenMap[rowKey(r)] || []).length;
+    const lv = { 1: 0, 2: 0, 3: 0 };
+    const cnt = { done: 0, prog: 0, plan: 0 };
+    let overdue = 0, pSum = 0, pN = 0;
+    items.forEach(r => {
+      lv[getDisplayLevel(r)]++;
+      const s = String(r['Статус'] || '').trim();
+      if (s === 'Готово') cnt.done++; else if (s === 'В процессе') cnt.prog++; else cnt.plan++;
+      if (isOverdueRow(r)) overdue++;
+      if (isLeaf(r)) { pSum += parseInt(r['Прогресс']) || 0; pN++; }
+    });
+    const total = items.length || 1;
+    const avg = pN ? Math.round(pSum / pN) : 0;
+    const eBlk = edges.filter(e => e.state === 'blocking').length;
+    const eRisk = edges.filter(e => e.state === 'risk').length;
+    const meets = appData.meetings || [];
+    const upMeets = meets.filter(m => { const d = parseRuDate(m['Дата']); return d && d >= today; })
+      .sort((a, b) => parseRuDate(a['Дата']) - parseRuDate(b['Дата']));
+
+    const kpi = (cls, val, label, sub, onclick) =>
+      `<div class="kpi ${cls}"${onclick ? ` onclick="${onclick}" style="cursor:pointer"` : ''}><div class="kpi-val">${val}</div><div class="kpi-label">${label}</div>${sub ? `<div class="kpi-sub">${sub}</div>` : ''}</div>`;
+    const pct = n => (n / total * 100).toFixed(1) + '%';
+
+    // участники
+    const P = {};
+    const ensure = n => P[n] || (P[n] = { n, resp: 0, done: 0, prog: 0, over: 0, owner: 0, dec: 0, out: 0, inn: 0, blk: 0 });
+    ((appData.options && appData.options.employees) || []).forEach(ensure);
+    items.forEach(r => {
+      const st = String(r['Статус'] || '').trim();
+      rowPeople(r).forEach(n => {
+        const p = ensure(n); p.resp++;
+        if (st === 'Готово') p.done++; else if (st === 'В процессе') p.prog++;
+        if (isOverdueRow(r)) p.over++;
+      });
+      splitPeople(r['Владелец результата']).forEach(n => { ensure(n).owner++; });
+      splitPeople(r['Решающий']).forEach(n => { ensure(n).dec++; });
+    });
+    edges.forEach(e => {
+      e.from.forEach(n => { if (n) { const p = ensure(n); p.out++; if (e.state === 'blocking') p.blk++; } });
+      e.to.forEach(n => { if (n) ensure(n).inn++; });
+    });
+    const people = Object.values(P).sort((a, b) => (b.over - a.over) || (b.resp - a.resp) || a.n.localeCompare(b.n, 'ru'));
+    const peopleH = people.length ? people.map(p => `
+      <div class="pc" onclick="openExchangeFor(${JSON.stringify(p.n).replace(/"/g, '&quot;')})" title="Открыть обмен информацией сотрудника">
+        <div class="pc-ava" style="background:${avatarColor(p.n)}">${esc(initials(p.n))}</div>
+        <div class="pc-main">
+          <div class="pc-name">${esc(p.n)}</div>
+          <div class="pc-roles">Ответственный: ${p.resp}${p.owner ? ' · владелец: ' + p.owner : ''}${p.dec ? ' · решающий: ' + p.dec : ''}</div>
+          <div class="pc-badges">
+            ${p.prog ? `<span class="cnt">⏳ ${p.prog}</span>` : ''}${p.done ? `<span class="cnt cnt-green">✔ ${p.done}</span>` : ''}
+            ${p.over ? `<span class="cnt cnt-red" title="Просрочено">⏰ ${p.over}</span>` : ''}${p.blk ? `<span class="cnt cnt-red" title="Блокирует передач">⛔ ${p.blk}</span>` : ''}
+            ${p.inn || p.out ? `<span class="pc-x">← ${p.inn} · → ${p.out}</span>` : ''}
+          </div>
+        </div>
+      </div>`).join('') : '<div class="empty-note">Нет участников</div>';
+
+    // ближайшие сроки
+    const soon = items.filter(r => String(r['Статус'] || '').trim() !== 'Готово' && parseRuDate(r['Финиш']) && parseRuDate(r['Финиш']) >= today)
+      .sort((a, b) => parseRuDate(a['Финиш']) - parseRuDate(b['Финиш'])).slice(0, 7);
+    const soonH = soon.length ? soon.map(r => {
+      const d = Math.round((parseRuDate(r['Финиш']) - today) / 86400000);
+      return `<div class="hl-row" onclick="revealByRow(${r._rowIndex})"><span class="hl-d">${esc(r['Финиш'])}</span><span class="hl-t">${structNums[r._rowIndex] ? `<span class="g-num">${esc(structNums[r._rowIndex])}</span>` : ''}${esc(getRowName(r))}</span><span class="hl-s">${d === 0 ? 'сегодня' : 'через ' + d + ' дн.'}</span></div>`;
+    }).join('') : '<div class="empty-note" style="padding:14px">Нет ближайших сроков</div>';
+    const meetH = upMeets.length ? upMeets.slice(0, 6).map(m =>
+      `<div class="hl-row" onclick="${m._taskRow != null ? `openMeetingsFor(${m._taskRow})` : `goTab('meet')`}"><span class="hl-d">${esc(m['Дата'])}</span><span class="hl-t">${esc(m['Тема встречи'] || '(без темы)')}</span><span class="hl-s">${esc(m._taskName || '')}</span></div>`).join('')
+      : '<div class="empty-note" style="padding:14px">Предстоящих встреч нет</div>';
+
+    root.innerHTML = `
+      <div class="kpis">
+        ${kpi('', items.length, 'Элементов проекта', `этапов ${lv[1]} · задач ${lv[2]} · под-задач ${lv[3]}`)}
+        ${kpi('k-blue', avg + '%', 'Общий прогресс', `<div class="mini-bar"><i style="width:${avg}%"></i></div>`)}
+        ${kpi('k-green', cnt.done, 'Готово', pct(cnt.done) + ' от всех')}
+        ${kpi('k-blue', cnt.prog, 'В процессе', pct(cnt.prog) + ' от всех', "goTab('kanban')")}
+        ${kpi(overdue ? 'k-red' : '', overdue, 'Ожидают решения', 'просроченные сроки', "goTab('kanban')")}
+        ${kpi(eBlk ? 'k-red' : '', eBlk, 'Блокируют передачу', `риск срока: ${eRisk}`, "openExchangeState('blocking')")}
+        ${kpi('', meets.length, 'Митингов', upMeets.length ? 'ближайший: ' + esc(upMeets[0]['Дата']) : 'предстоящих нет', "goTab('meet')")}
+      </div>
+      <div class="statbar" title="Готово / В процессе / Планируется">
+        <i class="sb-done" style="width:${pct(cnt.done)}"></i><i class="sb-prog" style="width:${pct(cnt.prog)}"></i><i class="sb-plan" style="width:${pct(cnt.plan)}"></i>
+      </div>
+      <div class="statbar-legend"><span><i class="sb-done"></i>Готово ${cnt.done}</span><span><i class="sb-prog"></i>В процессе ${cnt.prog}</span><span><i class="sb-plan"></i>Планируется ${cnt.plan}</span></div>
+      <div class="home-grid">
+        <section class="widget w-links"><h3>Ссылки и заметки <small>лист «Главная», A1:H40</small></h3><div class="sheet-wrap">${sheetHtml(appData.home)}</div></section>
+        <section class="widget w-people"><h3>Участники проекта <span class="cnt">${people.length}</span></h3><div class="pc-list">${peopleH}</div></section>
+        <section class="widget"><h3>Ближайшие сроки</h3>${soonH}</section>
+        <section class="widget"><h3>Ближайшие митинги</h3>${meetH}</section>
+      </div>`;
   }
 
   // ============================================================
