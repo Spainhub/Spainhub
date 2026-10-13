@@ -24,6 +24,9 @@
 // 'feeds'      — «ID Связи» = какие строки зависят от этой (эта -> они)
 const LINK_MODE = 'depends_on';
 
+// Пароль для входа в веб-приложение. Пустая строка '' — окно входа не показывается.
+const APP_PASSWORD = '2016';
+
 const SHEET_NAME = 'Таблица';
 const SHEET_NAME_OLD = 'Data';
 const MEET_SHEET_NAME = 'Митинг';   // встречи, привязанные к этапам / задачам / под-задачам
@@ -43,6 +46,11 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
+
+// ---------- Пароль ----------
+function authOk_(pass) { return !APP_PASSWORD || String(pass == null ? '' : pass) === APP_PASSWORD; }
+function getAuthInfo() { return { required: !!APP_PASSWORD }; }
+function checkPassword(pass) { return authOk_(pass); }
 
 function ping() {
   return 'OK: ' + new Date().toLocaleTimeString();
@@ -136,7 +144,8 @@ function readRows_(sheet) {
 
 // ---------- Главные данные ----------
 
-function getProjectData(project) {
+function getProjectData(project, pass) {
+  if (!authOk_(pass)) return { _auth: false };
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = getDataSheet_();
@@ -213,7 +222,8 @@ function buildOptions(ss, rows) {
   };
 }
 
-function updateCell(rowIndex, columnName, newValue) {
+function updateCell(rowIndex, columnName, newValue, pass) {
+  if (!authOk_(pass)) return { success: false, message: 'Нет доступа' };
   try {
     const sheet = getDataSheet_();
     if (!sheet) return { success: false, message: 'Лист не найден' };
@@ -415,9 +425,8 @@ function readMeetings_(rows, project) {
   data.slice(1).forEach((row, i) => {
     const m = { _rowIndex: i + 2 };
     headers.forEach((h, c) => { if (h) m[h] = row[c]; });
-    const has = ['ID', 'Дата', 'Тема встречи', 'Повестка встречи', 'Протокол встречи', 'Участники встречи']
-      .some(h => String(m[h] || '').trim() !== '');
-    if (!has) return;
+    // строки без даты не показываем
+    if (String(m['Дата'] || '').trim() === '') return;
     if (project && headers.indexOf('Проект') >= 0 && String(m['Проект'] || '').trim() !== project) return;
     const t = findTask(m);
     m._taskRow = t ? t._rowIndex : null;
