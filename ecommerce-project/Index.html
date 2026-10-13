@@ -524,6 +524,7 @@
     .mt-date span { font-size: 10px; color: var(--text2); text-transform: uppercase; }
     .mt-main { flex: 1; min-width: 0; }
     .mt-topic { font-weight: 600; font-size: 14px; }
+    .mt-n { display: inline-block; background: var(--bg); border: 1px solid var(--border); color: var(--text2); border-radius: 6px; padding: 0 6px; margin-right: 8px; font-size: 11px; font-weight: 600; vertical-align: 1px; }
     .mt-sub { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 11px; color: var(--text2); margin-top: 4px; }
     .mt-status { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
     .ms-done { background: #d1fae5; color: #065f46; } .ms-plan { background: #dbeafe; color: #1e40af; }
@@ -1821,7 +1822,7 @@
         <div class="mt-head" onclick="mtToggle(${id})">
           <div class="mt-date">${dateH}</div>
           <div class="mt-main">
-            <div class="mt-topic">${esc(topic)}</div>
+            <div class="mt-topic">${String(m['№'] || '').trim() ? `<span class="mt-n" title="Порядковый номер встречи">№ ${esc(String(m['№']).trim())}</span>` : ''}${esc(topic)}</div>
             <div class="mt-sub">${task}
               ${people.length ? `<span>👥 ${people.length}</span>` : ''}${qs.length ? `<span>❓ ${qs.length}</span>` : ''}${hasProto ? '<span title="Есть протокол">📄 протокол</span>' : '<span class="no-link">нет протокола</span>'}</div>
           </div>
