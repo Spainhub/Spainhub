@@ -594,6 +594,18 @@
   </form>
 </div>
 
+<div class="login-overlay" id="name-modal" style="display:none">
+  <form class="login-card" onsubmit="saveName(); return false;">
+    <div class="login-ico">👤</div>
+    <h2>Ваше имя</h2>
+    <p>Имя попадёт в журнал изменений — лист «Изменения»</p>
+    <input type="text" id="name-input" placeholder="Например: Иванов И." style="letter-spacing:0" maxlength="60">
+    <div class="login-err" id="name-err"></div>
+    <button class="btn" type="submit">Сохранить</button>
+    <button class="btn-ghost" type="button" onclick="cancelName()">Отмена</button>
+  </form>
+</div>
+
 <div class="app">
   <div class="header">
     <div class="proj-pick" id="proj-pick">
@@ -604,6 +616,7 @@
       <div class="proj-menu" id="proj-menu"></div>
     </div>
     <div class="header-actions">
+      <button class="btn-ghost" id="btn-user" onclick="askName()" title="Имя для журнала изменений">👤 Указать имя</button>
       <button class="btn-ghost" id="btn-logout" style="display:none" onclick="logout()" title="Выйти из приложения">🔒 Выйти</button>
       <button class="btn" onclick="refreshData()">↻ Обновить</button>
     </div>
@@ -2788,10 +2801,51 @@
     location.reload();
   }
 
+  // === ЖУРНАЛ ИЗМЕНЕНИЙ: «кто» — email Google (если доступен) или имя, введённое один раз ===
+  let appEmail = '', appUser = '', nameCb = null;
+  try { appUser = localStorage.getItem('appUser') || ''; } catch (e) {}
+  function updateUserBtn() {
+    const b = document.getElementById('btn-user');
+    if (appEmail) { b.textContent = '👤 ' + appEmail; b.title = 'Вы вошли как ' + appEmail; b.disabled = true; b.style.cursor = 'default'; }
+    else b.textContent = appUser ? '👤 ' + appUser : '👤 Указать имя';
+  }
+  function askName(cb) {
+    nameCb = typeof cb === 'function' ? cb : null;
+    document.getElementById('name-modal').style.display = 'flex';
+    const i = document.getElementById('name-input');
+    i.value = appUser; document.getElementById('name-err').textContent = '';
+    setTimeout(() => i.focus(), 30);
+  }
+  function saveName() {
+    const v = document.getElementById('name-input').value.trim();
+    if (!v) { document.getElementById('name-err').textContent = 'Введите имя'; return; }
+    appUser = v;
+    try { localStorage.setItem('appUser', v); } catch (e) {}
+    document.getElementById('name-modal').style.display = 'none';
+    updateUserBtn();
+    const cb = nameCb; nameCb = null;
+    if (cb) cb();
+  }
+  function cancelName() {
+    document.getElementById('name-modal').style.display = 'none';
+    const had = nameCb; nameCb = null;
+    if (had) refreshData(true);   // отказались указывать имя — откатываем несохранённую правку на экране
+  }
+
   function upd(idx, col, val) {
-    google.script.run.withSuccessHandler(r => {
-      if (r && r.success === false) console.warn('Не сохранено:', r.message);
-    }).updateCell(idx, col, val, appPass);
+    const send = () => google.script.run
+      .withSuccessHandler(r => {
+        if (r && r.success === false) {
+          showMsg('❌ Не сохранено: ' + esc(r.message || ''), true);
+          refreshData(true);
+          return;
+        }
+        const row = rowMap[idx];
+        if (row) row[col] = val;   // локальное значение = «как в таблице»
+      })
+      .withFailureHandler(err => { showMsg('❌ Не сохранено: ' + esc(err.message), true); refreshData(true); })
+      .updateCell(idx, col, val, appPass, appUser);
+    if (appEmail || appUser) send(); else askName(send);
   }
 
   function fmtDate(d) {
@@ -2805,6 +2859,8 @@
     google.script.run
       .withSuccessHandler(info => {
         const need = !!(info && info.required);
+        appEmail = (info && info.email) || '';
+        updateUserBtn();
         document.getElementById('btn-logout').style.display = need ? '' : 'none';
         if (!need || appPass) refreshData(); else showLogin('');
       })

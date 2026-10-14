@@ -29,6 +29,10 @@ const APP_PASSWORD = '2016';
 
 const SHEET_NAME = 'Таблица';
 const SHEET_NAME_OLD = 'Data';
+// Журнал изменений: лист «Изменения» (если его нет — создаётся). В него пишутся ТОЛЬКО правки из веб-приложения.
+const LOG_SHEET_NAME = 'Изменения';
+const LOG_HEADERS = ['Дата и время', 'Кто', 'Email', 'Лист', 'Строка', 'ID', '№', 'Название', 'Поле', 'Было', 'Стало'];
+
 const MEET_SHEET_NAME = 'Митинг';   // встречи, привязанные к этапам / задачам / под-задачам
 const HOME_SHEET_NAME = 'Главная';  // диапазон A1:H40 выводится на вкладке «Главная»
 const HOME_RANGE = { rows: 40, cols: 8 };
@@ -49,7 +53,11 @@ function doGet() {
 
 // ---------- Пароль ----------
 function authOk_(pass) { return !APP_PASSWORD || String(pass == null ? '' : pass) === APP_PASSWORD; }
-function getAuthInfo() { return { required: !!APP_PASSWORD }; }
+// email виден скрипту не всегда (зависит от режима публикации и домена) — тогда «Кто» берётся из имени, введённого в приложении
+function userEmail_() {
+  try { return Session.getActiveUser().getEmail() || ''; } catch (e) { return ''; }
+}
+function getAuthInfo() { return { required: !!APP_PASSWORD, email: userEmail_() }; }
 function checkPassword(pass) { return authOk_(pass); }
 
 function ping() {
@@ -222,7 +230,7 @@ function buildOptions(ss, rows) {
   };
 }
 
-function updateCell(rowIndex, columnName, newValue, pass) {
+function updateCell(rowIndex, columnName, newValue, pass, who) {
   if (!authOk_(pass)) return { success: false, message: 'Нет доступа' };
   try {
     const sheet = getDataSheet_();
@@ -230,13 +238,60 @@ function updateCell(rowIndex, columnName, newValue, pass) {
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(canonHeader_);
     const colIndex = headers.indexOf(canonHeader_(columnName)) + 1;
     if (colIndex > 0) {
-      sheet.getRange(rowIndex, colIndex).setValue(newValue);
-      return { success: true };
+      const cell = sheet.getRange(rowIndex, colIndex);
+      const oldValue = cell.getDisplayValue();
+      cell.setValue(newValue);
+      // журнал: только если значение действительно изменилось; ошибка журнала не отменяет сохранение
+      let logged = false;
+      if (String(oldValue).trim() !== String(newValue == null ? '' : newValue).trim()) {
+        logged = safe_(() => logChange_(sheet, headers, rowIndex, columnName, oldValue, newValue, who), false);
+      }
+      return { success: true, logged: logged };
     }
     return { success: false, message: 'Колонка не найдена: ' + columnName };
   } catch (e) {
     return { success: false, message: e.message };
   }
+}
+
+// Запись в лист «Изменения»: кто, когда, где (строка / ID / название), какое поле, было → стало
+function logChange_(sheet, headers, rowIndex, field, oldV, newV, who) {
+  const ss = sheet.getParent();
+  let log = ss.getSheetByName(LOG_SHEET_NAME);
+  if (!log) log = ss.insertSheet(LOG_SHEET_NAME);
+
+  // значения, начинающиеся с = + - @, записываем как текст (чтобы не превратились в формулы)
+  const txt = v => { const s = String(v == null ? '' : v); return /^[=+\-@]/.test(s) ? "'" + s : s; };
+  const email = userEmail_();
+  const name = String(who || '').trim() || email || 'не указан';
+  const rowVals = sheet.getRange(rowIndex, 1, 1, headers.length).getDisplayValues()[0];
+  const get = n => { const i = headers.indexOf(n); return i >= 0 ? rowVals[i] : ''; };
+  const rec = {
+    'Дата и время': new Date(), 'Кто': txt(name), 'Email': email, 'Лист': sheet.getName(), 'Строка': rowIndex,
+    'ID': get('ID'), '№': txt(get('№')), 'Название': txt(get('Под-задача') || get('Задача') || get('Этап')),
+    'Поле': field, 'Было': txt(oldV), 'Стало': txt(newV)
+  };
+
+  const lock = LockService.getScriptLock();
+  lock.tryLock(8000);
+  try {
+    let hdr = [];
+    if (log.getLastRow() > 0) hdr = log.getRange(1, 1, 1, Math.max(log.getLastColumn(), 1)).getValues()[0].map(h => String(h).trim());
+    // заголовков нет или ни один не распознан — пишем стандартные
+    if (!hdr.some(h => rec.hasOwnProperty(h))) {
+      hdr = LOG_HEADERS.slice();
+      log.getRange(1, 1, 1, hdr.length).setValues([hdr]).setFontWeight('bold').setBackground('#e5e7eb');
+      log.setFrozenRows(1);
+    }
+    const out = hdr.map(h => rec.hasOwnProperty(h) ? rec[h] : '');
+    const r = Math.max(log.getLastRow(), 1) + 1;
+    log.getRange(r, 1, 1, out.length).setValues([out]);
+    const di = hdr.indexOf('Дата и время');
+    if (di >= 0) log.getRange(r, di + 1).setNumberFormat('dd.MM.yyyy HH:mm:ss');
+  } finally {
+    lock.releaseLock();
+  }
+  return true;
 }
 
 // ============================================================
