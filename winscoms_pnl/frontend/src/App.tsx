@@ -6,7 +6,7 @@ export function App() {
   const [status, setStatus] = useState<Status>("loading");
 
   useEffect(() => {
-    fetch("/api/v1/health/ready")
+    fetch(`${import.meta.env.BASE_URL}api/v1/health/ready`)
       .then((r) => setStatus(r.ok ? "ok" : "down"))
       .catch(() => setStatus("down"));
   }, []);
