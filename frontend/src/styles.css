@@ -1,0 +1,7 @@
+:root { --text: #2b2d31; --border: #e4e5e8; --accent: #f26a1b; }
+body { margin: 0; font-family: system-ui, sans-serif; color: var(--text); background: #fff; }
+.page { max-width: 720px; margin: 0 auto; padding: 48px 16px; }
+.accent { color: var(--accent); }
+.status { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; display: inline-block; }
+.status-ok { border-color: #2e9e5b; }
+.status-down { border-color: #d33; }
