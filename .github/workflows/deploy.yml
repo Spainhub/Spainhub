@@ -44,3 +44,4 @@ jobs:
           script: |
             cd /root/projects/winscoms_pnl
             git pull origin main
+            
