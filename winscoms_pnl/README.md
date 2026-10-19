@@ -2,7 +2,7 @@
 
 SaaS для управленческого P&L по маркетплейсам (первый — Wildberries). Модульный монолит: FastAPI + PostgreSQL + React.
 
-Статус: **Stage 4 — бэкенд авторизации и организаций** (сессии, CSRF, роли, RLS, аудит). Страницы входа во фронтенде пока нет. Подробности: [docs/auth.md](docs/auth.md).
+Статус: **Stage 6** — авторизация и организации ([docs/auth.md](docs/auth.md)), подключение Wildberries и синхронизация ([docs/wb-integration.md](docs/wb-integration.md)), нормализация данных ([docs/financial-model.md](docs/financial-model.md)). Разбор реальных данных WB: [docs/wb-real-data-findings.md](docs/wb-real-data-findings.md). Движка P&L и интерфейса пока нет.
 
 ## Быстрый старт
 ```bash

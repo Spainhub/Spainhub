@@ -87,6 +87,7 @@ async def test_other_organization_cannot_see_or_touch_account(world):
     assert (await c.post(f"{mine}/validate", headers=h)).status_code == 404
     assert (await c.put(f"{mine}/token", headers=h, json={"token": "x" * 20})).status_code == 404
     assert (await c.delete(mine, headers=h)).status_code == 404
+    assert (await c.get(f"{mine}/normalization")).status_code == 404
     assert (await c.get(f"/api/v1/orgs/{world['b']['id']}/seller-accounts")).json() == []
 
 

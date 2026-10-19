@@ -16,6 +16,7 @@ from app.schemas.marketplace import (
     SellerAccountCreate, SellerAccountOut, SyncJobOut, SyncStart, ValidateOut,
 )
 from app.services import audit
+from app.services import normalization
 from app.services import seller_accounts as svc
 
 router = APIRouter(prefix="/orgs/{org_id}/seller-accounts", tags=["marketplace"])
@@ -100,3 +101,10 @@ async def retry(account_id: uuid.UUID, job_id: uuid.UUID, request: Request, oc: 
     if job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание не найдено")
     return await svc.retry_job(db, acc, job, user_id=oc.auth.user.id, ip=client_ip(request))
+
+
+@router.get("/{account_id}/normalization")
+async def normalization_summary(account_id: uuid.UUID, oc: OrgContext = Depends(org_context), db: AsyncSession = Depends(get_session)):
+    """Полнота данных: сколько строк разобрано, сколько требует внимания (review/inconsistent/unclassified)."""
+    acc = await svc.get_account(db, oc.org_id, account_id)
+    return await normalization.summary(db, org_id=oc.org_id, account_id=acc.id)

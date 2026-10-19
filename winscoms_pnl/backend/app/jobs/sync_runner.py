@@ -18,6 +18,7 @@ from app.db.session import set_rls_context
 from app.integrations.base import SalesReportClient
 from app.integrations.errors import AuthError, MarketplaceError, RateLimited, TemporaryError
 from app.models import RawRecord, SellerAccount, SyncJob
+from app.services.normalization import normalize_pending
 
 log = logging.getLogger("winscoms.sync")
 
@@ -110,6 +111,7 @@ async def _finish_ok(maker, client: SalesReportClient, c: dict, now: datetime, r
         job = await db.get(SyncJob, c["job_id"])
         account = await db.get(SellerAccount, c["account_id"])
         if not records:                                   # 204: все страницы получены
+            await normalize_pending(db, org_id=job.organization_id, account_id=job.seller_account_id)  # добор, если версия изменилась
             job.status, job.finished_at, job.attempts = "succeeded", now, 0
             job.error_code = job.error_message = None
             account.last_sync_at = now
@@ -137,6 +139,7 @@ async def _finish_ok(maker, client: SalesReportClient, c: dict, now: datetime, r
                 pg_insert(RawRecord).values(rows).on_conflict_do_nothing(constraint="uq_raw_records_source").returning(RawRecord.id)
             )
             saved += len(res.fetchall())
+        await normalize_pending(db, org_id=job.organization_id, account_id=job.seller_account_id)
         job.cursor_rrd_id = new_cursor
         job.pages_fetched += 1
         job.records_fetched += len(records)
