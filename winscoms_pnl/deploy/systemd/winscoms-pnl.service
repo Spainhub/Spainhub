@@ -1,0 +1,15 @@
+[Unit]
+Description=WINSCOMS PnL (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@APP_DIR@
+ExecStart=/usr/bin/docker compose up -d --no-build --remove-orphans
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

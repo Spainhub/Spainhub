@@ -1,126 +1,98 @@
-# Ручной перенос WINSCOMS на VPS → https://winscoms.com/pnl/
+# Деплой WINSCOMS на VPS → https://finans.winscoms.com
 
-Принцип: **ничего существующего не трогаем**. Новый проект живёт в своей папке и своём Docker Compose-проекте (`winscoms_pnl`), слушает только `127.0.0.1:<порт>`, а существующий nginx на VPS добавляет один `location /pnl/`. Порты 80 и 443 наш Compose не занимает.
+Принцип: **существующие проекты и nginx не ломаем**. Приложение живёт в Docker Compose-проекте `winscoms_pnl`, слушает только `127.0.0.1:8081`, а хостовый nginx проксирует на него домен `finans.winscoms.com`.
 
-Команды ниже, где написано «ТОЛЬКО ЧТЕНИЕ», ничего не меняют.
+## Как работает «не падать и перезапускаться само»
+| Что | Чем обеспечено |
+|---|---|
+| Контейнеры поднимаются после перезагрузки сервера | `restart: unless-stopped` + `systemctl enable docker` + сервис `winscoms-pnl` |
+| Падение процесса | Docker перезапускает контейнер; healthcheck у backend и db |
+| Обновление файлов не роняет работающее приложение | Приложение запущено **из собранных образов**, а не из папки с исходниками: пока вы загружаете файлы, старая версия продолжает работать |
+| Автоматический деплой после загрузки файлов | Сервис `winscoms-autodeploy` замечает изменения, ждёт 20 с окончания загрузки, собирает образ, заменяет контейнеры |
+| Битая версия | Если сборка не удалась — старая версия остаётся; если новая не прошла `/health/ready` — автоматический откат на предыдущий образ |
+| Секреты и данные | `.env` и том БД скрипты не трогают |
 
-## Шаг 0. Подключение и разведка (ТОЛЬКО ЧТЕНИЕ)
+> Раньше приложение «падало» при изменении файлов, скорее всего потому, что работало прямо из папки проекта (dev-режим с авто-перезагрузкой или процесс без supervisor). Точную причину сказать не могу: я не видел старый запуск на сервере. Здесь исходники в работающий процесс не подмонтированы.
 
-Подключитесь по SSH (Terminal в PyCharm: **Tools → Start SSH Session…**, либо терминал ОС):
-```bash
-ssh ВАШ_ПОЛЬЗОВАТЕЛЬ@IP_СЕРВЕРА
-```
-Выполните и **пришлите мне вывод** (токены/пароли в нём вырежьте):
+## Шаг 0. Разведка (ТОЛЬКО ЧТЕНИЕ) — пришлите вывод, вырезав секреты
 ```bash
 cat /etc/os-release | head -3
 docker --version; docker compose version
 docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}'
-docker compose ls
 sudo ss -tlnp
 df -h /; free -m
-sudo nginx -T 2>/dev/null | grep -n -E "server_name|listen|location|root|proxy_pass" | head -60
-ls /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null
+sudo nginx -T 2>/dev/null | grep -n -E "server_name|listen|include" | head -40
+dig +short finans.winscoms.com
 ```
-Что ищем: какой веб-сервер держит 80/443 (nginx на хосте или в контейнере), как устроен `winscoms.com`, какие порты заняты (чтобы выбрать свободный вместо 8081), есть ли Docker и место.
+`dig` должен вернуть IP вашего сервера. Если порт 8081 занят — выберите другой и используйте его везде (в `.env` как `PROXY_PORT` и в nginx).
 
-> Если Docker не установлен — остановитесь и напишите мне, установим отдельно.
-> Если nginx работает **в контейнере** (а не на хосте), конфиг `location /pnl/` добавляется туда — пришлите вывод, подскажу точно.
+## Шаг 1. Код на сервере
+Папка проекта на сервере (`APP_DIR`) — **та, где лежит `docker-compose.yml`**; по умолчанию `/root/projects/winscoms_pnl`. Загрузите содержимое папки `winscoms_pnl/` (PyCharm SFTP или GitHub Actions — см. ниже) так, чтобы `docker-compose.yml` лежал прямо в `APP_DIR`. Исключите при загрузке `.git`, `node_modules`, `.venv`, `.env`.
 
-## Шаг 1. Папка проекта
+## Шаг 2. Файл `.env` (один раз, вручную на сервере)
 ```bash
-mkdir -p ~/apps/winscoms_pnl
-```
-(Существующий проект не затрагивается; `~/apps/` — просто удобное место. Если у вас другая схема, используйте её.)
-
-## Шаг 2. Доставить код на сервер — выберите один способ
-
-### Способ A. Через git (проще всего обновлять)
-Репозиторий приватный, на сервере нужен доступ только на чтение:
-1. На сервере: `ssh-keygen -t ed25519 -f ~/.ssh/winscoms_deploy -N ""` и `cat ~/.ssh/winscoms_deploy.pub`
-2. GitHub → репозиторий → **Settings → Deploy keys → Add deploy key**: вставьте публичный ключ, галочку Write **не** ставьте.
-3. На сервере:
-   ```bash
-   cd ~/apps
-   GIT_SSH_COMMAND="ssh -i ~/.ssh/winscoms_deploy" git clone --branch winscoms/main --single-branch git@github.com:Spainhub/Spainhub.git winscoms_src
-   ln -sfn ~/apps/winscoms_src/winscoms_pnl ~/apps/winscoms_pnl_app
-   ```
-   Код: `~/apps/winscoms_src/winscoms_pnl`.
-
-### Способ B. Через PyCharm (SFTP, без git на сервере)
-1. Откройте проект `winscoms_pnl` (см. `TRANSFER.md`).
-2. **Settings → Build, Execution, Deployment → Deployment → + → SFTP**. Host/Port/User — как для SSH; аутентификация — ключ или пароль. Нажмите **Test Connection**.
-3. Вкладка **Mappings**: Local path = папка `winscoms_pnl`, Deployment path = `/home/ВАШ_ПОЛЬЗОВАТЕЛЬ/apps/winscoms_pnl`.
-4. Вкладка **Excluded Paths**: добавьте `.git`, `frontend/node_modules`, `.venv`, `.env`.
-5. Правый клик на папке `winscoms_pnl` → **Deployment → Upload to…** (позже можно включить **Automatic Upload**).
-
-### Способ C. ZIP + scp
-```bash
-# на своём компьютере, из папки с распакованным ZIP:
-scp -r winscoms_pnl ВАШ_ПОЛЬЗОВАТЕЛЬ@IP_СЕРВЕРА:~/apps/
-```
-
-## Шаг 3. Создать `.env` на сервере
-```bash
-cd ~/apps/winscoms_pnl        # (для способа A: cd ~/apps/winscoms_src/winscoms_pnl)
-cp .env.example .env
+cd /root/projects/winscoms_pnl
+cp .env.example .env && chmod 600 .env
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(48))"
 python3 -c "import secrets; print('POSTGRES_PASSWORD=' + secrets.token_urlsafe(24))"
-```
-Если на сервере нет `cryptography`, ключ Fernet сгенерируйте так (даёт 44 символа base64):
-```bash
 python3 -c "import base64,os; print('ENCRYPTION_KEYS=' + base64.urlsafe_b64encode(os.urandom(32)).decode())"
+nano .env
 ```
-Откройте `.env` (`nano .env`) и задайте:
-- `APP_ENV=production`
-- `POSTGRES_PASSWORD`, `SECRET_KEY`, `ENCRYPTION_KEYS` — значения выше;
-- `DATABASE_URL=postgresql+asyncpg://winscoms:ТОТ_ЖЕ_ПАРОЛЬ@db:5432/winscoms` (пароль без спецсимволов `@ : / #`; `token_urlsafe` их не создаёт);
-- `PROXY_PORT` — свободный порт (проверьте `ss -tlnp`; по умолчанию 8081).
+Задайте: `APP_ENV=production`, три значения выше, `DATABASE_URL=postgresql+asyncpg://winscoms:ПАРОЛЬ@db:5432/winscoms` (тот же пароль), `PROXY_PORT`. Сохраните `ENCRYPTION_KEYS` отдельно: без ключа сохранённые токены WB не расшифровать.
 
-**Сохраните ключ `ENCRYPTION_KEYS` и пароли отдельно (менеджер паролей)**: потеряете ключ — сохранённые токены WB не расшифровать. `chmod 600 .env`.
-
-## Шаг 4. Запуск
+## Шаг 3. Первый запуск вручную (проверка)
 ```bash
-docker compose build
-docker compose up -d
-docker compose ps
-curl -s http://127.0.0.1:8081/pnl/api/v1/health/ready     # ожидаем {"status":"ok","database":"up"}
+cd /root/projects/winscoms_pnl
+bash deploy/scripts/deploy.sh
+curl -s http://127.0.0.1:8081/api/v1/health/ready      # {"status":"ok","database":"up"}
 ```
-Логи: `docker compose logs -f backend`. Если `ready` отдаёт `down` — смотрите `docker compose logs db backend`.
 
-## Шаг 5. Подключить к https://winscoms.com/pnl/ (существующий nginx на хосте)
+## Шаг 4. Автозапуск и автодеплой (один раз)
+```bash
+cd /root/projects/winscoms_pnl
+sudo APP_DIR=/root/projects/winscoms_pnl bash deploy/scripts/install-systemd.sh
+systemctl status winscoms-autodeploy
+journalctl -u winscoms-autodeploy -f          # лог автодеплоя
+```
+С этого момента: загрузили файлы → через ~30–60 с (пауза на окончание загрузки + сборка) новая версия сама заменила старую. Тест перезагрузки: `sudo reboot`, затем снова `curl` на health.
 
-1. Найдите файл, где объявлен `server_name winscoms.com` с `listen 443` (из вывода шага 0).
-2. **Сделайте копию**: `sudo cp /etc/nginx/sites-enabled/ФАЙЛ /etc/nginx/sites-enabled/ФАЙЛ.bak-$(date +%F)` — резервную копию лучше положить вне `sites-enabled` (например, `~/nginx-backup/`), чтобы nginx не читал её как конфиг.
-3. Внутрь блока `server { … listen 443 … }` **до** общего `location /` добавьте:
-   ```nginx
-   location /pnl/ {
-       proxy_pass http://127.0.0.1:8081;     # порт = PROXY_PORT; БЕЗ слэша в конце и без пути
-       proxy_set_header Host $host;
-       proxy_set_header X-Real-IP $remote_addr;
-       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-       proxy_set_header X-Forwarded-Proto $scheme;
-   }
-   location = /pnl { return 301 /pnl/; }
-   ```
-4. Проверьте и применяйте только если проверка прошла:
+## Шаг 5. Домен finans.winscoms.com и HTTPS
+1. Убедитесь, что `dig +short finans.winscoms.com` возвращает IP сервера.
+2. Конфиг хостового nginx — файл `deploy/nginx/host-finans.winscoms.com.conf` (порт = `PROXY_PORT`):
    ```bash
+   sudo cp deploy/nginx/host-finans.winscoms.com.conf /etc/nginx/conf.d/finans.winscoms.com.conf
    sudo nginx -t && sudo systemctl reload nginx
    ```
-   `reload` не обрывает текущие соединения. При ошибке `nginx -t` ничего не перезагружайте — верните копию.
-5. Откройте `https://winscoms.com/pnl/` — должна быть страница WINSCOMS и «Сервер работает».
+   (Если ваш nginx использует `sites-available/sites-enabled`, положите файл туда и сделайте симлинк. Существующие конфиги не редактируются — добавляется только новый файл. `reload` не обрывает соединения; при ошибке `nginx -t` ничего не перезагружайте.)
+3. HTTPS (Let's Encrypt):
+   ```bash
+   sudo certbot --nginx -d finans.winscoms.com
+   ```
+   Certbot допишет TLS-блок и редирект и сам продлевает сертификат. Если certbot не установлен: `sudo apt install certbot python3-certbot-nginx`. Если nginx у вас в контейнере — напишите, дам другой вариант.
+4. Откройте `https://finans.winscoms.com` — «Сервер работает».
 
-Откат: удалите добавленные блоки (или верните копию), `sudo nginx -t && sudo systemctl reload nginx`; `docker compose down` остановит проект (данные БД в томе `winscoms_pnl_pgdata` сохраняются; **не используйте `down -v`** — это удалит базу).
+Откат домена: удалить `/etc/nginx/conf.d/finans.winscoms.com.conf`, `nginx -t && reload`.
 
-## Шаг 6. Обновление
-- Способ A: `cd ~/apps/winscoms_src && GIT_SSH_COMMAND="ssh -i ~/.ssh/winscoms_deploy" git pull && cd winscoms_pnl && docker compose up -d --build`
-- Способ B: загрузить изменённые файлы из PyCharm, затем `docker compose up -d --build`.
-- Миграции БД (когда появятся, с Stage 4): `docker compose run --rm backend alembic upgrade head`.
+## Загрузка файлов (на выбор)
+- **PyCharm SFTP:** Deployment → Mappings: Local = папка `winscoms_pnl`, Remote = `/root/projects/winscoms_pnl`; Excluded: `.git`, `node_modules`, `.venv`, `.env`. Включите *Automatic Upload*. Дальше всё делает автодеплой.
+- **GitHub Actions** (`.github/workflows/deploy.yml`): при пуше в `main` отправляет папку `winscoms_pnl/` в `/root/projects/winscoms_pnl` (`--exclude=.env`, чтобы `--delete` не стёр секреты). Нужны секреты `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`. Автодеплой на сервере подхватит изменения.
 
-## Бэкап БД (минимум, до настройки автоматики)
+## Эксплуатация
+```bash
+docker compose ps                         # состояние
+docker compose logs -f backend            # логи приложения
+sudo systemctl restart winscoms-autodeploy
+bash deploy/scripts/deploy.sh             # деплой вручную
+```
+Принудительный откат: `docker tag winscoms_pnl-backend:previous winscoms_pnl-backend:latest` (то же для frontend) и `docker compose up -d --no-build`.
+**Не используйте `docker compose down -v`** — удалит базу.
+
+## Бэкап БД (минимум)
 ```bash
 mkdir -p ~/backups && docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | gzip > ~/backups/winscoms_$(date +%F_%H%M).sql.gz
 ```
-Бэкап считается рабочим только после проверки восстановления в тестовой БД (опишем на Stage 10).
+Рабочим бэкап считается после проверки восстановления в тестовую БД.
 
-## Что дальше проверять
-Текущая версия — каркас: страница и health-check. Авторизации и данных пока нет, поэтому до Stage 4 не публикуйте адрес широко (можно ограничить доступ по IP или `auth_basic` в nginx).
+## Ограничения
+Скрипты проверены локально только синтаксически и на заглушке (логика автодеплоя), а не на вашем сервере; сборка Docker-образов в этой среде не запускалась. Первый запуск делайте вручную (шаг 3) и смотрите вывод.
+Пока в приложении нет авторизации (Stage 4): не публикуйте домен широко — можно временно закрыть `auth_basic` в nginx.

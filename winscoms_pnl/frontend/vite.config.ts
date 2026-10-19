@@ -1,13 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Приложение открывается по адресу https://winscoms.com/pnl/
+// Продакшен: https://finans.winscoms.com/ (корень поддомена).
 export default defineConfig({
-  base: "/pnl/",
   plugins: [react()],
-  server: {
-    proxy: {
-      "/pnl/api": { target: "http://localhost:8000", rewrite: (p) => p.replace(/^\/pnl/, "") },
-    },
-  },
+  server: { proxy: { "/api": "http://localhost:8000" } },
 });

@@ -8,7 +8,7 @@ SaaS для управленческого P&L по маркетплейсам (
 ```bash
 cp .env.example .env        # заполните CHANGE_ME
 docker compose up -d --build
-curl http://127.0.0.1:8081/pnl/api/v1/health/ready   # в браузере: http://127.0.0.1:8081/pnl/
+curl http://127.0.0.1:8081/api/v1/health/ready   # в браузере: http://127.0.0.1:8081/
 ```
 
 ## Тесты бэкенда
@@ -27,6 +27,6 @@ cd frontend && npm install && npm run build
 docker compose run --rm backend alembic upgrade head
 ```
 
-Перенос и деплой: [скачать проект](docs/TRANSFER.md) · [развернуть на VPS под /pnl](docs/DEPLOY_VPS.md).
+Перенос и деплой: [скачать проект](docs/TRANSFER.md) · [развернуть на VPS: finans.winscoms.com, автозапуск и автодеплой](docs/DEPLOY_VPS.md).
 
 Решения и допущения: [docs/decisions.md](docs/decisions.md).

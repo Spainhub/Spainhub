@@ -1,0 +1,14 @@
+[Unit]
+Description=WINSCOMS PnL auto-deploy watcher
+After=docker.service winscoms-pnl.service
+Requires=docker.service
+
+[Service]
+Type=simple
+Environment=APP_DIR=@APP_DIR@
+ExecStart=/bin/bash @APP_DIR@/deploy/scripts/autodeploy.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
