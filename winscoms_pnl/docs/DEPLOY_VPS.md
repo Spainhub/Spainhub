@@ -77,6 +77,17 @@ journalctl -u winscoms-autodeploy -f          # лог автодеплоя
 - **PyCharm SFTP:** Deployment → Mappings: Local = папка `winscoms_pnl`, Remote = `/root/projects/winscoms_pnl/winscoms_pnl`; Excluded: `.git`, `node_modules`, `.venv`, `.env`. Включите *Automatic Upload*. Дальше всё делает автодеплой. (Не смешивайте с git-способом: выберите один.)
 - **GitHub Actions** (`.github/workflows/deploy.yml`, ветка `winscoms/main`): по пушу заходит на сервер по SSH и обновляет код через git. Секреты `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` (environment `production`). Дальше автодеплой на сервере сам пересобирает и перезапускает приложение. Для первого клонирования репозитория на сервере нужен deploy-ключ (read-only).
 
+## Обновление до Stage 4 (авторизация, роль БД приложения, миграции)
+Выполняется один раз вручную на сервере, **до** пуша кода Stage 4 (иначе автодеплой остановится с понятной ошибкой про `APP_DB_PASSWORD`, а старая версия продолжит работать):
+```bash
+cd /root/projects/winscoms_pnl/winscoms_pnl
+git pull                                 # или дождитесь деплоя workflow
+bash deploy/scripts/init-env.sh          # дополнит .env: роль приложения БД, MIGRATION_DATABASE_URL (значения существующих ключей не меняет)
+bash deploy/scripts/deploy.sh            # бэкап БД в ~/backups → миграции → запуск → проверка готовности
+docker compose exec backend python -m app.cli create-admin --email you@example.com
+```
+Миграция создаёт в БД роль `winscoms_app` (без прав суперпользователя), таблицы и политики RLS. Перед миграцией `deploy.sh` делает `pg_dump` в `~/backups/` и отменяет миграцию, если бэкап не удался.
+
 ## Эксплуатация
 ```bash
 docker compose ps                         # состояние

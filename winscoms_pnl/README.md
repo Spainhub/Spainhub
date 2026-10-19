@@ -2,7 +2,7 @@
 
 SaaS для управленческого P&L по маркетплейсам (первый — Wildberries). Модульный монолит: FastAPI + PostgreSQL + React.
 
-Статус: **Stage 3 — каркас** (health-check, конфигурация, Docker, пустая фронтенд-страница). Таблиц и авторизации пока нет.
+Статус: **Stage 4 — бэкенд авторизации и организаций** (сессии, CSRF, роли, RLS, аудит). Страницы входа во фронтенде пока нет. Подробности: [docs/auth.md](docs/auth.md).
 
 ## Быстрый старт
 ```bash
@@ -14,7 +14,8 @@ curl http://127.0.0.1:8091/api/v1/health/ready   # в браузере: http://1
 ## Тесты бэкенда
 ```bash
 cd backend && python -m venv .venv && . .venv/bin/activate
-pip install -r requirements-dev.txt && pytest
+pip install -r requirements-dev.txt
+TEST_DATABASE_URL='postgresql+asyncpg://postgres@localhost:5432/postgres' pytest   # без переменной DB-тесты пропускаются
 ```
 
 ## Фронтенд

@@ -13,9 +13,13 @@ class Settings(BaseSettings):
     app_env: Literal["development", "production", "test"] = "development"
     log_level: str = "INFO"
     database_url: str = "postgresql+asyncpg://winscoms:winscoms@localhost:5432/winscoms"
+    # URL владельца схемы для Alembic; если не задан — используется database_url.
+    migration_database_url: str | None = None
     secret_key: str = _PLACEHOLDER
     # Ключи Fernet через запятую; первый шифрует, остальные только расшифровывают (ротация).
     encryption_keys: str = _PLACEHOLDER
+    session_ttl_hours: int = 168        # абсолютный срок жизни сессии
+    session_idle_hours: int = 12        # сессия без активности дольше этого срока недействительна
     wb_finance_api_url: str = "https://finance-api.wildberries.ru"
 
     @model_validator(mode="after")

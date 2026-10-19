@@ -33,8 +33,14 @@ log "Сборка (работающая версия не останавлива
 docker compose build            # при ошибке сборки скрипт прерывается, старая версия продолжает работать
 
 if compgen -G "backend/migrations/versions/*.py" >/dev/null; then
-  log "Миграции БД"
+  grep -q '^APP_DB_PASSWORD=.\{16,\}' .env || { echo "ERROR: в .env нет APP_DB_PASSWORD. Выполните: bash deploy/scripts/init-env.sh"; exit 2; }
+  log "Бэкап БД перед миграцией"
   docker compose up -d db
+  mkdir -p "$HOME/backups"
+  BK="$HOME/backups/pre-migration_$(date +%F_%H%M%S).sql.gz"
+  docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | gzip > "$BK" \
+    || { echo "ERROR: не удалось сделать бэкап, миграция отменена"; rm -f "$BK"; exit 2; }
+  log "Бэкап: $BK. Миграции БД"
   docker compose run --rm backend alembic upgrade head
 fi
 
