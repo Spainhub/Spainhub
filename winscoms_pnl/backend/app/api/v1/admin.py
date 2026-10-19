@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import client_ip, require_platform_admin
 from app.core.security import hash_password
 from app.db.session import get_session
-from app.models import Membership, Organization, User
+from app.models import Membership, Organization, SyncJob, User
+from app.schemas.marketplace import SyncJobOut
 from app.schemas.auth import (
     MemberAdd,
     OrganizationCreate,
@@ -116,3 +117,12 @@ async def add_member(
     audit.record(db, "membership.added", actor=ctx.user.id, org=org_id, ip=client_ip(request),
                  user_id=str(body.user_id), role=body.role)
     return {"status": "ok"}
+
+
+@router.get("/sync-jobs", response_model=list[SyncJobOut])
+async def recent_sync_jobs(
+    limit: int = 50, _: AuthContext = Depends(require_platform_admin), db: AsyncSession = Depends(get_session)
+) -> list[SyncJob]:
+    """Последние задания синхронизации всех организаций (для мониторинга)."""
+    q = select(SyncJob).order_by(SyncJob.created_at.desc()).limit(min(max(limit, 1), 200))
+    return list((await db.execute(q)).scalars())

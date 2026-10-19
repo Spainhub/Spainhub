@@ -32,6 +32,15 @@ services:
       db:
         condition: service_healthy
 
+  worker:
+    image: winscoms_pnl-backend:latest      # тот же образ, что и backend (собирается сервисом backend)
+    command: ["python", "-m", "app.jobs.worker"]
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+
   frontend:
     build: ./frontend
     image: winscoms_pnl-frontend:latest

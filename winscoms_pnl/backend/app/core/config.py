@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 168        # абсолютный срок жизни сессии
     session_idle_hours: int = 12        # сессия без активности дольше этого срока недействительна
     wb_finance_api_url: str = "https://finance-api.wildberries.ru"
+    wb_min_interval_seconds: int = 65     # лимит токена: 1 запрос/мин + запас
+    wb_page_limit: int = 20000            # записей на страницу (API допускает до 100000)
+    wb_request_timeout_seconds: int = 120
+    wb_report_period: str = "daily"       # параметр period; ТРЕБУЕТ ПОДТВЕРЖДЕНИЯ по документации
+    history_months: int = 3               # глубина первичной загрузки
 
     @model_validator(mode="after")
     def _forbid_unsafe_production(self) -> "Settings":

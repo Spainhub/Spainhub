@@ -12,12 +12,16 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from cryptography.fernet import Fernet
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.core.throttle import login_throttle
+# валидный ключ шифрования для тестов (до первого вызова get_settings)
+os.environ.setdefault("ENCRYPTION_KEYS", Fernet.generate_key().decode())
+
+from app.core.throttle import login_throttle  # noqa: E402
 from app.db.session import get_session, session_scope, set_rls_context
 from app.main import create_app
 from app.services.auth import create_user
@@ -117,3 +121,31 @@ async def admin(client, make_user):
     r = await login(client, u.email)
     assert r.status_code == 200
     return client, csrf(r), u
+
+
+async def setup_org(admin, name, users):
+    """Создаёт организацию и пользователей [(email, role)] через API администратора платформы."""
+    c, h, _ = admin
+    org = (await c.post("/api/v1/admin/organizations", json={"name": name}, headers=h)).json()
+    for email, role in users:
+        r = await c.post("/api/v1/admin/users", headers=h, json={
+            "email": email, "password": USER_PASSWORD, "organization_id": org["id"], "role": role})
+        assert r.status_code == 201, r.text
+    return org
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def login_as(app):
+    """Возвращает функцию: email -> (отдельный клиент со своей cookie, csrf-заголовки)."""
+    clients = []
+
+    async def _login(email):
+        c = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+        clients.append(c)
+        r = await c.post("/api/v1/auth/login", json={"email": email, "password": USER_PASSWORD})
+        assert r.status_code == 200, r.text
+        return c, {"X-CSRF-Token": r.json()["csrf_token"]}
+
+    yield _login
+    for c in clients:
+        await c.aclose()
