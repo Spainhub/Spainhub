@@ -88,8 +88,16 @@ def test_missing_cost_blocks_profit_but_shows_preliminary():
     for line in ("cogs", "gross_profit", "operating_profit", "net_profit", "gross_margin"):
         assert r[line].value is None and r[line].status == BLOCKED, line
     assert "777" in r["cogs_goods"].notes[0]
+    assert "Себестоимость" in r["gross_profit"].notes[0]                  # причина названа человеческим языком, не id
     assert r["gross_profit"].preliminary is not None                    # справочная оценка есть, но помечена
     assert val(r, "net_revenue") == D("1000.00")                        # выручка от COGS не зависит
+
+
+def test_group_preliminary_includes_blocked_children_and_flows_to_profit():
+    inp = base_inputs(cogs=CogsInput(amount=D("100"), units_total=2, units_costed=1, missing_nm_ids=[777]))
+    r = compute_period(inp, USN)
+    assert r["cogs"].value is None and r["cogs"].preliminary == D("100.00")           # не 0: известная часть себестоимости учтена
+    assert r["gross_profit"].preliminary == D("455.00")                                # 1000 − 445 − 100
 
 
 def test_unconfirmed_opex_and_marketing_block_operating_profit():
@@ -107,8 +115,8 @@ def test_unconfirmed_opex_and_marketing_block_operating_profit():
 def test_optional_manual_lines_missing_are_visible_not_blocking():
     r = compute_period(base_inputs(), USN)
     assert r["other_income"].status == MISSING
-    assert any("other_income" in n for n in r["pbt"].notes)             # допущение «нет» показано явно
-    assert r["cogs"].status == OK and any("cogs_extra" in n for n in r["cogs"].notes)
+    assert any("Прочие доходы" in n for n in r["pbt"].notes)             # допущение «нет» показано явно
+    assert r["cogs"].status == OK and any("Доп. затраты на товар" in n for n in r["cogs"].notes)
 
 
 def test_manual_extras_flow_into_lines():

@@ -191,7 +191,7 @@ def compute_period(inp: PeriodInputs, cfg: Settings, template: tuple[LineSpec, .
                     r.notes.append("Группа не подтверждена: введите хотя бы одну запись (можно 0)")
             # недостающая ручная строка внутри подтверждённой группы или групп без confirm — не считается нулём молча
             known = [x for x in kr if x.value is not None]
-            r.preliminary = sum((x.value for x in known), ZERO)
+            r.preliminary = r2(sum((x.value if x.value is not None else (x.preliminary or ZERO) for x in kr), ZERO))
             if r.status != MISSING:
                 bad = [x for x in kr if x.status in _BAD]
                 inc = [x for x in kr if x.status == INCOMPLETE]
@@ -202,12 +202,12 @@ def compute_period(inp: PeriodInputs, cfg: Settings, template: tuple[LineSpec, .
                     miss = [x.id for x in kr if x.status == MISSING and x.id not in optional]
                     if miss and not s.confirm:
                         r.status = INCOMPLETE
-                        r.notes.append("Нет данных по строкам: " + ", ".join(miss))
+                        r.notes.append("Нет данных по строкам: " + ", ".join(by_id[i].name for i in miss))
                     elif inc or (miss and s.confirm):
                         r.status = INCOMPLETE
                     opt_missing = [x.id for x in kr if x.status == MISSING and x.id in optional]
                     if opt_missing and r.status == OK:
-                        r.notes.append("Нет записей (принято как «отсутствует»): " + ", ".join(opt_missing))
+                        r.notes.append("Нет записей (принято как «отсутствует»): " + ", ".join(by_id[i].name for i in opt_missing))
             if r.status in (MISSING, BLOCKED):
                 r.value = None
             r.contributions = [{"source": "child", "line": x.id, "amount": None if x.value is None else str(x.value)} for x in kr]
@@ -221,12 +221,12 @@ def compute_period(inp: PeriodInputs, cfg: Settings, template: tuple[LineSpec, .
             r.preliminary = r2(r.preliminary)
             if bad:
                 r.status = BLOCKED
-                r.notes.append("Нет данных для расчёта: " + ", ".join(bad))
+                r.notes.append("Нет данных для расчёта: " + ", ".join(by_id[i].name for i in bad))
             else:
                 r.value = r2(sum((sg * x.value for sg, x in terms), ZERO))
                 r.status = _worst([x.status for _, x in terms])
             if skipped:
-                r.notes.append("Не заданы (принято как «отсутствует»): " + ", ".join(skipped))
+                r.notes.append("Не заданы (принято как «отсутствует»): " + ", ".join(by_id[i].name for i in skipped))
             if s.id == "vat_payable" and r.value is not None:
                 r.notes.append("Оценка: ставка НДС в услугах WB принята одинаковой; часть услуг может быть без НДС")
             r.contributions = [{"source": "formula", "sign": sg, "line": x.id} for sg, x in terms]

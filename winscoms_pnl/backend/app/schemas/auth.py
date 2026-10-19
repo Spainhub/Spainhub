@@ -15,8 +15,8 @@ class LoginRequest(BaseModel):
 
 
 class MembershipOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
     organization_id: uuid.UUID
+    organization_name: str
     role: str
 
 

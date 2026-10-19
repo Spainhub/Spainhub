@@ -1,23 +1,28 @@
-import { useEffect, useState } from "react";
-
-type Status = "loading" | "ok" | "down";
+import { Route, Routes } from "react-router-dom";
+import Layout from "./components/Layout";
+import { RequireAuth, RequireOrg, RequirePlatformAdmin } from "./components/RequireAuth";
+import AdminPage from "./features/admin/AdminPage";
+import ConnectionsPage from "./features/connections/ConnectionsPage";
+import Dashboard from "./features/dashboard/Dashboard";
+import ExpensesPage from "./features/expenses/ExpensesPage";
+import LoginPage from "./features/LoginPage";
+import PnlPage from "./features/pnl/PnlPage";
+import SettingsPage from "./features/settings/SettingsPage";
+import { EmptyState } from "./components/ui";
 
 export function App() {
-  const [status, setStatus] = useState<Status>("loading");
-
-  useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}api/v1/health/ready`)
-      .then((r) => setStatus(r.ok ? "ok" : "down"))
-      .catch(() => setStatus("down"));
-  }, []);
-
-  const label = { loading: "Проверка…", ok: "Сервер работает", down: "Сервер недоступен" }[status];
-
   return (
-    <main className="page">
-      <h1>WIN<span className="accent">SCOMS</span></h1>
-      <p>Управленческий P&amp;L для маркетплейсов</p>
-      <p className={`status status-${status}`}>{label}</p>
-    </main>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<RequireAuth><Layout /></RequireAuth>}>
+        <Route index element={<RequireOrg><Dashboard /></RequireOrg>} />
+        <Route path="pnl" element={<RequireOrg><PnlPage /></RequireOrg>} />
+        <Route path="connections" element={<RequireOrg><ConnectionsPage /></RequireOrg>} />
+        <Route path="expenses" element={<RequireOrg><ExpensesPage /></RequireOrg>} />
+        <Route path="settings" element={<RequireOrg><SettingsPage /></RequireOrg>} />
+        <Route path="admin" element={<RequirePlatformAdmin><AdminPage /></RequirePlatformAdmin>} />
+        <Route path="*" element={<EmptyState title="Страница не найдена" />} />
+      </Route>
+    </Routes>
   );
 }
