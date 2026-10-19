@@ -2,8 +2,8 @@ name: Deploy to VPS
 
 on:
   push:
-    branches: [ "main" ] # Укажите вашу основную ветку, если она называется иначе
-  workflow_dispatch: # Позволяет запускать вручную из вкладки Actions
+    branches: [ "winscoms/main" ]   # при необходимости замените на master
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -13,18 +13,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Debug secrets
+        run: |
+          if [ -z "${{ secrets.VPS_HOST }}" ]; then
+            echo "VPS_HOST is EMPTY!"
+          else
+            echo "VPS_HOST is set (length: ${#VPS_HOST})"
+          fi
+          if [ -z "${{ secrets.VPS_USER }}" ]; then
+            echo "VPS_USER is EMPTY!"
+          else
+            echo "VPS_USER is set (length: ${#VPS_USER})"
+          fi
+          if [ -z "${{ secrets.VPS_SSH_KEY }}" ]; then
+            echo "VPS_SSH_KEY is EMPTY!"
+          else
+            echo "VPS_SSH_KEY is set (length: ${#VPS_SSH_KEY})"
+          fi
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3 # Популярный и надежный экшен для SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            # Перейдите в директорию вашего проекта на сервере
             cd /root/projects/winscoms_pnl
-            
-            # Обновите код (предполагается, что на сервере настроен git remote)
             git pull origin main
-            
-            # Здесь можно добавить команды для перезапуска сервиса, установки зависимостей и т.д.
-            # Например: npm install, systemctl restart myapp, docker-compose up -d
