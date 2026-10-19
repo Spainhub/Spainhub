@@ -8,10 +8,10 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    environment: production
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: appleboy/ssh-action@v1.2.0
 
       - name: Debug secrets
         run: |
