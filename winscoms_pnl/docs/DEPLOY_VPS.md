@@ -1,6 +1,6 @@
 # Деплой WINSCOMS на VPS → https://finans.winscoms.com
 
-Принцип: **существующие проекты и nginx не ломаем**. Приложение живёт в Docker Compose-проекте `winscoms_pnl`, слушает только `127.0.0.1:8081`, а хостовый nginx проксирует на него домен `finans.winscoms.com`.
+Принцип: **существующие проекты и nginx не ломаем**. Приложение живёт в Docker Compose-проекте `winscoms_pnl`, слушает только `127.0.0.1:8091`, а хостовый nginx проксирует на него домен `finans.winscoms.com`.
 
 ## Как работает «не падать и перезапускаться само»
 | Что | Чем обеспечено |
@@ -24,7 +24,7 @@ df -h /; free -m
 sudo nginx -T 2>/dev/null | grep -n -E "server_name|listen|include" | head -40
 dig +short finans.winscoms.com
 ```
-`dig` должен вернуть IP вашего сервера. Если порт 8081 занят — выберите другой и используйте его везде (в `.env` как `PROXY_PORT` и в nginx).
+`dig` должен вернуть IP вашего сервера. Порт 8091 — значение по умолчанию (8081 на вашем сервере занят проектом winscoms_systems). Если 8091 занят — выберите другой и используйте его везде (в `.env` как `PROXY_PORT` и в nginx).
 
 ## Шаг 1. Код на сервере
 Текущий workflow (`.github/workflows/deploy.yml`) делает на сервере `git reset --hard origin/winscoms/main` в `/root/projects/winscoms_pnl`. Поэтому корень git-репозитория на сервере — `/root/projects/winscoms_pnl`, а **`APP_DIR` (папка с `docker-compose.yml`) = `/root/projects/winscoms_pnl/winscoms_pnl`**. Во всех командах ниже используйте этот путь. `.env` лежит в `APP_DIR`, он в `.gitignore`, и `git reset --hard` его не удаляет (удаляются только отслеживаемые файлы). Не запускайте `git clean -fdx` в этой папке.
@@ -44,7 +44,7 @@ nano .env
 ```bash
 cd /root/projects/winscoms_pnl/winscoms_pnl
 bash deploy/scripts/deploy.sh
-curl -s http://127.0.0.1:8081/api/v1/health/ready      # {"status":"ok","database":"up"}
+curl -s http://127.0.0.1:8091/api/v1/health/ready      # {"status":"ok","database":"up"}
 ```
 
 ## Шаг 4. Автозапуск и автодеплой (один раз)

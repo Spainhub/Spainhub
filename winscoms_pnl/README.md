@@ -8,7 +8,7 @@ SaaS для управленческого P&L по маркетплейсам (
 ```bash
 cp .env.example .env        # заполните CHANGE_ME
 docker compose up -d --build
-curl http://127.0.0.1:8081/api/v1/health/ready   # в браузере: http://127.0.0.1:8081/
+curl http://127.0.0.1:8091/api/v1/health/ready   # в браузере: http://127.0.0.1:8091/
 ```
 
 ## Тесты бэкенда

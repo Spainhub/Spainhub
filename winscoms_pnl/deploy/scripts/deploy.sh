@@ -12,7 +12,7 @@ exec 9>/tmp/winscoms_pnl_deploy.lock
 flock -n 9 || { echo "Деплой уже выполняется"; exit 3; }
 
 PROXY_PORT="$(grep -E '^PROXY_PORT=' .env | head -1 | cut -d= -f2 | cut -d' ' -f1)"
-PROXY_PORT="${PROXY_PORT:-8081}"
+PROXY_PORT="${PROXY_PORT:-8091}"
 log() { echo "[$(date '+%F %T')] $*"; }
 IMAGES=(winscoms_pnl-backend winscoms_pnl-frontend)
 
