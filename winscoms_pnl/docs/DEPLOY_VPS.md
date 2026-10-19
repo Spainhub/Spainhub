@@ -27,11 +27,11 @@ dig +short finans.winscoms.com
 `dig` должен вернуть IP вашего сервера. Если порт 8081 занят — выберите другой и используйте его везде (в `.env` как `PROXY_PORT` и в nginx).
 
 ## Шаг 1. Код на сервере
-Папка проекта на сервере (`APP_DIR`) — **та, где лежит `docker-compose.yml`**; по умолчанию `/root/projects/winscoms_pnl`. Загрузите содержимое папки `winscoms_pnl/` (PyCharm SFTP или GitHub Actions — см. ниже) так, чтобы `docker-compose.yml` лежал прямо в `APP_DIR`. Исключите при загрузке `.git`, `node_modules`, `.venv`, `.env`.
+Текущий workflow (`.github/workflows/deploy.yml`) делает на сервере `git reset --hard origin/winscoms/main` в `/root/projects/winscoms_pnl`. Поэтому корень git-репозитория на сервере — `/root/projects/winscoms_pnl`, а **`APP_DIR` (папка с `docker-compose.yml`) = `/root/projects/winscoms_pnl/winscoms_pnl`**. Во всех командах ниже используйте этот путь. `.env` лежит в `APP_DIR`, он в `.gitignore`, и `git reset --hard` его не удаляет (удаляются только отслеживаемые файлы). Не запускайте `git clean -fdx` в этой папке.
 
 ## Шаг 2. Файл `.env` (один раз, вручную на сервере)
 ```bash
-cd /root/projects/winscoms_pnl
+cd /root/projects/winscoms_pnl/winscoms_pnl
 cp .env.example .env && chmod 600 .env
 python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(48))"
 python3 -c "import secrets; print('POSTGRES_PASSWORD=' + secrets.token_urlsafe(24))"
@@ -42,15 +42,15 @@ nano .env
 
 ## Шаг 3. Первый запуск вручную (проверка)
 ```bash
-cd /root/projects/winscoms_pnl
+cd /root/projects/winscoms_pnl/winscoms_pnl
 bash deploy/scripts/deploy.sh
 curl -s http://127.0.0.1:8081/api/v1/health/ready      # {"status":"ok","database":"up"}
 ```
 
 ## Шаг 4. Автозапуск и автодеплой (один раз)
 ```bash
-cd /root/projects/winscoms_pnl
-sudo APP_DIR=/root/projects/winscoms_pnl bash deploy/scripts/install-systemd.sh
+cd /root/projects/winscoms_pnl/winscoms_pnl
+sudo APP_DIR=/root/projects/winscoms_pnl/winscoms_pnl bash deploy/scripts/install-systemd.sh
 systemctl status winscoms-autodeploy
 journalctl -u winscoms-autodeploy -f          # лог автодеплоя
 ```
@@ -74,8 +74,8 @@ journalctl -u winscoms-autodeploy -f          # лог автодеплоя
 Откат домена: удалить `/etc/nginx/conf.d/finans.winscoms.com.conf`, `nginx -t && reload`.
 
 ## Загрузка файлов (на выбор)
-- **PyCharm SFTP:** Deployment → Mappings: Local = папка `winscoms_pnl`, Remote = `/root/projects/winscoms_pnl`; Excluded: `.git`, `node_modules`, `.venv`, `.env`. Включите *Automatic Upload*. Дальше всё делает автодеплой.
-- **GitHub Actions** (`.github/workflows/deploy.yml`): при пуше в `main` отправляет папку `winscoms_pnl/` в `/root/projects/winscoms_pnl` (`--exclude=.env`, чтобы `--delete` не стёр секреты). Нужны секреты `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`. Автодеплой на сервере подхватит изменения.
+- **PyCharm SFTP:** Deployment → Mappings: Local = папка `winscoms_pnl`, Remote = `/root/projects/winscoms_pnl/winscoms_pnl`; Excluded: `.git`, `node_modules`, `.venv`, `.env`. Включите *Automatic Upload*. Дальше всё делает автодеплой. (Не смешивайте с git-способом: выберите один.)
+- **GitHub Actions** (`.github/workflows/deploy.yml`, ветка `winscoms/main`): по пушу заходит на сервер по SSH и обновляет код через git. Секреты `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` (environment `production`). Дальше автодеплой на сервере сам пересобирает и перезапускает приложение. Для первого клонирования репозитория на сервере нужен deploy-ключ (read-only).
 
 ## Эксплуатация
 ```bash
