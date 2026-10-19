@@ -12,7 +12,10 @@ const unauthListeners = new Set<Listener>();
 export function onUnauthorized(fn: Listener) { unauthListeners.add(fn); return () => { unauthListeners.delete(fn); }; }
 
 function messageFrom(status: number, body: unknown): string {
-  if (status >= 500) return "Ошибка сервера. Попробуйте позже";   // внутренние детали пользователю не показываем
+  if (status >= 500) {   // внутренние детали пользователю не показываем, только код для поиска в логах
+    const rid = (body as { request_id?: unknown } | null)?.request_id;
+    return `Ошибка сервера. Попробуйте позже${typeof rid === "string" ? ` (код ${rid})` : ""}`;
+  }
   const d = (body as { detail?: unknown } | null)?.detail;
   if (typeof d === "string") return d;
   if (d && typeof d === "object" && "message" in (d as object)) return String((d as { message: unknown }).message);

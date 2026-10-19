@@ -24,6 +24,11 @@ describe("api client", () => {
     await expect(api.get("/y")).rejects.toBeInstanceOf(ApiError);
   });
 
+  it("ошибка сервера показывает код запроса для поиска в логах", async () => {
+    mockFetch({ "GET /api/v1/q": () => new Response(JSON.stringify({ detail: "Внутренняя ошибка сервера", request_id: "abc123def456" }), { status: 500, headers: { "content-type": "application/json" } }) });
+    await expect(api.get("/q")).rejects.toThrow("Ошибка сервера. Попробуйте позже (код abc123def456)");
+  });
+
   it("сетевая ошибка — сообщение пользователю", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
     await expect(api.get("/x")).rejects.toThrow("Нет связи с сервером");
