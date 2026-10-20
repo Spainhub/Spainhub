@@ -33,12 +33,13 @@ describe("подключения", () => {
     let list: SellerAccount[] = [];
     const { calls } = mockFetch({ ...routes(), [`GET ${B}`]: () => list, [`POST ${B}`]: () => { list = [acc()]; return acc(); } });
     renderApp("/connections");
-    expect(await screen.findByText("Аккаунтов пока нет")).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText("Название магазина"), "Магазин 1");
+    expect(await screen.findByText("Подключите Wildberries")).toBeInTheDocument();      // пустое состояние сразу ведёт к подключению
+    expect(screen.getByText("Где взять токен")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/Название магазина/), "Магазин 1");
     const tokenInput = screen.getByLabelText(/API-токен Wildberries/);
     expect(tokenInput).toHaveAttribute("type", "password");
     await userEvent.type(tokenInput, "my-secret-token-0123456789");
-    await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Подключить аккаунт" }));
     expect(await screen.findByText("Магазин 1", { selector: "h2" })).toBeInTheDocument();
     const post = calls.find((c) => c.method === "POST")!;
     expect(JSON.parse(String(post.init?.body))).toMatchObject({ name: "Магазин 1", token: "my-secret-token-0123456789", marketplace: "wildberries" });
@@ -96,6 +97,13 @@ describe("подключения", () => {
     expect(await screen.findByText("Нужен новый токен")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Загрузить за 3 месяца" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Заменить токен" })).toBeEnabled();
+  });
+
+  it("когда аккаунты есть, добавление ещё одного — по кнопке в шапке (в окне)", async () => {
+    mockFetch(routes());
+    renderApp("/connections");
+    await userEvent.click(await screen.findByRole("button", { name: "+ Подключить аккаунт" }));
+    expect(within(await screen.findByRole("dialog")).getByLabelText(/API-токен/)).toHaveAttribute("type", "password");
   });
 
   it("читателю недоступны добавление и управление", async () => {

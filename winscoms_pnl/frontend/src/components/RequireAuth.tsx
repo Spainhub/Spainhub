@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { ReactNode } from "react";
 import { useAuth } from "../auth/AuthContext";
+import NoOrganization from "./NoOrganization";
 import { EmptyState, Spinner } from "./ui";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
@@ -14,9 +15,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 /** Страницы данных организации: нужна хотя бы одна организация. */
 export function RequireOrg({ children }: { children: ReactNode }) {
   const { orgId } = useAuth();
-  if (!orgId) {
-    return <EmptyState title="Вы пока не состоите ни в одной организации" hint="Попросите администратора платформы добавить вас в организацию." />;
-  }
+  if (!orgId) return <NoOrganization />;
   return <>{children}</>;
 }
 

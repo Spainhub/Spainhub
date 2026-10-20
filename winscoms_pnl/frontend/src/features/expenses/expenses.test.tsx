@@ -20,6 +20,7 @@ describe("расходы и корректировки", () => {
     mockFetch(base());
     renderApp("/expenses");
     expect(await screen.findByText("Записей пока нет")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "+ Добавить запись" }).length).toBeGreaterThan(0);
     expect(screen.getByText(/подтверждает, что расходов по статье нет/)).toBeInTheDocument();
   });
 
@@ -27,15 +28,22 @@ describe("расходы и корректировки", () => {
     let fail = true;
     const { calls } = mockFetch(base("admin", { [`POST ${B}/manual-entries`]: () => (fail ? jsonError(422, "Неизвестная категория: x") : { id: 1 }) }));
     renderApp("/expenses");
+    await userEvent.click((await screen.findAllByRole("button", { name: "+ Добавить запись" }))[0]);
     await screen.findByRole("option", { name: "Зарплаты и подрядчики" });
     await userEvent.selectOptions(screen.getByLabelText("Статья"), "opex_salaries");
     await userEvent.type(screen.getByLabelText("Сумма, ₽"), "1500,5");
-    await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Неизвестная категория");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent("Неизвестная категория");
     fail = false;
-    await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(2));
     expect(JSON.parse(String(calls.filter((c) => c.method === "POST")[1].init?.body))).toMatchObject({ category: "opex_salaries", amount: "1500.5" });
+  });
+
+  it("ссылка из мастера настройки открывает вкладку себестоимости", async () => {
+    mockFetch(base());
+    renderApp("/expenses?tab=costs");
+    expect(await screen.findByText("Загрузка себестоимости через Excel")).toBeInTheDocument();
   });
 
   it("читатель видит список, но не форму", async () => {

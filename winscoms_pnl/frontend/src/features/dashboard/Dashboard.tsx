@@ -7,7 +7,9 @@ import { Card, EmptyState, ErrorState, Notice, Spinner } from "../../components/
 import { useAsync } from "../../hooks";
 import { diff, isNegative, pctChange } from "../../utils/decimal";
 import { addDays, daysBetween, formatMoney, formatPercent, isoDate, periodLabel, previousPeriod } from "../../utils/format";
+import { PageHeader } from "../../components/PageHeader";
 import { presets } from "../pnl/PnlPage";
+import SetupChecklist from "./SetupChecklist";
 
 const KPIS: { id: string; title: string; ratio?: boolean; costLike?: boolean }[] = [
   { id: "net_revenue", title: "Чистая выручка" },
@@ -97,15 +99,13 @@ export default function Dashboard() {
   const anyBlocked = a.data && KPIS.some((k) => ["blocked", "missing"].includes(cell(a.data, k.id)?.status ?? ""));
   return (
     <>
-      <div className="page-head">
-        <h1>Дашборд</h1>
-        <select aria-label="Период" value={sel} onChange={(e) => setSel(e.target.value)}>{options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>
-      </div>
+      <PageHeader title="Дашборд" subtitle="Ключевые показатели за выбранный период в сравнении с предыдущим"
+        actions={<select aria-label="Период" value={sel} onChange={(e) => setSel(e.target.value)}>{options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>} />
+      <SetupChecklist org={org} />
       {a.loading && <Spinner />}
-      {noSettings && <Notice kind="warn">{a.error} <Link to="/settings">Открыть настройки</Link></Notice>}
       {a.error && !noSettings && <ErrorState message={a.error} onRetry={a.reload} />}
       {a.data && a.data.coverage.days_with_data === 0 && (
-        <EmptyState title="За период нет данных" hint="Подключите Wildberries и загрузите отчёты."><Link to="/connections">Подключения</Link></EmptyState>
+        <EmptyState title="За выбранный период нет данных" hint="Выберите другой период или загрузите отчёты Wildberries."><Link className="btn btn-secondary" to="/connections">Перейти к подключениям</Link></EmptyState>
       )}
       {a.data && a.data.coverage.days_with_data > 0 && (
         <>

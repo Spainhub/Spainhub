@@ -1,14 +1,16 @@
 import { FormEvent, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, ApiError, download } from "../../api/client";
 import type { Cost, ManualEntry, SellerAccount } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
-import { Button, Card, EmptyState, ErrorState, Field, Notice, Spinner } from "../../components/ui";
+import { PageHeader } from "../../components/PageHeader";
+import { Button, Card, EmptyState, ErrorState, Field, Modal, Notice, Spinner } from "../../components/ui";
 import { useAsync } from "../../hooks";
 import { formatDate, formatMoney, isoDate } from "../../utils/format";
 
 interface Category { category: string; name: string }
 
-function ManualTab({ org, canWrite }: { org: string; canWrite: boolean }) {
+function ManualTab({ org, canWrite, adding, setAdding }: { org: string; canWrite: boolean; adding: boolean; setAdding: (v: boolean) => void }) {
   const cats = useAsync(() => api.get<Category[]>(`/orgs/${org}/manual-categories`), [org]);
   const accounts = useAsync(() => api.get<SellerAccount[]>(`/orgs/${org}/seller-accounts`), [org]);
   const list = useAsync(() => api.get<ManualEntry[]>(`/orgs/${org}/manual-entries`, { limit: 200 }), [org]);
@@ -18,6 +20,8 @@ function ManualTab({ org, canWrite }: { org: string; canWrite: boolean }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const name = (c: string) => cats.data?.find((x) => x.category === c)?.name ?? c;
+  const open = adding || editId !== null;
+  const close = () => { setAdding(false); setEditId(null); setForm(empty); setErr(null); };
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -25,38 +29,39 @@ function ManualTab({ org, canWrite }: { org: string; canWrite: boolean }) {
     const body = { ...form, amount: form.amount.replace(",", "."), description: form.description || null, seller_account_id: form.seller_account_id || null };
     try {
       if (editId) await api.put(`/orgs/${org}/manual-entries/${editId}`, body); else await api.post(`/orgs/${org}/manual-entries`, body);
-      setForm(empty); setEditId(null); list.reload();
+      close(); list.reload();
     } catch (x) { setErr(x instanceof ApiError ? x.message : "Не удалось сохранить"); } finally { setBusy(false); }
   }
 
   return (
     <>
-      <Notice kind="info">Сумма <b>0</b> подтверждает, что расходов по статье нет. Строки «Реклама и маркетинг» и «Операционные расходы» нужно подтвердить хотя бы одной записью — иначе операционная и чистая прибыль не считаются. При режиме ОСНО вводите суммы без НДС.</Notice>
-      {canWrite && (
-        <Card title={editId ? "Изменить запись" : "Новая запись"}>
-          <form className="form-row" onSubmit={submit} aria-label="Запись о расходе">
-            <Field label="Дата"><input type="date" value={form.entry_date} onChange={(e) => setForm({ ...form, entry_date: e.target.value })} required /></Field>
+      <Notice kind="info">Сумма <b>0</b> подтверждает, что расходов по статье нет. Группы «Реклама и маркетинг» и «Операционные расходы» нужно подтвердить хотя бы одной записью — иначе операционная и чистая прибыль не считаются. При режиме ОСНО вводите суммы без НДС.</Notice>
+      {open && canWrite && (
+        <Modal title={editId ? "Изменить запись" : "Новая запись"} onClose={close}>
+          <form className="form-grid" onSubmit={submit} aria-label="Запись о расходе">
             <Field label="Статья"><select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>{(cats.data ?? []).map((c) => <option key={c.category} value={c.category}>{c.name}</option>)}</select></Field>
-            <Field label="Сумма, ₽"><input inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,6})?" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required placeholder="0" /></Field>
-            <Field label="Аккаунт (необязательно)"><select value={form.seller_account_id} onChange={(e) => setForm({ ...form, seller_account_id: e.target.value })}><option value="">Вся организация</option>{(accounts.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+            <div className="form-two">
+              <Field label="Дата"><input type="date" value={form.entry_date} onChange={(e) => setForm({ ...form, entry_date: e.target.value })} required /></Field>
+              <Field label="Сумма, ₽"><input inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,6})?" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required placeholder="0" /></Field>
+            </div>
+            <Field label="Аккаунт" hint="Необязательно — по умолчанию запись относится ко всей организации"><select value={form.seller_account_id} onChange={(e) => setForm({ ...form, seller_account_id: e.target.value })}><option value="">Вся организация</option>{(accounts.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
             <Field label="Описание"><input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} maxLength={1000} /></Field>
-            <Button type="submit" variant="primary" disabled={busy}>{editId ? "Сохранить" : "Добавить"}</Button>
-            {editId && <Button type="button" onClick={() => { setEditId(null); setForm(empty); }}>Отмена</Button>}
+            {err && <Notice kind="error">{err}</Notice>}
+            <div className="form-actions"><Button type="button" onClick={close}>Отмена</Button><Button type="submit" variant="primary" disabled={busy}>Сохранить</Button></div>
           </form>
-          {err && <Notice kind="error">{err}</Notice>}
-        </Card>
+        </Modal>
       )}
       {list.loading && !list.data && <Spinner />}
       {list.error && <ErrorState message={list.error} onRetry={list.reload} />}
-      {list.data && list.data.length === 0 && <EmptyState title="Записей пока нет" hint="Добавьте зарплаты, подписки, внешнюю рекламу и прочие расходы." />}
+      {list.data && list.data.length === 0 && <EmptyState title="Записей пока нет" hint="Добавьте зарплаты, подписки, внешнюю рекламу и прочие расходы.">{canWrite && <Button variant="primary" onClick={() => setAdding(true)}>+ Добавить запись</Button>}</EmptyState>}
       {list.data && list.data.length > 0 && (
         <div className="table-wrap"><table className="plain">
           <thead><tr><th>Дата</th><th>Статья</th><th>Описание</th><th className="num">Сумма</th>{canWrite && <th />}</tr></thead>
           <tbody>{list.data.map((m) => (
             <tr key={m.id}><td>{formatDate(m.entry_date)}</td><td>{name(m.category)}</td><td>{m.description}</td><td className="num">{formatMoney(m.amount)} {m.currency}</td>
               {canWrite && <td className="row-actions">
-                <Button variant="ghost" onClick={() => { setEditId(m.id); setForm({ entry_date: m.entry_date, category: m.category, amount: String(Number(m.amount)), description: m.description ?? "", seller_account_id: m.seller_account_id ?? "" }); window.scrollTo?.({ top: 0 }); }}>Изменить</Button>
-                <Button variant="ghost" onClick={async () => { if (window.confirm("Удалить запись?")) { await api.del(`/orgs/${org}/manual-entries/${m.id}`); list.reload(); } }}>Удалить</Button>
+                <Button variant="ghost" onClick={() => { setEditId(m.id); setForm({ entry_date: m.entry_date, category: m.category, amount: String(Number(m.amount)), description: m.description ?? "", seller_account_id: m.seller_account_id ?? "" }); }}>Изменить</Button>
+                <Button variant="ghost" className="danger-text" onClick={async () => { if (window.confirm("Удалить запись?")) { await api.del(`/orgs/${org}/manual-entries/${m.id}`); list.reload(); } }}>Удалить</Button>
               </td>}
             </tr>))}</tbody>
         </table></div>
@@ -120,15 +125,19 @@ function CostsTab({ org, canWrite }: { org: string; canWrite: boolean }) {
 
 export default function ExpensesPage() {
   const { orgId, canWrite } = useAuth();
-  const [tab, setTab] = useState<"manual" | "costs">("manual");
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "costs" ? "costs" : "manual";
+  const [adding, setAdding] = useState(false);
+  const go = (t: "manual" | "costs") => setParams(t === "costs" ? { tab: "costs" } : {});
   return (
     <>
-      <h1>Расходы и корректировки</h1>
+      <PageHeader title="Расходы и корректировки" subtitle="Данные, которых нет в отчётах маркетплейса: себестоимость, зарплаты, подписки, внешняя реклама"
+        actions={tab === "manual" && canWrite ? <Button variant="primary" onClick={() => setAdding(true)}>+ Добавить запись</Button> : undefined} />
       <div className="tabs" role="tablist">
-        <button role="tab" aria-selected={tab === "manual"} className={tab === "manual" ? "active" : ""} onClick={() => setTab("manual")}>Расходы и корректировки</button>
-        <button role="tab" aria-selected={tab === "costs"} className={tab === "costs" ? "active" : ""} onClick={() => setTab("costs")}>Себестоимость товаров</button>
+        <button role="tab" aria-selected={tab === "manual"} className={tab === "manual" ? "active" : ""} onClick={() => go("manual")}>Расходы и корректировки</button>
+        <button role="tab" aria-selected={tab === "costs"} className={tab === "costs" ? "active" : ""} onClick={() => go("costs")}>Себестоимость товаров</button>
       </div>
-      {tab === "manual" ? <ManualTab org={orgId!} canWrite={canWrite} /> : <CostsTab org={orgId!} canWrite={canWrite} />}
+      {tab === "manual" ? <ManualTab org={orgId!} canWrite={canWrite} adding={adding} setAdding={setAdding} /> : <CostsTab org={orgId!} canWrite={canWrite} />}
     </>
   );
 }

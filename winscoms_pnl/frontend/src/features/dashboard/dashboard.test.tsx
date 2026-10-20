@@ -23,7 +23,7 @@ describe("дашборд", () => {
   it("пустое состояние без данных", async () => {
     mockFetch({ "GET /api/v1/auth/me": me(), [REPORT]: report({ coverage: { days_in_range: 30, days_with_data: 0, missing_days: [], missing_days_count: 30 } }) });
     renderApp("/");
-    expect(await screen.findByText("За период нет данных")).toBeInTheDocument();
+    expect(await screen.findByText("За выбранный период нет данных")).toBeInTheDocument();
   });
 
   it("ошибка загрузки", async () => {
@@ -38,5 +38,41 @@ describe("дашборд", () => {
     rerender(<Kpi title="Прибыль" now={cell("120.00", "incomplete")} before={cell("100.00")} />);
     expect(screen.getByText("Данные неполные")).toBeInTheDocument();
     expect(screen.getByText(/\+20,00 % к предыдущему периоду/)).toHaveClass("good");
+  });
+});
+
+
+describe("мастер первой настройки", () => {
+  const steps = (over: Record<string, unknown> = {}) => ({
+    "GET /api/v1/auth/me": me(),
+    [REPORT]: report({ granularity: "total" }),
+    [`GET /api/v1/orgs/${ORG}/settings`]: null,
+    [`GET /api/v1/orgs/${ORG}/seller-accounts`]: [],
+    [`GET /api/v1/orgs/${ORG}/costs`]: [],
+    [`GET /api/v1/orgs/${ORG}/manual-entries`]: [],
+    ...over,
+  });
+
+  it("показывает шаги, подсвечивает следующий и ведёт к нужному разделу", async () => {
+    mockFetch(steps());
+    renderApp("/");
+    const box = await screen.findByRole("region", { name: "Начало работы" });
+    expect(box).toHaveTextContent("Выполнено 0 из 5");
+    expect(within(box).getByRole("link", { name: "Открыть настройки" })).toHaveAttribute("href", "/settings");
+    expect(within(box).getByRole("link", { name: "Загрузить себестоимость" })).toHaveAttribute("href", "/expenses?tab=costs");
+    expect(within(box).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+  });
+
+  it("отмечает выполненные шаги и скрывается, когда всё готово", async () => {
+    mockFetch(steps({ [`GET /api/v1/orgs/${ORG}/settings`]: { tax_regime: "usn_income" }, [`GET /api/v1/orgs/${ORG}/seller-accounts`]: [{ id: "a", last_sync_at: "2026-07-11T10:00:00Z" }] }));
+    renderApp("/");
+    expect(await screen.findByText("Выполнено 3 из 5")).toBeInTheDocument();
+  });
+
+  it("не показывается, когда настроено всё", async () => {
+    mockFetch(steps({ [`GET /api/v1/orgs/${ORG}/settings`]: { tax_regime: "osno" }, [`GET /api/v1/orgs/${ORG}/seller-accounts`]: [{ id: "a", last_sync_at: "x" }], [`GET /api/v1/orgs/${ORG}/costs`]: [{ id: 1 }], [`GET /api/v1/orgs/${ORG}/manual-entries`]: [{ id: 1 }] }));
+    renderApp("/");
+    await screen.findByTestId("kpi-Чистая выручка");
+    expect(screen.queryByRole("region", { name: "Начало работы" })).toBeNull();
   });
 });

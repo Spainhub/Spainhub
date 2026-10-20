@@ -11,6 +11,7 @@ interface AuthValue {
   canWrite: boolean;
   isOrgAdmin: boolean;
   setOrgId: (id: string) => void;
+  refresh: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -35,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => onUnauthorized(() => apply(null)), [apply]);
 
   const login = useCallback(async (email: string, password: string) => { apply(await api.post<Me>("/auth/login", { email, password })); }, [apply]);
+  const refresh = useCallback(async () => { apply(await api.get<Me>("/auth/me")); }, [apply]);
   const logout = useCallback(async () => { try { await api.post("/auth/logout"); } finally { apply(null); } }, [apply]);
   const setOrgId = useCallback((id: string) => { setOrg(id); try { localStorage.setItem(ORG_KEY, id); } catch { /* приватный режим */ } }, []);
 
@@ -45,9 +47,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return {
       me, ready, orgId: membership?.organization_id ?? null, membership, role,
       canWrite: role === "admin" || role === "member", isOrgAdmin: role === "admin",
-      setOrgId, login, logout,
+      setOrgId, refresh, login, logout,
     };
-  }, [me, ready, orgId, setOrgId, login, logout]);
+  }, [me, ready, orgId, setOrgId, refresh, login, logout]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { api, ApiError } from "../../api/client";
 import type { AdminUser, Organization, Role, SyncJob } from "../../api/types";
+import { PageHeader } from "../../components/PageHeader";
 import { Badge, Button, Card, ErrorState, Field, Notice, Spinner } from "../../components/ui";
 import { useAsync } from "../../hooks";
 import { formatDateTime } from "../../utils/format";
@@ -15,7 +16,7 @@ function Orgs() {
   }
   return (
     <Card title="Организации">
-      <form className="form-row" onSubmit={add}><Field label="Название"><input value={name} onChange={(e) => setName(e.target.value)} required /></Field><Button type="submit" variant="primary">Создать</Button></form>
+      <form className="form-grid cols" onSubmit={add}><Field label="Название"><input value={name} onChange={(e) => setName(e.target.value)} required /></Field><Button type="submit" variant="primary">Создать</Button></form>
       {err && <Notice kind="error">{err}</Notice>}
       {q.loading && <Spinner />}{q.error && <ErrorState message={q.error} onRetry={q.reload} />}
       <ul className="plain-list">{q.data?.map((o) => <li key={o.id}><b>{o.name}</b> <span className="muted small">{o.id}</span></li>)}</ul>
@@ -37,7 +38,7 @@ function Users() {
   }
   return (
     <Card title="Пользователи">
-      <form className="form-row" onSubmit={add} aria-label="Новый пользователь">
+      <form className="form-grid cols" onSubmit={add} aria-label="Новый пользователь">
         <Field label="Email"><input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required /></Field>
         <Field label="Пароль" hint="Не короче 12 символов"><input type="password" autoComplete="new-password" minLength={12} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required /></Field>
         <Field label="Имя"><input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></Field>
@@ -68,5 +69,5 @@ function Jobs() {
 }
 
 export default function AdminPage() {
-  return (<><h1>Администрирование</h1><Orgs /><Users /><Jobs /></>);
+  return (<><PageHeader title="Администрирование" subtitle="Организации, пользователи и состояние загрузок" /><Orgs /><Users /><Jobs /></>);
 }

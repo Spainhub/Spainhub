@@ -6,6 +6,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { Button, Card, EmptyState, ErrorState, Field, Notice, Spinner } from "../../components/ui";
 import { useAsync } from "../../hooks";
 import { formatDate, formatMoney, isoDate, previousPeriod } from "../../utils/format";
+import { PageHeader } from "../../components/PageHeader";
 import Drilldown from "./Drilldown";
 import PnlTable from "./PnlTable";
 
@@ -48,8 +49,12 @@ export default function PnlPage() {
 
   return (
     <>
-      <h1>P&L отчёт</h1>
-      <Card>
+      <PageHeader title="P&L отчёт" subtitle="Управленческий отчёт о прибылях и убытках. Нажмите на название строки, чтобы увидеть, из чего она сложена" />
+      <Card className="filter-card">
+        <div className="presets" aria-label="Быстрый выбор периода">
+          <span className="muted small">Период:</span>
+          {presets().map((p) => <button key={p.id} type="button" className="chip" onClick={() => { const n = { ...draft, from: p.from, to: p.to }; setDraft(n); setApplied(n); }}>{p.label}</button>)}
+        </div>
         <form className="filters" onSubmit={(e) => { e.preventDefault(); if (!invalid && !dayTooLong) setApplied(draft); }}>
           <Field label="С"><input type="date" value={draft.from} onChange={(e) => setDraft({ ...draft, from: e.target.value })} required /></Field>
           <Field label="По"><input type="date" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} required /></Field>
@@ -65,11 +70,8 @@ export default function PnlPage() {
             </select>
           </Field>
           <label className="check"><input type="checkbox" checked={draft.compare} onChange={(e) => setDraft({ ...draft, compare: e.target.checked })} /> Сравнить с предыдущим периодом</label>
-          <Button type="submit" variant="primary" disabled={invalid || dayTooLong}>Применить</Button>
+          <div className="filters-submit"><Button type="submit" variant="primary" disabled={invalid || dayTooLong}>Применить</Button></div>
         </form>
-        <div className="presets">
-          {presets().map((p) => <button key={p.id} className="chip" onClick={() => { const n = { ...draft, from: p.from, to: p.to }; setDraft(n); setApplied(n); }}>{p.label}</button>)}
-        </div>
         {invalid && <Notice kind="error">Дата «По» раньше даты «С»</Notice>}
         {dayTooLong && <Notice kind="warn">Детализация по дням — не более 62 дней</Notice>}
       </Card>
@@ -82,8 +84,8 @@ export default function PnlPage() {
       {r && !report.loading && (
         <>
           {r.coverage.days_with_data === 0 ? (
-            <EmptyState title="За выбранный период нет данных" hint="Подключите аккаунт Wildberries и запустите загрузку или выберите другой период.">
-              <Link to="/connections">Перейти к подключениям</Link>
+            <EmptyState title="За выбранный период нет данных" hint="Выберите другой период или подключите аккаунт Wildberries и запустите загрузку.">
+              <Link className="btn btn-primary" to="/connections">Перейти к подключениям</Link>
             </EmptyState>
           ) : (
             <Card title={`${formatDate(r.date_from)} — ${formatDate(r.date_to)}, ${r.currency}`} actions={<span className="muted small">Налоговый режим: {r.settings.tax_regime === "usn_income" ? `УСН «доходы» ${trimRate(r.settings.usn_rate)}%` : `ОСНО, налог на прибыль ${trimRate(r.settings.profit_tax_rate)}%`}</span>}>

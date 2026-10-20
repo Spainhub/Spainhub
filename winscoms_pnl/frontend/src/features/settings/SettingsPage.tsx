@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError } from "../../api/client";
 import type { OrgSettings } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../components/PageHeader";
 import { Button, Card, ErrorState, Field, Notice, Spinner } from "../../components/ui";
 import { useAsync } from "../../hooks";
 
@@ -27,8 +28,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <h1>Настройки</h1>
-      <p className="muted">Организация: {membership?.organization_name}</p>
+      <PageHeader title="Настройки" subtitle={`Организация: ${membership?.organization_name}`} />
       {q.loading && <Spinner />}
       {q.error && <ErrorState message={q.error} onRetry={q.reload} />}
       {!q.loading && !q.error && (
@@ -39,7 +39,7 @@ export default function SettingsPage() {
               <legend>Налоговый режим</legend>
               <label className="radio"><input type="radio" name="regime" checked={form.tax_regime === "usn_income"} onChange={() => setForm({ ...form, tax_regime: "usn_income" })} /> УСН «доходы» — налог = ставка × продажи, НДС не выделяется</label>
               <label className="radio"><input type="radio" name="regime" checked={osno} onChange={() => setForm({ ...form, tax_regime: "osno" })} /> ОСНО — налог на прибыль и НДС отдельной строкой</label>
-              <div className="form-row">
+              <div className="form-grid cols">
                 {!osno && <Field label="Ставка УСН, %"><input inputMode="decimal" value={form.usn_rate} onChange={set("usn_rate")} /></Field>}
                 {osno && <>
                   <Field label="Налог на прибыль, %"><input inputMode="decimal" value={form.profit_tax_rate} onChange={set("profit_tax_rate")} /></Field>
@@ -50,7 +50,7 @@ export default function SettingsPage() {
             </fieldset>
             {osno && <p className="muted small">При ОСНО суммы услуг маркетплейса и ручные расходы считаются без НДС, себестоимость единицы вводите без НДС. Допущение: все услуги маркетплейса облагаются НДС по одной ставке.</p>}
             {msg && <Notice kind={msg.kind}>{msg.text}</Notice>}
-            {isOrgAdmin ? <Button type="submit" variant="primary" disabled={busy}>Сохранить</Button> : <p className="muted small">Менять учётную политику может администратор организации.</p>}
+            {isOrgAdmin ? <div className="form-actions"><Button type="submit" variant="primary" disabled={busy}>Сохранить</Button></div> : <p className="muted small">Менять учётную политику может администратор организации.</p>}
           </form>
         </Card>
       )}

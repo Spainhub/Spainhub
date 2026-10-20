@@ -2,7 +2,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError } from "../../api/client";
 import type { NormalizationSummary, SellerAccount, SyncJob } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
-import { Badge, Button, Card, EmptyState, ErrorState, Field, Notice, Spinner } from "../../components/ui";
+import { PageHeader } from "../../components/PageHeader";
+import { Badge, Button, Card, EmptyState, ErrorState, Field, Modal, Notice, Spinner } from "../../components/ui";
 import { useAsync } from "../../hooks";
 import { formatDateTime } from "../../utils/format";
 
@@ -28,12 +29,23 @@ function AddAccount({ orgId, onDone }: { orgId: string; onDone: () => void }) {
     } catch (x) { setErr(x instanceof ApiError ? x.message : "Не удалось добавить"); } finally { setBusy(false); }
   }
   return (
-    <form onSubmit={submit} className="form-row" aria-label="Добавить аккаунт Wildberries">
-      <Field label="Название магазина"><input value={name} onChange={(e) => setName(e.target.value)} required maxLength={200} /></Field>
-      <Field label="API-токен Wildberries" hint="Категория «Финансы». После сохранения токен не показывается."><input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} required minLength={10} /></Field>
-      <Button type="submit" variant="primary" disabled={busy}>Добавить</Button>
+    <form onSubmit={submit} className="form-grid" aria-label="Добавить аккаунт Wildberries">
+      <Field label="Название магазина" hint="Для вас, например «Основной магазин»"><input value={name} onChange={(e) => setName(e.target.value)} required maxLength={200} autoFocus /></Field>
+      <Field label="API-токен Wildberries" hint="Токен категории «Финансы». После сохранения он не показывается и хранится в зашифрованном виде."><input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} required minLength={10} /></Field>
       {err && <Notice kind="error">{err}</Notice>}
+      <div className="form-actions"><Button type="submit" variant="primary" disabled={busy}>{busy ? "Подключаем…" : "Подключить аккаунт"}</Button></div>
     </form>
+  );
+}
+
+function TokenHelp() {
+  return (
+    <ol className="steps">
+      <li>В личном кабинете Wildberries откройте раздел доступа к API и создайте токен.</li>
+      <li>Выберите категорию <b>«Финансы»</b> (достаточно доступа на чтение).</li>
+      <li>Скопируйте токен и вставьте его в форму. Название пунктов в кабинете WB может отличаться.</li>
+      <li>После подключения нажмите «Проверить подключение» и «Загрузить за 3 месяца».</li>
+    </ol>
   );
 }
 
@@ -69,20 +81,26 @@ function Account({ orgId, acc, canManage, reload }: { orgId: string; acc: Seller
       {msg && <Notice kind={msg.kind}>{msg.text}</Notice>}
       {summary.data && summary.data.needs_attention > 0 && <Notice kind="warn">{summary.data.needs_attention} строк требуют внимания (неизвестный тип или неподтверждённый учёт) — они не входят в P&L.</Notice>}
       {canManage && (
-        <div className="actions">
-          <Button disabled={busy} onClick={() => act(async () => { const r = await api.post<{ valid: boolean; message: string }>(`${base}/validate`); setMsg({ kind: r.valid ? "ok" : "error", text: r.message }); reload(); })}>Проверить подключение</Button>
-          <Button variant="primary" disabled={busy || acc.status !== "active" || active} onClick={() => act(async () => { await api.post(`${base}/sync`, { months: 3 }); setMsg({ kind: "info", text: "Загрузка запущена: последние 3 месяца. Лимит Wildberries — 1 запрос в минуту, это займёт время." }); jobs.reload(); })}>Загрузить за 3 месяца</Button>
-          <Button disabled={busy} onClick={() => setNewToken("")}>Заменить токен</Button>
-          <Button variant="danger" disabled={busy} onClick={() => { if (window.confirm(`Отключить «${acc.name}»? Токен будет удалён, загрузка остановлена. Уже загруженные данные сохранятся.`)) act(async () => { await api.del(base); reload(); }); }}>Отключить</Button>
-        </div>
+        <>
+          <div className="actions">
+            <Button variant="primary" disabled={busy || acc.status !== "active" || active} onClick={() => act(async () => { await api.post(`${base}/sync`, { months: 3 }); setMsg({ kind: "info", text: "Загрузка запущена: последние 3 месяца. Лимит Wildberries — 1 запрос в минуту, это займёт время." }); jobs.reload(); })}>Загрузить за 3 месяца</Button>
+            <Button disabled={busy} onClick={() => act(async () => { const r = await api.post<{ valid: boolean; message: string }>(`${base}/validate`); setMsg({ kind: r.valid ? "ok" : "error", text: r.message }); reload(); })}>Проверить подключение</Button>
+          </div>
+        </>
       )}
       {newToken !== null && (
-        <form className="form-row" onSubmit={(e) => { e.preventDefault(); act(async () => { await api.put(`${base}/token`, { token: newToken.trim() }); setNewToken(null); setMsg({ kind: "ok", text: "Токен заменён. Проверьте подключение." }); reload(); }); }}>
+        <form className="form-grid" onSubmit={(e) => { e.preventDefault(); act(async () => { await api.put(`${base}/token`, { token: newToken.trim() }); setNewToken(null); setMsg({ kind: "ok", text: "Токен заменён. Проверьте подключение." }); reload(); }); }}>
           <Field label="Новый токен"><input type="password" autoComplete="off" value={newToken} onChange={(e) => setNewToken(e.target.value)} required minLength={10} /></Field>
-          <Button type="submit" variant="primary" disabled={busy}>Сохранить</Button><Button type="button" onClick={() => setNewToken(null)}>Отмена</Button>
+          <div className="form-actions"><Button type="button" onClick={() => setNewToken(null)}>Отмена</Button><Button type="submit" variant="primary" disabled={busy}>Сохранить токен</Button></div>
         </form>
       )}
-      <h3>Загрузки</h3>
+      {canManage && (
+        <div className="account-foot">
+          <Button variant="ghost" disabled={busy} onClick={() => setNewToken("")}>Заменить токен</Button>
+          <Button variant="ghost" className="danger-text" disabled={busy} onClick={() => { if (window.confirm(`Отключить «${acc.name}»? Токен будет удалён, загрузка остановлена. Уже загруженные данные сохранятся.`)) act(async () => { await api.del(base); reload(); }); }}>Отключить</Button>
+        </div>
+      )}
+      <h3>История загрузок</h3>
       {jobs.loading && !jobs.data && <Spinner />}
       {jobs.error && <ErrorState message={jobs.error} onRetry={jobs.reload} />}
       {jobs.data && jobs.data.length === 0 && <p className="muted">Загрузок ещё не было.</p>}
@@ -115,14 +133,30 @@ export default function ConnectionsPage() {
   const { orgId, isOrgAdmin } = useAuth();
   const org = orgId!;
   const list = useAsync(() => api.get<SellerAccount[]>(`/orgs/${org}/seller-accounts`), [org]);
+  const [adding, setAdding] = useState(false);
+  const empty = list.data?.length === 0;
   return (
     <>
-      <h1>Подключения</h1>
-      {isOrgAdmin && <Card title="Добавить аккаунт Wildberries"><AddAccount orgId={org} onDone={list.reload} /></Card>}
+      <PageHeader title="Подключения" subtitle="Аккаунты маркетплейсов, из которых загружаются финансовые отчёты"
+        actions={isOrgAdmin && !empty && list.data ? <Button variant="primary" onClick={() => setAdding(true)}>+ Подключить аккаунт</Button> : undefined} />
       {list.loading && !list.data && <Spinner />}
       {list.error && <ErrorState message={list.error} onRetry={list.reload} />}
-      {list.data && list.data.length === 0 && <EmptyState title="Аккаунтов пока нет" hint={isOrgAdmin ? "Добавьте токен Wildberries выше, проверьте подключение и запустите загрузку." : "Аккаунты подключает администратор организации."} />}
+      {empty && isOrgAdmin && (
+        <div className="hero">
+          <Card title="Подключите Wildberries">
+            <p className="muted">Мы будем автоматически загружать отчёты о продажах и считать по ним P&amp;L. Токен нужен только для чтения финансовых данных.</p>
+            <div className="hero-grid"><AddAccount orgId={org} onDone={list.reload} /><div><h3>Где взять токен</h3><TokenHelp /></div></div>
+          </Card>
+        </div>
+      )}
+      {empty && !isOrgAdmin && <EmptyState title="Аккаунтов пока нет" hint="Подключить Wildberries может администратор организации." />}
       {list.data?.map((a) => <Account key={a.id} orgId={org} acc={a} canManage={isOrgAdmin} reload={list.reload} />)}
+      {adding && (
+        <Modal title="Подключить Wildberries" onClose={() => setAdding(false)}>
+          <AddAccount orgId={org} onDone={() => { setAdding(false); list.reload(); }} />
+          <h3>Где взять токен</h3><TokenHelp />
+        </Modal>
+      )}
     </>
   );
 }
