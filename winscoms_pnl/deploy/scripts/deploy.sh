@@ -46,6 +46,8 @@ fi
 
 log "Запуск новой версии"
 docker compose up -d --remove-orphans
+# прокси перезапускается всегда: он подхватывает новый nginx.conf и новые адреса пересозданных контейнеров
+docker compose restart proxy >/dev/null
 
 if wait_ready; then
   log "OK: приложение готово"
@@ -54,10 +56,13 @@ if wait_ready; then
 fi
 
 log "ОШИБКА: приложение не стало готовым. Откат на :previous"
-docker compose logs --tail=50 backend || true
+echo "--- ответ через прокси:"; curl -sS -m 5 -i "http://127.0.0.1:${PROXY_PORT}/api/v1/health/ready" 2>&1 | head -15 || true
+echo "--- логи proxy:"; docker compose logs --tail=15 proxy || true
+echo "--- логи backend:"; docker compose logs --tail=40 backend || true
 for img in "${IMAGES[@]}"; do
   docker image inspect "$img:previous" >/dev/null 2>&1 && docker tag "$img:previous" "$img:latest" || true
 done
 docker compose up -d --no-build --remove-orphans
+docker compose restart proxy >/dev/null
 wait_ready && log "Откат выполнен, работает предыдущая версия" || log "Откат не помог — нужно вмешательство"
 exit 1
