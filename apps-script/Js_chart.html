@@ -1,0 +1,265 @@
+<script>
+/* =====================================================================
+ * Js_chart — график строки при наведении (карточка над строкой)
+ * Поставщики карточек регистрируются вкладками: chartProviders.pnl / .goods / .unit
+ * = function(tr, col) → HTML карточки или ''.
+ *  P&L ОТЧЕТ: дневной ряд из DATA_WB (по названию строки) или, у итоговых строк
+ *            и строк с достаточным числом дневных значений, — по колонкам листа.
+ *  UNIT:     по дневным колонкам листа. ТОВАРЫ: продажи артикула по неделям.
+ * Наведение на ячейку дня/месяца подсвечивает его на графике.
+ * ===================================================================== */
+const MONTHS = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+const COST_RE = /расход|возврат|комисси|логистик|хранени|штраф|удержан|себестоим|cogs|реклам|налог|зарплат|opex/i;
+const hover = { tr: null, col: -1, timer: null, hideTimer: null, x: 0 };
+const chartProviders = {};
+
+function attachHover(tbody, kind){
+  tbody.addEventListener('mousemove', e => { hover.x = e.clientX; });
+  tbody.addEventListener('mouseover', e => {
+    if (!state.hoverOn) return;
+    const tr = e.target.closest('tr');
+    if (!tr || !tbody.contains(tr)) return;
+    const td = e.target.closest('td');
+    const col = td ? Array.prototype.indexOf.call(tr.children, td) : -1;
+    hover.x = e.clientX;
+    if (tr === hover.tr && col === hover.col) return;
+    clearTimeout(hover.hideTimer);
+    clearTimeout(hover.timer);
+    const visible = $('chartCard').classList.contains('show');
+    hover.timer = setTimeout(() => showChart(tr, col, kind), visible ? 0 : 200);
+    hover.tr = tr; hover.col = col;
+  });
+  tbody.addEventListener('mouseleave', () => {
+    clearTimeout(hover.timer);
+    hover.hideTimer = setTimeout(hideChart, 120);
+  });
+}
+window.addEventListener('scroll', () => hideChart(), { passive: true });
+['pnlWrap', 'goodsWrap', 'unitWrap', 'refWrap'].forEach(id => $(id).addEventListener('scroll', () => hideChart(), { passive: true }));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideChart(); });
+
+function clearHoverMarks(){
+  document.querySelectorAll('tr.hovered').forEach(x => x.classList.remove('hovered'));
+  document.querySelectorAll('td.hover-col').forEach(x => x.classList.remove('hover-col'));
+}
+function hideChart(){
+  clearTimeout(hover.timer);
+  hover.tr = null; hover.col = -1;
+  $('chartCard').classList.remove('show');
+  clearHoverMarks();
+}
+function showChart(tr, col, kind){
+  const html = chartProviders[kind] ? chartProviders[kind](tr, col) : '';
+  if (!html) { hideChart(); return; }
+  clearHoverMarks();
+  tr.classList.add('hovered');
+  if ((kind === 'pnl' || kind === 'unit') && col >= 4 && tr.children[col]) tr.children[col].classList.add('hover-col');
+  const card = $('chartCard');
+  card.innerHTML = html;
+  placeCard(card, tr);
+  card.classList.add('show');
+}
+// Карточка — над строкой (если не помещается — под ней), по горизонтали у курсора
+function placeCard(card, tr){
+  const r = tr.getBoundingClientRect();
+  const cw = card.offsetWidth, ch = card.offsetHeight;
+  const left = Math.min(Math.max(12, hover.x - cw / 2), window.innerWidth - cw - 12);
+  let top = r.top - ch - 10;
+  if (top < 8) top = r.bottom + 10;
+  if (top + ch > window.innerHeight - 8) top = Math.max(8, window.innerHeight - ch - 8);
+  card.style.left = left + 'px';
+  card.style.top = top + 'px';
+}
+
+/* ---------- карточка по дневному ряду из DATA_WB ---------- */
+function dailyCard(row, ser, dates, pi, pcs){
+  const vals = ser.values;
+  const n = vals.length;
+  const isPct = !!ser.isPercent;
+  const sum = (a, f, t) => a.slice(Math.max(0, f), t).reduce((s, v) => s + v, 0);
+  const ratio = (f, t) => { const d = sum(ser.den, f, t); return d ? sum(ser.num, f, t) / d : 0; };
+  const total = isPct ? ratio(0, n) : sum(vals, 0, n);
+  const last7 = isPct ? ratio(n - 7, n) : sum(vals, n - 7, n);
+  const prev7 = isPct ? ratio(n - 14, n - 7) : sum(vals, n - 14, n - 7);
+  const fmt = v => isPct ? fmtShare(v) : fmtNum(Math.round(v));
+
+  // Подсветка: день или месяц из колонки, на которую наведена мышь
+  let hi = null;
+  const pc = pi >= 0 && pcs ? pcs[pi] : null;
+  if (pc && pc.type === 'day') {
+    const i = dates.indexOf(toRU(pc.key));
+    if (i >= 0) hi = { type: 'day', i };
+  } else if (pc && pc.type === 'month') {
+    const idx = dates.map((d, i) => (d.slice(6) + '-' + d.slice(3, 5)) === pc.ym ? i : -1).filter(i => i >= 0);
+    if (idx.length) hi = { type: 'month', from: idx[0], to: idx[idx.length - 1], label: monthLabel(pc.ym) };
+  }
+  const kpis = [
+    { k: isPct ? 'За период' : 'Итого за период', v: fmt(total) },
+    isPct ? null : { k: 'Среднее в день', v: fmt(total / n) },
+    { k: '7 дней к пред. 7', v: trendHTML(last7, prev7, isPct, row.name) }
+  ].filter(Boolean);
+  if (hi && hi.type === 'day') kpis.push({ k: dates[hi.i], v: fmt(vals[hi.i]) });
+  if (hi && hi.type === 'month') {
+    const v = isPct ? ratio(hi.from, hi.to + 1) : sum(vals, hi.from, hi.to + 1);
+    const full = dates[hi.from].slice(0, 2) === '01' && hi.to < n - 1;
+    kpis.push({ k: hi.label + (full ? '' : ' (неполный)'), v: fmt(v) });
+  }
+  return cardHead(row.name, `${dates[0]} — ${dates[n - 1]} · по дням`) + kpiHTML(kpis) +
+    lineSVG(vals, dates, hi, isPct) +
+    `<div class="cc-legend"><span><i></i>по дням</span><span><i class="ma"></i>среднее за 7 дней</span></div>`;
+}
+
+/* ---------- карточка по дневным колонкам листа (UNIT, P&L ОТЧЕТ) ----------
+ * dates / vals — в хронологическом порядке; sumText — «Сумма»/«Итого» строки из листа;
+ * hiIndex — индекс подсвечиваемого дня (или -1). */
+function valuesCard(o){
+  const { name, title, dates, vals, isPct, sumText, hiIndex, sub } = o;
+  const n = vals.length;
+  const sumv = (f, t) => vals.slice(Math.max(0, f), t).reduce((s, v) => s + v, 0);
+  // Для процентов — среднее значение, для денег/штук — сумма
+  const agg = (f, t) => { const len = Math.max(0, t - Math.max(0, f)); return isPct ? (len ? sumv(f, t) / len : 0) : sumv(f, t); };
+  const fmt = v => isPct ? fmtShare(v) : fmtNum(Math.round(v * 100) / 100);
+  const k = Math.max(1, Math.min(7, Math.floor(n / 2)));
+  const kpis = [
+    { k: o.sumLabel || 'Итого за период', v: sumText !== '' && sumText !== undefined ? fmtPeriodVal(sumText, isPct) : fmt(agg(0, n)) },
+    isPct ? { k: 'Среднее за день', v: fmt(agg(0, n)) }
+          : { k: 'Среднее в день', v: fmt(sumv(0, n) / n) },
+    { k: k === 7 ? '7 дней к пред. 7' : `${k} дн. к пред. ${k}`, v: trendHTML(agg(n - k, n), agg(n - 2 * k, n - k), isPct, name) }
+  ];
+  let hi = null;
+  if (hiIndex >= 0 && hiIndex < n) { hi = { type: 'day', i: hiIndex }; kpis.push({ k: dates[hiIndex], v: fmt(vals[hiIndex]) }); }
+  return cardHead(title || name, sub || `${dates[0]} — ${dates[n - 1]} · по дням`) + kpiHTML(kpis) +
+    lineSVG(vals, dates, hi, isPct) +
+    `<div class="cc-legend"><span><i></i>по дням</span><span><i class="ma"></i>среднее за 7 дней</span></div>`;
+}
+
+/* ---------- элементы карточки ---------- */
+function monthLabel(ym){
+  const m = /^(\d{4})-(\d{2})$/.exec(ym || '');
+  return m ? `${MONTHS[+m[2] - 1]} ${m[1]}` : String(ym || '');
+}
+function monthName(mmYYYY){
+  const m = /^(\d{2})\.(\d{4})$/.exec(mmYYYY);
+  return m ? `${MONTHS[+m[1] - 1]} ${m[2]}` : mmYYYY;
+}
+function cardHead(title, sub){
+  return `<div class="cc-head"><div class="cc-title">${escapeHtml(title)}</div><div class="cc-sub">${escapeHtml(sub)}</div></div>`;
+}
+function kpiHTML(list){
+  return `<div class="cc-kpis">${list.map(x => `<div class="cc-kpi"><div class="k">${escapeHtml(x.k)}</div><div class="v">${x.v}</div></div>`).join('')}</div>`;
+}
+// Направление «хорошо/плохо» учитывает смысл строки: рост расходов — плохо
+function trendHTML(cur, prev, isPct, name){
+  if (isPct) {
+    const dpp = (cur - prev) * 100;
+    if (!isFinite(dpp) || (!cur && !prev)) return '—';
+    const good = COST_RE.test(name) ? dpp <= 0 : dpp >= 0;
+    return `<span class="${good ? 'trend-up' : 'trend-down'}">${dpp >= 0 ? '▲' : '▼'} ${Math.abs(dpp).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} п.п.</span>`;
+  }
+  if (!prev) return '—';
+  const d = (cur - prev) / Math.abs(prev);
+  const good = COST_RE.test(name) ? d <= 0 : d >= 0;
+  return `<span class="${good ? 'trend-up' : 'trend-down'}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d * 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 })}%</span>`;
+}
+function compact(v, isPct){
+  if (isPct) return (v * 100).toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + '%';
+  const a = Math.abs(v);
+  if (a >= 1e6) return (v / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' млн';
+  if (a >= 1e3) return (v / 1e3).toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' тыс';
+  return v.toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+}
+// «Круглые» деления шкалы, включая 0
+function niceScale(min, max, count){
+  min = Math.min(0, min); max = Math.max(0, max);
+  if (min === max) max = min + 1;
+  const raw = (max - min) / count;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * pow).find(s => s >= raw) || raw;
+  const lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step;
+  const ticks = [];
+  for (let t = lo; t <= hi + step / 2; t += step) ticks.push(+t.toFixed(10));
+  return { lo, hi, ticks };
+}
+
+// Линия по дням + заливка + скользящее среднее 7 дней + подсветка
+function lineSVG(vals, dates, hi, isPct){
+  const W = 532, H = 168, ml = 46, mr = 10, mt = 12, mb = 20;
+  const iw = W - ml - mr, ih = H - mt - mb, n = vals.length;
+  const sc = niceScale(Math.min(...vals), Math.max(...vals), 3);
+  const x = i => ml + (n === 1 ? iw / 2 : i * iw / (n - 1));
+  const y = v => mt + ih - (v - sc.lo) / (sc.hi - sc.lo) * ih;
+  const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+  const ma = vals.map((v, i) => {
+    const f = Math.max(0, i - 6), part = vals.slice(f, i + 1);
+    return part.reduce((s, q) => s + q, 0) / part.length;
+  });
+  let s = `<svg class="cc-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="График по дням">` +
+    `<defs><linearGradient id="ccGrad" x1="0" y1="0" x2="0" y2="1">` +
+    `<stop offset="0" stop-color="#ff7f57" stop-opacity=".22"/><stop offset="1" stop-color="#ff7f57" stop-opacity="0"/></linearGradient></defs>`;
+  if (hi && hi.type === 'month') {
+    s += `<rect x="${x(hi.from) - 2}" y="${mt}" width="${Math.max(4, x(hi.to) - x(hi.from) + 4)}" height="${ih}" fill="#ff7f57" opacity=".08" rx="4"/>`;
+  }
+  sc.ticks.forEach(t => {
+    s += `<line x1="${ml}" x2="${W - mr}" y1="${y(t)}" y2="${y(t)}" stroke="${t === 0 ? '#cfcfcf' : '#efefef'}" stroke-width="1"/>` +
+      `<text x="${ml - 6}" y="${y(t) + 3}" text-anchor="end">${compact(t, isPct)}</text>`;
+  });
+  // Подписи месяцев на оси X
+  const firstStart = dates.findIndex(d => d.slice(0, 2) === '01');
+  dates.forEach((d, i) => {
+    // первую (неполную) дату подписываем, только если до 1-го числа далеко
+    if (d.slice(0, 2) === '01' || (i === 0 && (firstStart < 0 || firstStart > 10))) {
+      if (i > 0) s += `<line x1="${x(i)}" x2="${x(i)}" y1="${mt}" y2="${mt + ih}" stroke="#f1f1f1"/>`;
+      if (i < n - 4) s += `<text x="${x(i) + (i === 0 ? 0 : 3)}" y="${H - 5}">${monthName(d.slice(3))}</text>`;
+    }
+  });
+  const base = y(Math.max(sc.lo, 0));
+  s += `<path d="M${x(0)},${base} L${pts.join(' L')} L${x(n - 1)},${base} Z" fill="url(#ccGrad)"/>`;
+  s += `<polyline points="${ma.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="#686f7d" stroke-width="1.5" stroke-dasharray="4 3" stroke-linejoin="round"/>`;
+  s += `<polyline points="${pts.join(' ')}" fill="none" stroke="#ff7f57" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  // Последнее значение — точка
+  s += `<circle cx="${x(n - 1)}" cy="${y(vals[n - 1])}" r="4" fill="#ff7f57" stroke="#fff" stroke-width="2"/>`;
+  if (hi && hi.type === 'day') {
+    const cx = x(hi.i), cy = y(vals[hi.i]);
+    const anchor = cx > W - 80 ? 'end' : (cx < ml + 40 ? 'start' : 'middle');
+    s += `<line x1="${cx}" x2="${cx}" y1="${mt}" y2="${mt + ih}" stroke="#131925" stroke-opacity=".25" stroke-dasharray="2 2"/>` +
+      `<circle cx="${cx}" cy="${cy}" r="5" fill="#ff7f57" stroke="#fff" stroke-width="2"/>` +
+      `<text class="tip" x="${cx}" y="${Math.max(mt + 9, cy - 10)}" text-anchor="${anchor}">${compact(vals[hi.i], isPct)}</text>`;
+  }
+  return s + `</svg>`;
+}
+
+// Столбцы (недели): 4px скругление на конце, от базовой линии — для вкладки ТОВАРЫ
+function barsSVG(items, fmt, caption, W, isPct){
+  const H = 150, ml = 52, mr = 4, mt = caption ? 18 : 12, mb = 18;
+  const iw = W - ml - mr, ih = H - mt - mb, n = items.length || 1;
+  const vals = items.map(b => b.v || 0);
+  const sc = niceScale(Math.min(...vals), Math.max(...vals), 3);
+  const y = v => mt + ih - (v - sc.lo) / (sc.hi - sc.lo) * ih;
+  const slot = iw / n, bw = Math.max(4, Math.min(34, slot - 6));
+  let s = `<svg class="cc-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(caption || 'Столбцы')}">`;
+  if (caption) s += `<text x="${ml}" y="10" style="font-weight:700">${caption}</text>`;
+  sc.ticks.forEach(t => {
+    s += `<line x1="${ml}" x2="${W - mr}" y1="${y(t)}" y2="${y(t)}" stroke="${t === 0 ? '#cfcfcf' : '#efefef'}"/>` +
+      `<text x="${ml - 5}" y="${y(t) + 3}" text-anchor="end">${compact(t, isPct)}</text>`;
+  });
+  const labelEvery = Math.ceil(n / 8);
+  items.forEach((b, i) => {
+    const cx = ml + slot * i + slot / 2;
+    const v = b.v || 0, y0 = y(0), y1 = y(v);
+    const h = Math.abs(y1 - y0), top = Math.min(y0, y1), r = Math.min(4, h / 2, bw / 2);
+    const fill = v < 0 ? '#c14a2a' : '#ff7f57';
+    const op = b.dim ? .45 : (items.some(q => q.hi) && !b.hi ? .55 : 1);
+    if (h > 0.5) {
+      const d = v >= 0
+        ? `M${cx - bw / 2},${y0} V${top + r} Q${cx - bw / 2},${top} ${cx - bw / 2 + r},${top} H${cx + bw / 2 - r} Q${cx + bw / 2},${top} ${cx + bw / 2},${top + r} V${y0} Z`
+        : `M${cx - bw / 2},${y0} V${top + h - r} Q${cx - bw / 2},${top + h} ${cx - bw / 2 + r},${top + h} H${cx + bw / 2 - r} Q${cx + bw / 2},${top + h} ${cx + bw / 2},${top + h - r} V${y0} Z`;
+      s += `<path d="${d}" fill="${fill}" opacity="${op}"><title>${escapeHtml(b.l)}: ${fmt(v)}</title></path>`;
+    }
+    if (b.hi || (!items.some(q => q.hi) && i === n - 1)) {
+      s += `<text class="tip" x="${cx}" y="${v >= 0 ? top - 4 : top + h + 11}" text-anchor="middle">${compact(v, isPct)}</text>`;
+    }
+    if (i % labelEvery === 0 || i === n - 1) s += `<text x="${cx}" y="${H - 4}" text-anchor="middle">${escapeHtml(b.l)}</text>`;
+  });
+  return s + `</svg>`;
+}
+</script>

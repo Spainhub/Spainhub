@@ -1,0 +1,290 @@
+<script>
+/* =====================================================================
+ * Js_core — состояние, форматирование, каркас вкладок, обновление, фильтр, экспорт
+ * Порядок скриптов: core → hier → chart → params → pnl → goods → unit → ref → boot
+ * ===================================================================== */
+const $ = id => document.getElementById(id);
+const state = { tab: null, busy: false, hoverOn: true, init: null, headerJson: '', chart: { minPointsHeader: 2, minPointsLeaf: 14 } };
+const TAB_IDS = ['params', 'pnl', 'goods', 'unit', 'ref'];
+const PANE_ID = { params: 'paneParams', pnl: 'panePnl', goods: 'paneGoods', unit: 'paneUnit', ref: 'paneRef' };
+const TABLE_ID = { params: 'paramsTable', pnl: 'pnlTable', goods: 'goodsTable', unit: 'unitTable', ref: 'refTable' };
+const REFRESH_MS = 40000;
+document.getElementById('year').textContent = new Date().getFullYear();
+
+function toast(msg, isErr){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.toggle('err', !!isErr);
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), 2400);
+}
+function fmtNum(v){
+  if (v === null || v === undefined || v === '') return '—';
+  if (typeof v === 'string' && v.trim() === '') return '—';
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+  if (isNaN(n)) return String(v);
+  return n.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+}
+// Значения в листе хранятся как доля (0.731 = 73.1%) — переводим в %.
+function fmtShare(v){
+  if (v === null || v === undefined || v === '') return '—';
+  const s = String(v).trim();
+  if (s.endsWith('%')) return s;
+  const n = typeof v === 'number' ? v : parseFloat(s.replace('%', '').replace(',', '.'));
+  if (isNaN(n)) return String(v);
+  return (n * 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + '%';
+}
+function fmtPeriodVal(v, isPercent){ return isPercent ? fmtShare(v) : fmtNum(v); }
+function numClass(v){
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+  if (isNaN(n) || n === 0) return 'num zero';
+  return n < 0 ? 'num neg' : 'num';
+}
+function toN(v){
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+  return isFinite(n) ? n : 0;
+}
+function escapeHtml(s){
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function toISO(s){
+  if (!s) return '';
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(s));
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s);
+}
+function toRU(s){
+  if (!s) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : String(s);
+}
+function badge(v){
+  const cls = { A:'g', X:'g', B:'y', Y:'y', C:'r', Z:'r' }[v] || 'n';
+  return `<span class="badge ${cls}">${escapeHtml(v || '—')}</span>`;
+}
+const SPIN = txt => `<div class="spinner"></div>${txt}`;
+
+/* ---------------- каркас вкладки ----------------
+ * makeTab({ id, call, stateEl, tableEl, render, canRender, loadingText })
+ *  .load(silent, notify) — вызвать серверную функцию `call`, при изменении данных — render(d);
+ *                    notify = true — показать «Данные обновлены» (кнопка «Обновить данные»)
+ *  .invalidate()  — сбросить данные (следующий показ вкладки перечитает лист)
+ * silent = тихое обновление: без спиннера, перерисовка только если лист изменился. */
+const TABS = {};
+function makeTab(o){
+  const t = { id: o.id, data: null, json: '', loading: false, req: 0, o: o };
+  t.load = function(silent, notify){
+    if (t.loading) return;
+    const quiet = !!silent && !!t.data;
+    const req = ++t.req;
+    t.loading = true;
+    if (!quiet) {
+      $(o.stateEl).style.display = 'block';
+      $(o.stateEl).innerHTML = SPIN(o.loadingText || 'Загружаю данные ...');
+      $(o.tableEl).style.display = 'none';
+    }
+    google.script.run
+      .withSuccessHandler(d => {
+        if (req !== t.req) return;             // данные сброшены (invalidate) — ответ устарел
+        t.loading = false;
+        stampSync();
+        if (notify) toast('Данные обновлены');
+        const json = JSON.stringify(d);
+        if (quiet && json === t.json) return;
+        if (quiet && o.canRender && !o.canRender()) return;   // пользователь сейчас правит поле — не перерисовываем
+        t.json = json;
+        t.data = d;
+        o.render(d);
+      })
+      .withFailureHandler(err => {
+        if (req !== t.req) return;
+        t.loading = false;
+        if (quiet) return;
+        $(o.stateEl).style.display = 'block';
+        $(o.stateEl).innerHTML = `Ошибка: ${escapeHtml(err.message || err)}`;
+        $(o.tableEl).style.display = 'none';
+        toast(err.message || String(err), true);
+      })[o.call]();
+  };
+  t.invalidate = function(){ t.data = null; t.json = ''; t.req++; t.loading = false; };
+  // Принять свежие данные, полученные другим вызовом (например, после записи в лист)
+  t.apply = function(d){ t.req++; t.loading = false; t.data = d; t.json = JSON.stringify(d); o.render(d); };
+  TABS[o.id] = t;
+  return t;
+}
+
+/* ---------------- шапка, статус, синхронизация ---------------- */
+function applyHeader(h){
+  if (!h) return;
+  const json = JSON.stringify(h);
+  $('seller').textContent = h.seller || '';
+  $('periodLine').textContent = `Период отчёта ${h.periodFrom || '—'} — ${h.periodTo || '—'} · в рублях`;
+  $('hintDefault').textContent = `${h.defaultFrom || '—'} — ${h.defaultTo || '—'}`;
+  if (json !== state.headerJson) {            // поля дат — только если период изменился в листе
+    state.headerJson = json;
+    $('from').value = toISO(h.periodFrom);
+    $('to').value = toISO(h.periodTo);
+  }
+  state.header = h;
+}
+function setStatus(st){
+  const el = $('dataStatus');
+  if (!st) { el.textContent = ''; return; }
+  el.className = 'data-status ' + st.status;
+  el.textContent = (st.status === 'ok' ? '✓ ' : '⚠ ') + st.text + (st.lastDate ? ` · данные по ${st.lastDate}` : '');
+  el.title = 'Контроль данных. Проверено: ' + (st.checkedAt || '—') + '. Подробности — лист DATA_CHECK.';
+}
+function loadStatus(){
+  google.script.run.withSuccessHandler(setStatus).withFailureHandler(() => {}).Gap_getStatus();
+}
+function stampSync(){
+  const d = new Date(), z = n => String(n).padStart(2, '0');
+  $('syncInfo').textContent = `обновлено ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+}
+function setBusy(b){
+  state.busy = b;
+  ['btnApply', 'btnReset', 'btnSync', 'btnPdf', 'btnXls', 'btnPrint'].forEach(id => { const el = $(id); if (el) el.disabled = b; });
+}
+
+/* ---------------- вкладки ---------------- */
+function setTab(id){
+  if (!TABS[id]) return;
+  state.tab = id;
+  document.querySelectorAll('#tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
+  TAB_IDS.forEach(k => { $(PANE_ID[k]).hidden = k !== id; });
+  // период действует на P&L ОТЧЕТ, ТОВАРЫ, UNIT; на ПАРАМЕТРЫ и СПРАВКА — только «Обновить данные»
+  $('filter').classList.toggle('lite', id === 'params' || id === 'ref');
+  hideChart();
+  TABS[id].load(!!TABS[id].data);   // есть что показать — обновляем тихо
+}
+document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+
+/* ---- Синхронизация с Google Таблицей: при открытии вкладки, каждые ~40 с (пока
+   страница открыта), по кнопке «Обновить данные» и при возврате на страницу. ---- */
+function refreshActive(silent, notify){
+  if (state.tab && TABS[state.tab]) TABS[state.tab].load(silent, notify);
+}
+$('btnSync').addEventListener('click', () => { refreshActive(false, true); loadStatus(); });
+setInterval(() => { if (!document.hidden) refreshActive(true); }, REFRESH_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshActive(true); });
+
+/* ---------------- фильтр периода ---------------- */
+const PERIOD_TABS = ['pnl', 'goods', 'unit'];
+function afterPeriodChange(){
+  PERIOD_TABS.forEach(id => TABS[id].invalidate());
+  pnlReloadSeries();
+  if (PERIOD_TABS.includes(state.tab)) TABS[state.tab].load(false);
+}
+$('btnApply').addEventListener('click', () => {
+  const from = toRU($('from').value), to = toRU($('to').value);
+  if (!from || !to) { toast('Укажите обе даты', true); return; }
+  setBusy(true);
+  google.script.run
+    .withSuccessHandler(h => { state.headerJson = ''; applyHeader(h); setBusy(false); afterPeriodChange(); toast('Период применён'); })
+    .withFailureHandler(err => { toast(err.message, true); setBusy(false); })
+    .App_applyPeriod(from, to);
+});
+$('btnReset').addEventListener('click', () => {
+  setBusy(true);
+  google.script.run
+    .withSuccessHandler(h => { state.headerJson = ''; applyHeader(h); setBusy(false); afterPeriodChange(); toast('Сброшено к периоду по умолчанию'); })
+    .withFailureHandler(err => { toast(err.message, true); setBusy(false); })
+    .App_resetPeriod();
+});
+
+/* ---------------- переключатель графиков ---------------- */
+try { state.hoverOn = localStorage.getItem('pnl.hoverCharts') !== '0'; } catch (e) {}
+$('hoverCharts').checked = state.hoverOn;
+$('hoverCharts').addEventListener('change', e => {
+  state.hoverOn = e.target.checked;
+  try { localStorage.setItem('pnl.hoverCharts', state.hoverOn ? '1' : '0'); } catch (err) {}
+  if (!state.hoverOn) hideChart();
+});
+
+/* ---------------- экспорт: PDF / Excel / печать активной вкладки ---------------- */
+function tabTitle(){
+  const b = document.querySelector(`#tabs .tab[data-tab="${state.tab}"]`);
+  return b ? b.textContent : '';
+}
+function tableHTML(){
+  if (state.tab === 'goods' && typeof goodsExportPrepare === 'function') goodsExportPrepare(true);   // все строки, а не подгруженные
+  const clone = $(TABLE_ID[state.tab]).cloneNode(true);
+  if (state.tab === 'goods' && typeof goodsExportPrepare === 'function') goodsExportPrepare(false);
+  clone.style.display = 'table';
+  clone.querySelectorAll('tr[style*="display: none"]').forEach(tr => { tr.style.display = ''; });   // раскрываем все строки
+  clone.querySelectorAll('tr.collapsible').forEach(tr => tr.classList.remove('collapsed'));
+  clone.querySelectorAll('.hovered').forEach(el => el.classList.remove('hovered'));
+  clone.querySelectorAll('.hover-col').forEach(el => el.classList.remove('hover-col'));
+  clone.querySelectorAll('.sort, .master-toggle').forEach(el => el.remove());
+  clone.querySelectorAll('select').forEach(el => { const s = document.createElement('span'); s.textContent = el.options[el.selectedIndex] ? el.options[el.selectedIndex].text : ''; el.replaceWith(s); });
+  clone.querySelectorAll('input').forEach(el => { const s = document.createElement('span'); s.textContent = el.value; el.replaceWith(s); });
+  return clone.outerHTML;
+}
+function reportHeaderHTML(){
+  const h = state.header || {};
+  let extra = '';
+  if (state.tab === 'unit' && TABS.unit.data) extra = ` · ${escapeHtml(TABS.unit.data.sku)} ${escapeHtml(TABS.unit.data.article)}`;
+  if (state.tab === 'ref' && TABS.ref.data) extra = ` · ${escapeHtml(TABS.ref.data.label)} ${escapeHtml(TABS.ref.data.selected)}`;
+  return `
+    <h1 style="font-size:20px;margin:0 0 2px">P&amp;L Report Wildberries</h1>
+    <div style="color:#737272;font-size:11.5px">${escapeHtml(tabTitle())}${extra}</div>
+    <div style="font-weight:700;margin:4px 0 0">${escapeHtml(h.seller || '')}</div>
+    <div style="color:#686f7d;font-size:11.5px;margin:2px 0 10px">
+      Период отчёта ${h.periodFrom || ''} — ${h.periodTo || ''} · в рублях
+    </div>`;
+}
+const EXPORT_CSS = `
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;color:#333;padding:16px;font-size:11px}
+    h1{margin:0 0 2px}
+    table{width:100%;border-collapse:collapse;font-size:10.5px}
+    th,td{border:1px solid #e5e5e5;padding:3px 6px;text-align:right;white-space:nowrap}
+    th.left,td.left{text-align:left;white-space:nowrap}
+    thead th{background:#f4f4f4;font-weight:700;vertical-align:top}
+    thead th .th-sub{display:block;font-weight:400;color:#737272;font-size:9px;margin-top:1px}
+    tr.lv1 td,tr.lvl1 td,tr.p-section td{background:#f2f2f2;font-weight:700}
+    tr.lv3 td.name,tr.lv4 td.name{font-style:italic;color:#686f7d}
+    tr.row-params td{background:#fbfbfb;color:#737272;font-size:10px}
+    table.params td,table.params th{text-align:left}
+    .badge{font-weight:700}
+    .neg{color:#c14a2a}
+    footer{margin-top:14px;padding-top:8px;border-top:1px solid #e5e5e5;
+      color:#737272;font-size:10px;display:flex;justify-content:space-between}
+    footer a{color:#131925;text-decoration:none}
+  </style>`;
+function footerHTML(){
+  return `<footer>
+    <div>© ${new Date().getFullYear()} P&amp;L Report Wildberries</div>
+    <div><a href="https://winscoms.com/" target="_blank"><b>winscoms</b> — все технологии внутри</a></div>
+  </footer>`;
+}
+$('btnPdf').addEventListener('click', () => {
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${EXPORT_CSS}</head><body>
+    ${reportHeaderHTML()}${tableHTML()}${footerHTML()}
+  </body></html>`;
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => { w.print(); }, 300);
+});
+$('btnPrint').addEventListener('click', () => $('btnPdf').click());
+$('btnXls').addEventListener('click', () => {
+  const html = `<!DOCTYPE html><html xmlns:x="urn:schemas-microsoft-com:office:excel">
+    <head><meta charset="utf-8">${EXPORT_CSS}</head><body>
+    ${reportHeaderHTML()}${tableHTML()}${footerHTML()}
+    </body></html>`;
+  const blob = new Blob(['﻿', html], { type: 'application/vnd.ms-excel' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const h = state.header || {};
+  a.href = url;
+  a.download = `PnL_${tabTitle().replace(/[^\wА-Яа-я&]+/g, '_')}_${h.periodFrom || ''}_${h.periodTo || ''}.xls`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+</script>

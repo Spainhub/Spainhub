@@ -1,0 +1,67 @@
+<script>
+/* =====================================================================
+ * Js_ref — вкладка 5 «СПРАВКА» (лист СПРАВКА)
+ * Выпадающий список «Номер отчёта» синхронизирован с ячейкой B2: выбор
+ * записывается в лист (Ref_setReport), лист пересчитывается и таблица
+ * обновляется; если B2 меняют в таблице — приложение подхватывает.
+ * Значения показаны ТАК ЖЕ, как в таблице (формат ячеек). Строки
+ * сворачиваются по нумерации колонки A.
+ * ===================================================================== */
+const refTab = makeTab({
+  id: 'ref', call: 'Ref_getData', stateEl: 'refState', tableEl: 'refTable',
+  render: renderRef, canRender: () => !state.refWriting
+});
+state.refWriting = false;
+state.refOptJson = '';
+$('refSelect').addEventListener('change', e => {
+  const sel = e.target, v = sel.value, prev = refTab.data ? refTab.data.selected : '';
+  if (!v) return;
+  sel.disabled = true;
+  state.refWriting = true;
+  $('refState').style.display = 'block';
+  $('refTable').style.display = 'none';
+  $('refState').innerHTML = SPIN('Пересчитываю лист ...');
+  google.script.run
+    .withSuccessHandler(d => {
+      state.refWriting = false; sel.disabled = false;
+      stampSync();
+      refTab.apply(d);
+      toast('Отчёт ' + v + ': данные обновлены');
+    })
+    .withFailureHandler(err => {
+      state.refWriting = false; sel.disabled = false;
+      toast(err.message, true);
+      sel.value = prev;
+      if (refTab.data) refTab.apply(refTab.data);
+    })
+    .Ref_setReport(v);
+});
+function renderRef(d){
+  $('refLabel').textContent = d.label || 'Номер отчёта';
+  const sel = $('refSelect');
+  const optJson = JSON.stringify(d.options);
+  if (optJson !== state.refOptJson) {
+    state.refOptJson = optJson;
+    sel.innerHTML = d.options.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('');
+  }
+  sel.value = d.selected;
+  sel.disabled = !d.options.length;
+  $('refInfo').textContent = d.options.length ? '' : 'В ячейке B2 нет выпадающего списка';
+
+  $('refThead').innerHTML = [
+    `<th class="left num-col">${hierMasterHTML('refBody')}</th>`,
+    `<th class="left">${escapeHtml(d.headerName || '')}</th>`
+  ].concat(d.columns.map(c => `<th>${escapeHtml(c)}</th>`)).join('');
+  $('refBody').innerHTML = d.rows.map((r, idx) => {
+    const cls = hierRowClass(r);
+    return `<tr${cls ? ` class="${cls}"` : ''}${hierRowAttrs(r, idx)}>` + hierNumCell(r) + hierNameCell(r) +
+      r.cells.map((c, j) => `<td class="num${r.vals[j] !== null && r.vals[j] < 0 ? ' neg' : ''}">${escapeHtml(c)}</td>`).join('') + `</tr>`;
+  }).join('');
+  $('refTable').style.minWidth = (354 + d.columns.length * 120) + 'px';
+  const empty = !d.rows.length;
+  $('refState').style.display = empty ? 'block' : 'none';
+  if (empty) $('refState').textContent = 'В листе СПРАВКА нет строк (данные — с 7-й строки).';
+  $('refTable').style.display = 'table';
+  hierRender('refBody', d.rows);
+}
+</script>

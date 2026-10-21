@@ -1,0 +1,118 @@
+<script>
+/* =====================================================================
+ * Js_pnl — вкладка 2 «P&L ОТЧЕТ» (лист P&L ОТЧЕТ)
+ * Строки сворачиваются по нумерации колонки A (Js_hier). Графики при
+ * наведении: у строк, чьё название подходит под PNL_SERIES_RULES, —
+ * дневной ряд из DATA_WB; иначе у итоговых строк (с подстроками) и строк
+ * с достаточным числом дневных значений — по дневным колонкам листа.
+ * ===================================================================== */
+const pnlTab = makeTab({ id: 'pnl', call: 'Pnl_getReportData', stateEl: 'pnlState', tableEl: 'pnlTable', render: renderPnl });
+let pnlSeries = null, pnlSeriesReq = 0;
+const byKey = (a, b) => a.key < b.key ? -1 : (a.key > b.key ? 1 : 0);
+
+function renderPnl(d){
+  applyHeader(d.header);
+  const th = [
+    `<th class="left num-col">${hierMasterHTML('pnlBody')}</th>`,
+    `<th class="left">Наименование показателя</th>`,
+    `<th class="total-col">Сумма</th>`,
+    `<th class="total-col">Доля, %</th>`
+  ].concat(d.periods.map(p => {
+    const parts = String(p).split('\n');
+    return `<th>${escapeHtml(parts[0] || '')}${parts[1] ? `<span class="th-sub">${escapeHtml(parts[1])}</span>` : ''}</th>`;
+  }));
+  $('pnlThead').innerHTML = th.join('');
+  $('pnlBody').innerHTML = d.rows.map((r, idx) => {
+    const cls = [hierRowClass(r), r.isParams ? 'row-params' : '', r.isManual ? 'row-manual' : ''].filter(Boolean).join(' ');
+    // Строка «Параметры»: дни недели / даты концов месяцев — как текст
+    const cells = r.isParams
+      ? `<td class="total-col"></td><td class="total-col"></td>` + r.values.map(v => `<td>${escapeHtml(v)}</td>`).join('')
+      : `<td class="total-col ${numClass(r.sum)}">${fmtPeriodVal(r.sum, r.isPercent)}</td>` +
+        `<td class="total-col num">${fmtShare(r.share)}</td>` +
+        r.values.map(v => `<td class="${numClass(v)}">${fmtPeriodVal(v, r.isPercent)}</td>`).join('');
+    return `<tr${cls ? ` class="${cls}"` : ''}${hierRowAttrs(r, idx)}>` + hierNumCell(r) + hierNameCell(r) + cells + `</tr>`;
+  }).join('');
+  $('pnlTable').style.minWidth = (554 + d.periods.length * 100) + 'px';
+  $('pnlState').style.display = 'none';
+  $('pnlTable').style.display = 'table';
+  hierRender('pnlBody', d.rows);
+  pnlMarkChartRows();
+  hideChart();
+}
+
+/* ---------- ряды и графики ---------- */
+function pnlReloadSeries(){
+  const req = ++pnlSeriesReq;
+  pnlSeries = null;
+  pnlMarkChartRows();
+  google.script.run
+    .withSuccessHandler(s => { if (req === pnlSeriesReq) { pnlSeries = pnlPrepSeries(s); pnlMarkChartRows(); } })
+    .withFailureHandler(err => console.warn('Дневные ряды недоступны:', err && err.message))
+    .Pnl_getDailySeries();
+}
+// Отрезаем хвост без данных (сегодня/вчера ещё не загружены)
+function pnlPrepSeries(s){
+  let last = -1;
+  Object.values(s.series).forEach(se => {
+    const arr = se.den || se.values;
+    for (let i = arr.length - 1; i > last; i--) if (arr[i] || se.values[i]) { last = i; break; }
+  });
+  if (last < 0) return s;
+  const cut = a => a && a.slice(0, last + 1);
+  s.dates = cut(s.dates);
+  Object.values(s.series).forEach(se => { se.values = cut(se.values); se.num = cut(se.num); se.den = cut(se.den); });
+  return s;
+}
+// Колонки-периоды: тип (день / месяц) и дата — по данным листа (строка «Параметры»)
+function pnlPeriodCols(d){
+  const labels = d.periods || [], meta = d.periodMeta || [];
+  return labels.map((l, i) => {
+    const m = meta[i];
+    const key = (m && m.key) || toISO(l);
+    return { i, label: l, key, ym: key ? key.slice(0, 7) : '', type: m ? m.type : 'day' };
+  });
+}
+function pnlSeriesFor(row){
+  const s = row.seriesId && pnlSeries && pnlSeries.series[row.seriesId];
+  return s && s.values.length > 1 ? s : null;
+}
+// Ряд по дневным колонкам листа: у итоговых строк — от 2 значений, у остальных — от 14
+function pnlColsSpec(d, row){
+  const days = pnlPeriodCols(d).filter(c => c.type === 'day').sort(byKey);
+  const raw = days.map(c => row.values[c.i]);
+  const points = raw.filter(v => typeof v === 'number' && isFinite(v)).length;
+  const min = row.hasChildren ? state.chart.minPointsHeader : state.chart.minPointsLeaf;
+  if (points < min) return null;
+  const vals = raw.map(toN);
+  return vals.some(v => v) ? { days, vals } : null;
+}
+// Оранжевым в колонке «Сумма» — строки, у которых есть график при наведении
+function pnlMarkChartRows(){
+  const d = pnlTab.data;
+  if (!d) return;
+  document.querySelectorAll('#pnlBody tr[data-idx]').forEach(tr => {
+    const row = d.rows[+tr.dataset.idx];
+    const td = tr.children[2];
+    if (td && row) td.classList.toggle('has-chart', !row.isParams && !!(pnlSeriesFor(row) || pnlColsSpec(d, row)));
+  });
+}
+chartProviders.pnl = function(tr, col){
+  const d = pnlTab.data;
+  const row = d && d.rows[+tr.dataset.idx];
+  if (!row || row.isParams) return '';
+  const pi = col - 4;                           // индекс колонки-периода
+  const pcs = pnlPeriodCols(d);
+  const ser = pnlSeriesFor(row);
+  if (ser) return dailyCard(row, ser, pnlSeries.dates, pi, pcs);
+  const spec = pnlColsSpec(d, row);
+  if (!spec) return '';
+  const dates = spec.days.map(c => toRU(c.key) || c.label);
+  const pc = pi >= 0 ? pcs[pi] : null;
+  const hiIndex = pc && pc.type === 'day' ? spec.days.findIndex(c => c.i === pc.i) : -1;
+  return valuesCard({
+    name: row.name, dates, vals: spec.vals, isPct: row.isPercent, sumText: row.sum, sumLabel: 'Сумма по строке',
+    hiIndex, sub: `${dates[0]} — ${dates[dates.length - 1]} · дневные колонки отчёта`
+  });
+};
+attachHover($('pnlBody'), 'pnl');
+</script>

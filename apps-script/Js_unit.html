@@ -1,0 +1,99 @@
+<script>
+/* =====================================================================
+ * Js_unit — вкладка 4 «UNIT» (лист UNIT)
+ * Артикул выбирается в списке → Unit_setSku пишет его в C5 листа UNIT, лист
+ * пересчитывается, приходят свежие значения. Строки сворачиваются по
+ * нумерации колонки A (как в P&L ОТЧЕТ). Колонки без даты (прочерк в
+ * строке 6) сервер отбрасывает. График при наведении — по дневным колонкам.
+ * ===================================================================== */
+const unitTab = makeTab({
+  id: 'unit', call: 'Unit_getReportData', stateEl: 'unitState', tableEl: 'unitTable',
+  render: renderUnit, canRender: () => !state.unitWriting
+});
+state.unitWriting = false;
+state.unitSkuJson = '';
+const WEEKDAYS = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+function unitWeekday(key){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || '');
+  return m ? WEEKDAYS[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()] : '';
+}
+$('unitSku').addEventListener('change', e => {
+  const sel = e.target, id = sel.value, prev = unitTab.data ? unitTab.data.sku : '';
+  if (!id) return;
+  sel.disabled = true;
+  state.unitWriting = true;
+  $('unitState').style.display = 'block';
+  $('unitTable').style.display = 'none';
+  $('unitState').innerHTML = SPIN('Пересчитываю лист ...');
+  hideChart();
+  google.script.run
+    .withSuccessHandler(d => {
+      state.unitWriting = false; sel.disabled = false;
+      stampSync();
+      unitTab.apply(d);
+      toast('Артикул ' + id + ': данные пересчитаны');
+    })
+    .withFailureHandler(err => {
+      state.unitWriting = false; sel.disabled = false;
+      toast(err.message, true);
+      sel.value = prev;
+      if (unitTab.data) unitTab.apply(unitTab.data);
+    })
+    .Unit_setSku(id);
+});
+function unitHasData(r){
+  const nums = r.values.filter(v => typeof v === 'number' && isFinite(v));
+  return nums.length > 1 && nums.some(v => v);
+}
+function renderUnit(d){
+  // Выпадающий список: перестраиваем, только если изменился состав
+  const skuJson = JSON.stringify(d.skus);
+  const sel = $('unitSku');
+  if (skuJson !== state.unitSkuJson) {
+    state.unitSkuJson = skuJson;
+    sel.innerHTML = d.skus.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.label)}</option>`).join('');
+  }
+  sel.value = d.sku;
+  $('unitInfo').innerHTML = [
+    d.article ? `Артикул: <b>${escapeHtml(d.article)}</b>` : '',
+    d.category ? `Категория: <b>${escapeHtml(d.category)}</b>` : ''
+  ].filter(Boolean).join(' · ');
+
+  $('unitThead').innerHTML = [
+    `<th class="left num-col">${hierMasterHTML('unitBody')}</th>`,
+    `<th class="left">Данные за период</th>`,
+    `<th class="total-col">Итого</th>`,
+    `<th class="total-col">Доля, %</th>`
+  ].concat(d.periods.map(p => `<th>${escapeHtml(p.label)}<span class="th-sub">${unitWeekday(p.key)}</span></th>`)).join('');
+  $('unitBody').innerHTML = d.rows.map((r, idx) => {
+    const cls = hierRowClass(r);
+    return `<tr${cls ? ` class="${cls}"` : ''}${hierRowAttrs(r, idx)}>` + hierNumCell(r) + hierNameCell(r) +
+      `<td class="total-col ${numClass(r.sum)}${unitHasData(r) ? ' has-chart' : ''}">${fmtPeriodVal(r.sum, r.isPercent)}</td>` +
+      `<td class="total-col num">${fmtShare(r.share)}</td>` +
+      r.values.map(v => `<td class="${numClass(v)}">${fmtPeriodVal(v, r.isPercent)}</td>`).join('') + `</tr>`;
+  }).join('');
+  $('unitTable').style.minWidth = (554 + d.periods.length * 100) + 'px';
+  $('unitState').style.display = 'none';
+  $('unitTable').style.display = 'table';
+  hierRender('unitBody', d.rows);
+  hideChart();
+}
+// Дневной ряд — сами значения строки листа UNIT (колонки идут от новой даты к старой,
+// для графика разворачиваем в хронологический порядок). Пустые/текстовые ячейки = 0.
+chartProviders.unit = function(tr, col){
+  const d = unitTab.data;
+  const row = d && d.rows[+tr.dataset.idx];
+  if (!row) return '';
+  const dates = d.periods.map(p => p.label).reverse();
+  const vals = row.values.map(toN).reverse();
+  const n = vals.length;
+  if (n < 2 || !vals.some(v => v)) return '';
+  const pi = col - 4;
+  const hiIndex = pi >= 0 && pi < d.periods.length ? n - 1 - pi : -1;
+  return valuesCard({
+    name: row.name, title: row.name + (d.sku ? ' · ' + d.sku : ''), dates, vals, isPct: !!row.isPercent,
+    sumText: row.sum, sumLabel: 'Итого за период', hiIndex
+  });
+};
+attachHover($('unitBody'), 'unit');
+</script>

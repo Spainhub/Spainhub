@@ -1,0 +1,64 @@
+<script>
+/* =====================================================================
+ * Js_params — вкладка 1 «ПАРАМЕТРЫ» (лист ПАРАМЕТРЫ, A6:C6)
+ * Колонка C: выпадающие списки (варианты — из проверки данных ячейки),
+ * поля ввода и значения-формулы (только чтение). Выбор записывается в
+ * лист (Params_setValue), изменения в таблице подтягиваются сюда.
+ * ===================================================================== */
+const paramsTab = makeTab({
+  id: 'params', call: 'Params_getData', stateEl: 'paramsState', tableEl: 'paramsTable',
+  render: renderParams, canRender: () => !paramsEditing()
+});
+state.paramsWriting = false;
+// Пока пользователь выбирает/печатает или идёт запись — не перерисовываем (иначе пропадёт фокус)
+function paramsEditing(){
+  const a = document.activeElement;
+  return state.paramsWriting || !!(a && $('paramsBody').contains(a) && /^(INPUT|SELECT)$/.test(a.tagName));
+}
+function renderParams(d){
+  const h = d.headers || [];
+  $('paramsThead').innerHTML = `<th>${escapeHtml(h[0] || '№')}</th><th>${escapeHtml(h[1] || 'Параметры')}</th><th>${escapeHtml(h[2] || 'Выбор и ввод данных')}</th>`;
+  $('paramsBody').innerHTML = d.rows.map(r => {
+    if (r.kind === 'section') {
+      return `<tr class="p-section"><td>${escapeHtml(r.num)}</td><td colspan="2">${escapeHtml(r.name)}</td></tr>`;
+    }
+    let ctl;
+    if (r.kind === 'select') {
+      ctl = `<select data-row="${r.row}" aria-label="${escapeHtml(r.name)}">` +
+        r.options.map(o => `<option value="${escapeHtml(o)}"${o === r.value ? ' selected' : ''}>${escapeHtml(o)}</option>`).join('') + `</select>`;
+    } else if (r.kind === 'input') {
+      ctl = `<input type="text" data-row="${r.row}" value="${escapeHtml(r.value)}" aria-label="${escapeHtml(r.name)}">`;
+    } else {
+      ctl = `<span class="p-ro">${escapeHtml(r.value)}</span>`;
+    }
+    return `<tr data-row="${r.row}"><td>${escapeHtml(r.num)}</td><td>${escapeHtml(r.name)}</td><td class="ctl">${ctl}</td></tr>`;
+  }).join('');
+  $('paramsState').style.display = d.rows.length ? 'none' : 'block';
+  if (!d.rows.length) $('paramsState').textContent = 'В листе ПАРАМЕТРЫ нет параметров (данные — с 7-й строки).';
+  $('paramsTable').style.display = 'table';
+}
+// Изменение значения (select — сразу, поле ввода — по Enter/уходу из поля)
+$('paramsBody').addEventListener('change', e => {
+  const el = e.target;
+  if (!el.dataset || !el.dataset.row) return;
+  const row = +el.dataset.row, value = el.value;
+  el.disabled = true;
+  state.paramsWriting = true;
+  google.script.run
+    .withSuccessHandler(d => {
+      state.paramsWriting = false;
+      paramsTab.apply(d);
+      const td = $('paramsBody').querySelector(`tr[data-row="${row}"] td.ctl`);
+      if (td) { td.classList.add('saved'); setTimeout(() => td.classList.remove('saved'), 1500); }
+      toast('Параметр сохранён');
+      // параметры влияют на формулы других листов — их данные перечитаются при открытии вкладки
+      ['pnl', 'goods', 'unit', 'ref'].forEach(id => TABS[id].invalidate());
+    })
+    .withFailureHandler(err => {
+      state.paramsWriting = false;
+      toast(err.message, true);
+      paramsTab.load(false);                  // вернуть значения листа
+    })
+    .Params_setValue(row, value);
+});
+</script>

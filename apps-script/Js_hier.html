@@ -1,0 +1,77 @@
+<script>
+/* =====================================================================
+ * Js_hier — иерархия строк по нумерации колонки A (1, 1.1, 2, 2.1, 2.1.1 …)
+ * Сервер (Util_hierAnnotate_) присылает у каждой строки level / parent /
+ * hasChildren; здесь — отрисовка и сворачивание. Строка с подстроками
+ * сворачивается кликом; скрываются ВСЕ её потомки (вложенные свёрнутые
+ * строки остаются свёрнутыми при разворачивании родителя). Состояние
+ * хранится по номеру строки и переживает обновление данных из листа.
+ * Используется на вкладках P&L ОТЧЕТ, UNIT, СПРАВКА.
+ * ===================================================================== */
+const hierCollapsed = {};                      // tbodyId → Set(ключи свёрнутых строк)
+const hierKey = (r, i) => r.num ? 'n' + r.num : 'i' + i;
+
+/** Классы строки по уровню: lv1 / lv2 / lv3…; collapsible — если есть подстроки. */
+function hierRowClass(r){
+  const lv = r.level > 0 ? 'lv' + Math.min(r.level, 5) : '';
+  return [lv, r.hasChildren ? 'collapsible' : ''].filter(Boolean).join(' ');
+}
+function hierRowAttrs(r, idx){
+  return ` data-idx="${idx}" data-parent="${r.parent}" data-level="${r.level}"`;
+}
+/** Первая ячейка строки: стрелка (если есть подстроки) + номер. */
+function hierNumCell(r){
+  return `<td class="left num-col">${r.hasChildren ? '<span class="toggle">▾</span>' : ''}${escapeHtml(r.num || '')}</td>`;
+}
+/** Ячейка названия с отступом по уровню. */
+function hierNameCell(r, extraCls){
+  const pl = 8 + Math.max(0, (r.level || 1) - 1) * 14;
+  return `<td class="left name${extraCls ? ' ' + extraCls : ''}" style="--pl:${pl}px" title="${escapeHtml(r.name || '')}">${escapeHtml(r.name || '')}</td>`;
+}
+/** Кнопка «свернуть/развернуть всё» для заголовка таблицы. */
+function hierMasterHTML(tbodyId){
+  return `<span class="master-toggle" data-master="${tbodyId}" title="Свернуть/развернуть все">−</span>`;
+}
+
+/** Вызывать после каждой отрисовки тела таблицы. */
+function hierRender(tbodyId, rows){
+  const tb = $(tbodyId);
+  tb._hierRows = rows;
+  if (!hierCollapsed[tbodyId]) hierCollapsed[tbodyId] = new Set();
+  if (!tb._hierInit) {
+    tb._hierInit = true;
+    tb.addEventListener('click', e => {
+      const tr = e.target.closest('tr.collapsible');
+      if (!tr || !tb.contains(tr)) return;
+      const i = +tr.dataset.idx, set = hierCollapsed[tbodyId], key = hierKey(tb._hierRows[i], i);
+      if (set.has(key)) set.delete(key); else set.add(key);
+      hierApply(tbodyId);
+    });
+  }
+  // кнопка «свернуть всё» в шапке (шапка перерисовывается вместе с таблицей)
+  const m = document.querySelector(`[data-master="${tbodyId}"]`);
+  if (m) m.onclick = e => { e.stopPropagation(); hierToggleAll(tbodyId); };
+  hierApply(tbodyId);
+}
+function hierApply(tbodyId){
+  const tb = $(tbodyId), rows = tb._hierRows || [], set = hierCollapsed[tbodyId] || new Set();
+  const coll = rows.map((r, i) => !!r.hasChildren && set.has(hierKey(r, i)));
+  const hidden = new Array(rows.length).fill(false);
+  rows.forEach((r, i) => { const p = r.parent; hidden[i] = p >= 0 && (hidden[p] || coll[p]); });
+  for (const tr of tb.rows) {
+    const i = +tr.dataset.idx;
+    if (isNaN(i)) continue;
+    tr.style.display = hidden[i] ? 'none' : '';
+    tr.classList.toggle('collapsed', coll[i]);
+  }
+  const keys = rows.map((r, i) => r.hasChildren ? hierKey(r, i) : null).filter(Boolean);
+  const m = document.querySelector(`[data-master="${tbodyId}"]`);
+  if (m) m.textContent = keys.length && keys.every(k => set.has(k)) ? '+' : '−';
+}
+function hierToggleAll(tbodyId){
+  const tb = $(tbodyId), rows = tb._hierRows || [], set = hierCollapsed[tbodyId];
+  const keys = rows.map((r, i) => r.hasChildren ? hierKey(r, i) : null).filter(Boolean);
+  if (keys.length && keys.every(k => set.has(k))) set.clear(); else keys.forEach(k => set.add(k));
+  hierApply(tbodyId);
+}
+</script>

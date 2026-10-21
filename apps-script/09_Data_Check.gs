@@ -1,15 +1,15 @@
 /**********************************************************************
- * Data_check.gs
- * КОНТРОЛЬ ПОЛНОТЫ ДАННЫХ Data_wb (пропуски автоматической загрузки)
+ * 09_Data_Check.gs
+ * КОНТРОЛЬ ПОЛНОТЫ ДАННЫХ DATA_WB (пропуски автоматической загрузки)
  *
  * Что проверяется (окно = с 1-го числа месяца 3 месяца назад по вчера,
- * т.е. ровно то, что нужно колонкам K:M и E:J листа Calculation):
- *  1. Пропущенные дни — в Data_wb нет ни одной строки за дату rrDate.
+ * т.е. ровно то, что нужно колонкам K:M и E:J листа P&L ОТЧЕТ):
+ *  1. Пропущенные дни — в DATA_WB нет ни одной строки за дату rrDate.
  *  2. «Провалы» — строк за день < GAP_LOW_RATIO от медианы соседних
  *     дней (признак недогруженного дня: таймаут, 5xx, WB дописал позже).
  *  3. Актуальность — дата последней строки и время последней успешной
- *     загрузки (журнал Load_log).
- *  4. Структура — колонки, на которые ссылаются формулы Calculation
+ *     загрузки (журнал LOG).
+ *  4. Структура — колонки, на которые ссылаются формулы P&L ОТЧЕТ
  *     (V, Z, AB, AH, AR, BI, BL, BM), не «уехали» после миграции
  *     заголовков; AB = rrDate.
  *  5. Типы операций (колонка Z) — какие значения реально приходят и
@@ -19,7 +19,7 @@
  *     (не отработала очистка), наличие ежедневного триггера, «зависшая»
  *     очередь загрузки.
  *
- * Результат: лист "Data_check", статус для Web App (плашка в шапке),
+ * Результат: лист "DATA_CHECK", статус для Web App (плашка в шапке),
  * письмо владельцу при проблемах (не чаще 1 раза в день на одну и ту же
  * проблему). Пропуски дозагружаются автоматически в dailyUpdate()
  * (не более GAP_MAX_ATTEMPTS попыток на день) или вручную из меню.
@@ -27,7 +27,6 @@
  * ВАЖНО: все имена в этом файле имеют префикс GAP_ / Gap_.
  **********************************************************************/
 
-const GAP_SHEET = 'Data_check';
 const GAP_LOW_RATIO = 0.3;        // день < 30% медианы соседей — «провал»
 const GAP_GRACE_DAYS = 1;         // вчера может быть ещё не опубликовано WB
 const GAP_MAX_ATTEMPTS = 3;       // попыток дозагрузки одного дня
@@ -40,7 +39,7 @@ const GAP_PROP_BASELINE = 'GAP_HEADER_BASELINE';
 const GAP_PROP_STATUS = 'GAP_STATUS';
 const GAP_PROP_NOTIFY = 'GAP_LAST_NOTIFY';
 
-// Колонки, на которые ссылаются формулы Calculation (кроме Z и AB — у них
+// Колонки, на которые ссылаются формулы P&L ОТЧЕТ (кроме Z и AB — у них
 // своя проверка): должны быть числовыми полями API.
 const GAP_MONEY_LETTERS = ['V', 'AH', 'AR', 'BI', 'BL', 'BM'];
 
@@ -49,7 +48,7 @@ const GAP_MONEY_LETTERS = ['V', 'AH', 'AR', 'BI', 'BL', 'BM'];
 function Gap_checkMenu() {
   const res = Gap_runCheck({ notify: false });
   const ss = SpreadsheetApp.getActive();
-  ss.setActiveSheet(ss.getSheetByName(GAP_SHEET));
+  ss.setActiveSheet(ss.getSheetByName(SHEET_DATA_CHECK));
   SpreadsheetApp.getUi().alert(
     'Контроль данных: ' + Gap_statusLabel_(res.status),
     res.issues.length ? res.issues.map(i => '• ' + i.text).join('\n') : 'Пропусков и ошибок не найдено.',
@@ -71,7 +70,7 @@ function Gap_healMenu() {
   processLoadQueue_();
 }
 
-/** Вызывать из редактора, если структуру Data_wb изменили осознанно. */
+/** Вызывать из редактора, если структуру DATA_WB изменили осознанно. */
 function Gap_resetHeaderBaseline() {
   PropertiesService.getScriptProperties().deleteProperty(GAP_PROP_BASELINE);
   Logger.log('Эталон заголовков сброшен — будет записан при следующей проверке.');
@@ -94,7 +93,7 @@ function Gap_runCheck(opts) {
   props.setProperty(GAP_PROP_STATUS, JSON.stringify({
     status: res.status,
     text: Gap_shortText_(res),
-    lastDate: res.lastKey ? SkuCalc_keyToRu_(res.lastKey) : '',
+    lastDate: res.lastKey ? Util_keyToRu_(res.lastKey) : '',
     checkedAt: formatRu(new Date()) + ' ' + formatTime(new Date()),
     missing: res.missing.length,
     low: res.low.length
@@ -123,7 +122,7 @@ function Gap_analyze_() {
   };
 
   if (!sh || sh.getLastRow() < 2) {
-    add('error', 'Лист Data_wb пуст — выполните «Первый запуск».');
+    add('error', 'Лист DATA_WB пуст — выполните «Первый запуск».');
     res.status = 'error';
     return res;
   }
@@ -135,20 +134,20 @@ function Gap_analyze_() {
 
   /* ---- 4. Структура колонок ---- */
   const at = letter => {
-    const i = SkuCalc_colIndex_(letter);
+    const i = Util_colIndex_(letter);
     return i <= lastCol ? String(headers[i - 1]) : '';
   };
-  if (at(SKUCALC_COLS.date) !== 'rrDate') {
-    add('error', `Колонка ${SKUCALC_COLS.date} = «${at(SKUCALC_COLS.date)}», ожидается rrDate — формулы Calculation фильтруют не по той дате.`);
+  if (at(DATA_COLS.date) !== 'rrDate') {
+    add('error', `Колонка ${DATA_COLS.date} = «${at(DATA_COLS.date)}», ожидается rrDate — формулы P&L ОТЧЕТ фильтруют не по той дате.`);
   }
   GAP_MONEY_LETTERS.forEach(l => {
     const h = at(l);
     if (!NUMERIC_FIELDS.has(h)) {
-      add('error', `Колонка ${l} = «${h || 'пусто'}» — не числовое поле API, формулы Calculation считают не то.`);
+      add('error', `Колонка ${l} = «${h || 'пусто'}» — не числовое поле API, формулы P&L ОТЧЕТ считают не то.`);
     }
   });
   const props = PropertiesService.getScriptProperties();
-  const watched = GAP_MONEY_LETTERS.concat([SKUCALC_COLS.oper, SKUCALC_COLS.date]);
+  const watched = GAP_MONEY_LETTERS.concat([DATA_COLS.oper, DATA_COLS.date]);
   const current = {};
   watched.forEach(l => { current[l] = at(l); });
   const baseRaw = props.getProperty(GAP_PROP_BASELINE);
@@ -167,7 +166,7 @@ function Gap_analyze_() {
   /* ---- Чтение нужных колонок ---- */
   const dateIdx = headers.indexOf('rrDate');
   if (dateIdx < 0) {
-    add('error', 'В Data_wb нет колонки rrDate — проверить пропуски невозможно.');
+    add('error', 'В DATA_WB нет колонки rrDate — проверить пропуски невозможно.');
     res.status = 'error';
     return res;
   }
@@ -175,8 +174,8 @@ function Gap_analyze_() {
   const dates = col(dateIdx + 1);
   const rrdIdx = headers.indexOf('rrdId');
   const rrd = rrdIdx >= 0 ? col(rrdIdx + 1) : null;
-  const operCol = SkuCalc_colIndex_(SKUCALC_COLS.oper);
-  const amtCol = SkuCalc_colIndex_(SKUCALC_COLS.amount);
+  const operCol = Util_colIndex_(DATA_COLS.oper);
+  const amtCol = Util_colIndex_(DATA_COLS.amount);
   const oper = operCol <= lastCol ? col(operCol) : new Array(n).fill('');
   const amt = amtCol <= lastCol ? col(amtCol) : new Array(n).fill(0);
 
@@ -204,16 +203,16 @@ function Gap_analyze_() {
     const d = perDay[k] || (perDay[k] = { rows: 0, sales: 0 });
     d.rows++;
     const op = String(oper[i] || '').trim();
-    if (op === SKUCALC_OPER_SALE) d.sales += SkuCalc_num_(amt[i]);
+    if (op === OPER_SALE) d.sales += Util_num_(amt[i]);
     const o = opers[op] || (opers[op] = { rows: 0, amount: 0 });
     o.rows++;
-    o.amount += SkuCalc_num_(amt[i]);
+    o.amount += Util_num_(amt[i]);
   }
 
   /* ---- 1–2. Пропуски и провалы ---- */
   const attempts = Gap_getAttempts_();
   const keys = [];
-  for (let k = startKey; k <= endKey; k = SkuCalc_addDaysKey_(k, 1)) keys.push(k);
+  for (let k = startKey; k <= endKey; k = Util_addDaysKey_(k, 1)) keys.push(k);
   const counts = keys.map(k => (perDay[k] ? perDay[k].rows : 0));
 
   keys.forEach((k, i) => {
@@ -253,11 +252,11 @@ function Gap_analyze_() {
 
   /* ---- 3. Актуальность ---- */
   if (res.lastKey && res.lastKey < dayKey_(dayAdd_(mskToday_(), -(GAP_GRACE_DAYS + 1)))) {
-    add('error', `Последние данные — за ${SkuCalc_keyToRu_(res.lastKey)}. Ежедневная загрузка отстаёт.`);
+    add('error', `Последние данные — за ${Util_keyToRu_(res.lastKey)}. Ежедневная загрузка отстаёт.`);
   }
   const lastOk = Gap_lastSuccessfulLoad_();
   if (!lastOk) {
-    add('warn', 'В журнале Load_log нет успешных загрузок.');
+    add('warn', 'В журнале LOG нет успешных загрузок.');
   } else if ((Date.now() - lastOk.getTime()) / 3600000 > GAP_STALE_HOURS) {
     add('error', `Последняя успешная загрузка: ${formatRu(lastOk)} ${formatTime(lastOk)} — больше ${GAP_STALE_HOURS} ч назад.`);
   }
@@ -267,17 +266,17 @@ function Gap_analyze_() {
   }
 
   /* ---- 5. Типы операций ---- */
-  const covered = [SKUCALC_OPER_SALE, SKUCALC_OPER_RETURN, SKUCALC_OPER_LOGISTICS];
+  const covered = [OPER_SALE, OPER_RETURN, OPER_LOGISTICS];
   res.operTypes = Object.keys(opers).sort((a, b) => opers[b].rows - opers[a].rows)
     .map(k => ({ name: k || '(пусто)', rows: opers[k].rows, amount: opers[k].amount, covered: covered.includes(k) }));
-  if (!opers[SKUCALC_OPER_RETURN]) {
+  if (!opers[OPER_RETURN]) {
     const similar = Object.keys(opers).filter(k => /^возврат/i.test(k));
     if (similar.length) {
-      add('warn', `Формулы ищут тип «${SKUCALC_OPER_RETURN}», а в данных есть только: ${similar.map(s => '«' + s + '»').join(', ')} — возвраты не вычитаются из выручки.`);
+      add('warn', `Формулы ищут тип «${OPER_RETURN}», а в данных есть только: ${similar.map(s => '«' + s + '»').join(', ')} — возвраты не вычитаются из выручки.`);
     }
   }
-  if (!opers[SKUCALC_OPER_SALE]) {
-    add('error', `В колонке ${SKUCALC_COLS.oper} нет значения «${SKUCALC_OPER_SALE}» — выручка в Calculation будет 0.`);
+  if (!opers[OPER_SALE]) {
+    add('error', `В колонке ${DATA_COLS.oper} нет значения «${OPER_SALE}» — выручка в P&L ОТЧЕТ будет 0.`);
   }
 
   /* ---- 6. Прочее ---- */
@@ -318,13 +317,13 @@ function Gap_findHealRanges_(beforeKey, includeLow) {
   const ranges = [];
   keys.forEach(k => {
     const last = ranges[ranges.length - 1];
-    if (last && SkuCalc_daysBetween_(last.to, k) <= 3) last.to = k;
+    if (last && Util_daysBetween_(last.to, k) <= 3) last.to = k;
     else ranges.push({ from: k, to: k });
   });
   const picked = ranges.slice(0, GAP_MAX_HEAL_RANGES);
 
   picked.forEach(r => {
-    for (let k = r.from; k <= r.to; k = SkuCalc_addDaysKey_(k, 1)) {
+    for (let k = r.from; k <= r.to; k = Util_addDaysKey_(k, 1)) {
       if (keys.includes(k)) attempts[k] = (attempts[k] || 0) + 1;
     }
   });
@@ -347,7 +346,7 @@ function Gap_saveAttempts_(obj) {
 /* =================== ЖУРНАЛ / ТРИГГЕРЫ =================== */
 
 function Gap_lastSuccessfulLoad_() {
-  const sh = SpreadsheetApp.getActive().getSheetByName(LOAD_LOG_SHEET);
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET_LOG);
   if (!sh || sh.getLastRow() < 2) return null;
   const vals = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues();
   for (let i = vals.length - 1; i >= 0; i--) {
@@ -357,7 +356,7 @@ function Gap_lastSuccessfulLoad_() {
 }
 
 function Gap_recentLoadErrors_(days) {
-  const sh = SpreadsheetApp.getActive().getSheetByName(LOAD_LOG_SHEET);
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET_LOG);
   if (!sh || sh.getLastRow() < 2) return [];
   const since = Date.now() - days * 86400000;
   return sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues()
@@ -379,21 +378,21 @@ function Gap_hasDailyTrigger_() {
 
 function Gap_writeSheet_(res) {
   const ss = SpreadsheetApp.getActive();
-  let sh = ss.getSheetByName(GAP_SHEET);
-  if (!sh) sh = ss.insertSheet(GAP_SHEET);
+  let sh = ss.getSheetByName(SHEET_DATA_CHECK);
+  if (!sh) sh = ss.insertSheet(SHEET_DATA_CHECK);
   sh.clear();
 
   const now = new Date();
   let row = 1;
-  sh.getRange(row, 1).setValue('Контроль полноты данных Data_wb').setFontSize(14).setFontWeight('bold');
+  sh.getRange(row, 1).setValue('Контроль полноты данных DATA_WB').setFontSize(14).setFontWeight('bold');
   row += 2;
 
   const summary = [
     ['Статус', Gap_statusLabel_(res.status)],
     ['Проверено', formatRu(now) + ' ' + formatTime(now)],
-    ['Окно проверки', `${SkuCalc_keyToRu_(res.windowFrom)} — ${SkuCalc_keyToRu_(res.windowTo)}`],
-    ['Строк в Data_wb', res.totalRows],
-    ['Данные с / по', res.firstKey ? `${SkuCalc_keyToRu_(res.firstKey)} — ${SkuCalc_keyToRu_(res.lastKey)}` : '—'],
+    ['Окно проверки', `${Util_keyToRu_(res.windowFrom)} — ${Util_keyToRu_(res.windowTo)}`],
+    ['Строк в DATA_WB', res.totalRows],
+    ['Данные с / по', res.firstKey ? `${Util_keyToRu_(res.firstKey)} — ${Util_keyToRu_(res.lastKey)}` : '—'],
     ['Пропущено дней', res.missing.length],
     ['Дней с провалом', res.low.length],
     ['Дубликаты rrdId', res.duplicates]
@@ -415,7 +414,7 @@ function Gap_writeSheet_(res) {
   row += issueRows.length + 1;
 
   if (res.operTypes.length) {
-    sh.getRange(row, 1, 1, 4).setValues([['Тип операции (колонка ' + SKUCALC_COLS.oper + ')', 'Строк', 'Сумма (' + SKUCALC_COLS.amount + ')', 'Учитывается в формулах']])
+    sh.getRange(row, 1, 1, 4).setValues([['Тип операции (колонка ' + DATA_COLS.oper + ')', 'Строк', 'Сумма (' + DATA_COLS.amount + ')', 'Учитывается в формулах']])
       .setFontWeight('bold').setBackground('#f3f3f3');
     row++;
     const ot = res.operTypes.map(o => [o.name, o.rows, o.amount, o.covered ? 'да' : 'нет']);
@@ -424,7 +423,7 @@ function Gap_writeSheet_(res) {
     row += ot.length + 1;
   }
 
-  sh.getRange(row, 1, 1, 5).setValues([['Дата', 'День недели', 'Строк', 'Продажи (' + SKUCALC_COLS.amount + ')', 'Статус']])
+  sh.getRange(row, 1, 1, 5).setValues([['Дата', 'День недели', 'Строк', 'Продажи (' + DATA_COLS.amount + ')', 'Статус']])
     .setFontWeight('bold').setBackground('#f3f3f3');
   sh.setFrozenRows(0);
   row++;
@@ -434,7 +433,7 @@ function Gap_writeSheet_(res) {
   const days = res.days.slice().reverse(); // свежие сверху
   if (days.length) {
     sh.getRange(row, 1, days.length, 5).setValues(days.map(d => [
-      SkuCalc_keyToRu_(d.key), WD[new Date(SkuCalc_keyToUtc_(d.key)).getUTCDay()], d.rows, d.sales, ST[d.status]
+      Util_keyToRu_(d.key), WD[new Date(Util_keyToUtc_(d.key)).getUTCDay()], d.rows, d.sales, ST[d.status]
     ]));
     sh.getRange(row, 4, days.length, 1).setNumberFormat('#,##0.00');
     sh.getRange(row, 5, days.length, 1).setBackgrounds(days.map(d => [STC[d.status]]));
@@ -465,7 +464,7 @@ function Gap_notify_(res) {
     subject: `[P&L WB] Контроль данных: ${Gap_statusLabel_(res.status)}`,
     body: `Таблица: ${ss.getName()}\n${ss.getUrl()}\n\n` +
       res.issues.map(i => '• ' + i.text).join('\n') +
-      `\n\nПодробности — лист «${GAP_SHEET}».`
+      `\n\nПодробности — лист «${SHEET_DATA_CHECK}».`
   });
   props.setProperty(GAP_PROP_NOTIFY, digest);
 }
@@ -498,11 +497,11 @@ function Gap_rangesText_(keys) {
   let a = null, b = null;
   const flush = () => {
     if (!a) return;
-    const f = k => SkuCalc_keyToRu_(k).slice(0, 5);
+    const f = k => Util_keyToRu_(k).slice(0, 5);
     out.push(a === b ? f(a) : f(a) + '–' + f(b));
   };
   keys.slice().sort().forEach(k => {
-    if (b && SkuCalc_daysBetween_(b, k) === 1) { b = k; return; }
+    if (b && Util_daysBetween_(b, k) === 1) { b = k; return; }
     flush();
     a = b = k;
   });

@@ -1,0 +1,169 @@
+<script>
+/* =====================================================================
+ * Js_goods — вкладка 3 «ТОВАРЫ» (лист ТОВАРЫ)
+ * Колонки читаются по заголовкам строки 6 (тип колонки определяет сервер).
+ * Строки подгружаются по 50 при прокрутке; поиск, фильтр A/B/C, сортировка.
+ * График при наведении — продажи артикула по неделям (DATA_WB).
+ * ===================================================================== */
+const goodsTab = makeTab({ id: 'goods', call: 'Goods_getReportData', stateEl: 'goodsState', tableEl: 'goodsTable', render: d => renderGoods(d) });
+const goods = { sort: { col: -1, dir: 1 }, filter: { q: '', abc: '' }, limit: 50, visible: [], savedLimit: 50 };
+const GOODS_PAGE = 50;
+// Ширины колонок по типу (тип определяет сервер по заголовку листа)
+const GOODS_W = { num: 44, id: 105, art: 150, text: 150, pct: 104, xyz: 58, abc: 58, money: 114 };
+const GOODS_LEFT = new Set(['num', 'id', 'art', 'text']);
+const GOODS_STICKY = new Set(['num', 'id', 'art']);
+const goodsIdx = type => goodsTab.data ? goodsTab.data.columns.findIndex(c => c.type === type) : -1;
+const goodsIdxByTitle = re => goodsTab.data ? goodsTab.data.columns.findIndex(c => re.test(c.title.toLowerCase())) : -1;
+
+function goodsVisibleRows(){
+  const d = goodsTab.data;
+  const qq = goods.filter.q.trim().toLowerCase();
+  const abc = goods.filter.abc;
+  const abcI = goodsIdx('abc');
+  const textI = d.columns.map((c, i) => ['id', 'art', 'text', 'num'].includes(c.type) ? i : -1).filter(i => i >= 0);
+  const { col, dir } = goods.sort;
+  const rows = d.rows.filter(r =>
+    (!abc || abcI < 0 || r.cells[abcI] === abc) &&
+    (!qq || textI.some(i => String(r.cells[i] == null ? '' : r.cells[i]).toLowerCase().includes(qq))));
+  if (col >= 0 && col < d.columns.length) {
+    rows.sort((a, b) => {
+      const x = a.cells[col], y = b.cells[col];
+      const nx = typeof x === 'number', ny = typeof y === 'number';
+      if (nx && ny) return (x - y) * dir;
+      if (nx !== ny) return nx ? -1 : 1;          // числа выше текста/ошибок
+      return String(x == null ? '' : x).localeCompare(String(y == null ? '' : y), 'ru', { numeric: true }) * dir;
+    });
+  }
+  return rows;
+}
+function goodsCell(c, v, cs, service){
+  const cls = cs.cls ? ' ' + cs.cls : '';
+  const st = cs.style ? ` style="${cs.style}"` : '';
+  const empty = v === '' || v === null || v === undefined;
+  switch (c.type) {
+    case 'num':  return `<td class="left num-col${cls}"${st}>${escapeHtml(empty ? '' : v)}</td>`;
+    case 'id':   return `<td class="left${cls}"${st}><span class="goods-id">${escapeHtml(empty ? '' : v)}</span></td>`;
+    case 'art':
+    case 'text': return `<td class="left${cls}"${st} title="${escapeHtml(empty ? '' : v)}">${escapeHtml(empty ? (service ? '' : '—') : v)}</td>`;
+    case 'xyz':
+    case 'abc':  return `<td class="ctr${cls}"${st}>${empty ? '' : badge(v)}</td>`;
+    case 'pct':  return `<td class="num${cls}"${st}>${empty && service ? '' : fmtShare(v)}</td>`;
+    default: {
+      const total = /^выручка/i.test(c.title) ? ' total-col' : '';
+      return `<td class="${numClass(v)}${total}${cls}"${st}>${empty && service ? '' : fmtNum(v)}</td>`;
+    }
+  }
+}
+function renderGoods(d){
+  d = d || goodsTab.data;
+  if (!d) return;
+  applyHeader(d.header);
+  const cols = d.columns;
+  if (goods.sort.col >= cols.length) goods.sort = { col: -1, dir: 1 };
+
+  // Геометрия: ширины и «липкие» левые колонки (№, Артикул WB, Артикул)
+  let left = 0, total = 0, stickyOpen = true;
+  const cs = cols.map((c, i) => {
+    const w = GOODS_W[c.type] || 118;
+    const o = { style: `width:${w}px;`, cls: '' };
+    total += w;
+    stickyOpen = stickyOpen && GOODS_STICKY.has(c.type);
+    if (stickyOpen) {
+      o.cls = 'stk'; o.style += `left:${left}px;`;
+      left += w;
+      if (!cols[i + 1] || !GOODS_STICKY.has(cols[i + 1].type)) o.cls += ' stk-last';
+    }
+    return o;
+  });
+  $('goodsTable').style.minWidth = total + 'px';
+  $('goodsThead').innerHTML = cols.map((c, i) => {
+    const arrow = goods.sort.col === i ? `<span class="sort">${goods.sort.dir < 0 ? '▼' : '▲'}</span>` : '';
+    const klass = [GOODS_LEFT.has(c.type) ? 'left' : '', ['xyz', 'abc'].includes(c.type) ? 'ctr' : '',
+      /^выручка/i.test(c.title) ? 'total-col' : '', c.type === 'num' ? 'num-col' : '', cs[i].cls].join(' ').replace(/\s+/g, ' ').trim();
+    return `<th class="${klass}" style="${cs[i].style}" data-sort="${i}">${escapeHtml(c.title)}${arrow}</th>`;
+  }).join('');
+
+  const rows = goodsVisibleRows();
+  goods.visible = rows;
+  const tr = (r, id, service) => `<tr class="${service ? 'lv1' : ''}" data-sku="${id}">` +
+    cols.map((c, i) => goodsCell(c, r.cells[i], cs[i], service)).join('') + '</tr>';
+  // Сначала первые GOODS_PAGE строк, остальные подгружаются при прокрутке;
+  // строки листа без № (например, «Итого») — внизу, в порядке листа
+  const shown = rows.slice(0, goods.limit);
+  $('goodsBody').innerHTML = shown.map((r, i) => tr(r, i, false)).join('') +
+    (d.service || []).map((r, i) => tr(r, 's' + i, true)).join('');
+
+  const abcI = goodsIdx('abc');
+  $('abcChips').style.display = abcI >= 0 ? '' : 'none';
+  const cnt = { A: 0, B: 0, C: 0 };
+  if (abcI >= 0) d.rows.forEach(r => { const k = r.cells[abcI]; cnt[k] = (cnt[k] || 0) + 1; });
+  $('goodsSummary').innerHTML = `Товаров: <b>${d.rows.length}</b>` +
+    (abcI >= 0 ? ` · A <b>${cnt.A}</b> · B <b>${cnt.B}</b> · C <b>${cnt.C}</b>` : '') +
+    ` · данные листа ТОВАРЫ` +
+    (rows.length !== d.rows.length ? ` · найдено: <b>${rows.length}</b>` : '') +
+    (shown.length < rows.length ? ` · показано: <b>${shown.length}</b> (остальные — при прокрутке)` : '');
+  const empty = !d.rows.length && !(d.service || []).length;
+  $('goodsState').style.display = empty ? 'block' : 'none';
+  if (empty) $('goodsState').textContent = 'В листе ТОВАРЫ нет строк (данные — с 7-й строки).';
+  $('goodsTable').style.display = 'table';
+  hideChart();
+}
+// Для экспорта (PDF/Excel) нужны ВСЕ строки, а не только подгруженные
+function goodsExportPrepare(all){
+  if (!goodsTab.data) return;
+  if (all) { goods.savedLimit = goods.limit; goods.limit = Infinity; } else { goods.limit = goods.savedLimit; }
+  renderGoods();
+}
+function goodsResetLimit(){ goods.limit = GOODS_PAGE; $('goodsWrap').scrollTop = 0; }
+// Подгрузка следующих строк при прокрутке таблицы вниз
+$('goodsWrap').addEventListener('scroll', () => {
+  const w = $('goodsWrap');
+  if (!goodsTab.data || goods.limit >= goods.visible.length) return;
+  if (w.scrollTop + w.clientHeight >= w.scrollHeight - 300) { goods.limit += GOODS_PAGE; renderGoods(); }
+}, { passive: true });
+$('goodsThead').addEventListener('click', e => {
+  const th = e.target.closest('th[data-sort]');
+  if (!th || !goodsTab.data) return;
+  const col = +th.dataset.sort;
+  const t = goodsTab.data.columns[col].type;
+  goods.sort = goods.sort.col === col ? { col, dir: -goods.sort.dir } : { col, dir: ['id', 'art', 'text', 'xyz', 'abc'].includes(t) ? 1 : -1 };
+  goodsResetLimit();
+  renderGoods();
+});
+$('goodsSearch').addEventListener('input', e => { goods.filter.q = e.target.value; goodsResetLimit(); if (goodsTab.data) renderGoods(); });
+$('abcChips').addEventListener('click', e => {
+  const b = e.target.closest('.chip');
+  if (!b) return;
+  goods.filter.abc = b.dataset.abc;
+  goodsResetLimit();
+  document.querySelectorAll('#abcChips .chip').forEach(c => c.classList.toggle('on', c === b));
+  if (goodsTab.data) renderGoods();
+});
+
+chartProviders.goods = function(tr){
+  const d = goodsTab.data;
+  if (!d) return '';
+  const id = tr.dataset.sku;
+  const r = id.charAt(0) === 's' ? (d.service || [])[+id.slice(1)] : goods.visible[+id];
+  if (!r || !r.weekRev) return '';
+  const partial = d.period.days % 7 !== 0;
+  const bars = r.weekRev.map((v, i) => ({ v, l: String(d.weeks[i] || '').slice(0, 5), dim: partial && i === r.weekRev.length - 1 }));
+  // Показатели карточки — из СТРОКИ ЛИСТА (по заголовкам колонок)
+  const cell = re => { const i = goodsIdxByTitle(re); return i >= 0 ? r.cells[i] : undefined; };
+  const rev = cell(/^выручка/), mg = cell(/^вп(\s|$)|валов/), margin = cell(/^маржа/);
+  const abc = cell(/^abc$/), xyz = cell(/^xyz$/);
+  const kpis = [
+    rev !== undefined ? { k: 'Выручка', v: fmtNum(rev) } : null,
+    mg !== undefined ? { k: 'ВП', v: fmtNum(mg) + (margin !== undefined ? ` <small>${fmtShare(margin)}</small>` : '') } : null,
+    (abc || xyz) ? { k: 'ABC / XYZ', v: `${abc ? badge(abc) : ''} ${xyz ? badge(xyz) : ''}` } : null
+  ].filter(Boolean);
+  const catI = d.columns.findIndex(c => c.type === 'text');
+  const cat = catI >= 0 ? r.cells[catI] : '';
+  const title = (r.id || r.cells.map(String).join(' ').trim()) + (r.article ? ' · ' + r.article : '') + (cat ? ' · ' + cat : '');
+  return cardHead(title, `${d.period.from} — ${d.period.to} · по неделям`) + kpiHTML(kpis) +
+    barsSVG(bars, x => fmtNum(Math.round(x)), '', 532, false) +
+    `<div class="cc-legend"><span><i class="bar"></i>продажи за неделю по DATA_WB (с ${bars.length ? bars[0].l : '—'})</span>` +
+    (partial ? `<span>светлый столбец — неполная неделя</span>` : '') + `</div>`;
+};
+attachHover($('goodsBody'), 'goods');
+</script>
