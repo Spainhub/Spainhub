@@ -16,6 +16,7 @@ function paramsEditing(){
   return state.paramsWriting || !!(a && $('paramsBody').contains(a) && /^(INPUT|SELECT)$/.test(a.tagName));
 }
 function renderParams(d){
+  applyHeaderFor('params', d.header);
   const h = d.headers || [];
   $('paramsThead').innerHTML = `<th>${escapeHtml(h[0] || '№')}</th><th>${escapeHtml(h[1] || 'Параметры')}</th><th>${escapeHtml(h[2] || 'Выбор и ввод данных')}</th>`;
   $('paramsBody').innerHTML = d.rows.map(r => {

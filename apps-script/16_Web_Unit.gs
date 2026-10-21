@@ -76,12 +76,8 @@ function Unit_getReportData() {
   if (sku && !skus.some(s => s.id === sku)) skus.unshift({ id: sku, label: sku });
 
   return {
-    header: {
-      title: g('A1'),
-      subtitle: g('A2'),
-      periodFrom: fmtCell(sh.getRange('E4').getValue()),
-      periodTo: fmtCell(sh.getRange('G4').getValue())
-    },
+    // шапка страницы: период и валюта — как на всех вкладках, плюс дата формирования из UNIT!C4
+    header: Object.assign(Pnl_header_(), { generated: String(fmtCell(sh.getRange(UNIT_GENERATED_CELL).getValue())) }),
     sku: sku,
     article: g(UNIT_ARTICLE_CELL),
     category: g(UNIT_CATEGORY_CELL),

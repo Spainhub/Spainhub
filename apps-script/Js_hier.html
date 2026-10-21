@@ -19,9 +19,9 @@ function hierRowClass(r){
 function hierRowAttrs(r, idx){
   return ` data-idx="${idx}" data-parent="${r.parent}" data-level="${r.level}"`;
 }
-/** Первая ячейка строки: стрелка (если есть подстроки) + номер. */
+/** Первая ячейка строки: слева стрелка (у строк без подстрок — пустое место такой же ширины), справа номер. */
 function hierNumCell(r){
-  return `<td class="left num-col">${r.hasChildren ? '<span class="toggle">▾</span>' : ''}${escapeHtml(r.num || '')}</td>`;
+  return `<td class="left num-col"><span class="toggle${r.hasChildren ? '' : ' off'}">▾</span><span class="num-text">${escapeHtml(r.num || '')}</span></td>`;
 }
 /** Ячейка названия с отступом по уровню. */
 function hierNameCell(r, extraCls){

@@ -13,7 +13,7 @@
       <h1 class="rpt-title"><span class="accent">P&amp;L Report</span> Wildberries</h1>
       <p class="rpt-sub" id="subtitle">Отчёт о прибылях и убытках</p>
       <p class="rpt-seller" id="seller">—</p>
-      <p class="rpt-period"><span id="periodLine">Загрузка…</span><span class="data-status" id="dataStatus"></span></p>
+      <p class="rpt-period"><span id="periodLine">Загрузка…</span><span id="genLine"></span><span class="data-status" id="dataStatus"></span></p>
     </div>
     <div class="actions">
       <button class="btn-text" id="btnPdf" title="Скачать PDF">PDF</button>
@@ -62,7 +62,6 @@
         <tbody id="paramsBody"></tbody>
       </table>
     </div>
-    <div class="legend">Значения из выпадающих списков записываются в лист и синхронизируются с таблицей: изменения, сделанные в Google Таблице, подтягиваются сюда автоматически.</div>
   </div>
 
   <!-- TAB 2: P&L ОТЧЕТ -->
@@ -74,8 +73,7 @@
         <tbody id="pnlBody"></tbody>
       </table>
     </div>
-    <div class="legend">✎ — строка ручного ввода. Строки сворачиваются по нумерации в колонке «№» (1, 1.1, 2, 2.1.1 …) — клик по строке со стрелкой.
-      Наведите на строку — появится график по дням (оранжевая «Сумма» — у строк с графиком); наведите на ячейку дня/месяца — он подсветится.</div>
+    <div class="legend">✎ — строка ручного ввода.</div>
   </div>
 
   <!-- TAB 3: ТОВАРЫ -->
@@ -113,7 +111,6 @@
         <tbody id="unitBody"></tbody>
       </table>
     </div>
-    <div class="legend">Выберите артикул в списке — все показатели листа UNIT пересчитаются. Строки сворачиваются по нумерации. Наведите на строку — появится график по дням; наведите на ячейку дня — он подсветится. Колонки без даты скрыты.</div>
   </div>
 
   <!-- TAB 5: СПРАВКА -->
@@ -130,7 +127,6 @@
         <tbody id="refBody"></tbody>
       </table>
     </div>
-    <div class="legend">Выбор номера отчёта записывается в ячейку B2 листа СПРАВКА; значения показаны так же, как в таблице. Строки сворачиваются по нумерации.</div>
   </div>
 
   <!-- FOOTER -->

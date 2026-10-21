@@ -116,19 +116,32 @@ function makeTab(o){
 }
 
 /* ---------------- шапка, статус, синхронизация ---------------- */
+/* Шапка страницы у каждой вкладки своя (сервер присылает её вместе с данными вкладки):
+ *   период и валюта — из P&L ОТЧЕТ (валюта — ячейка B5), UNIT добавляет дату формирования (C4),
+ *   СПРАВКА берёт поставщика, даты и валюту из своих ячеек (B4, D2, D4, F4, H4) и свой подзаголовок. */
+const DEFAULT_SUBTITLE = 'Отчёт о прибылях и убытках';
+function headerPeriodText(h){
+  return `Период отчёта ${h.periodFrom || '—'} — ${h.periodTo || '—'}` + (h.currency ? ` · в ${h.currency}` : '');
+}
 function applyHeader(h){
   if (!h) return;
-  const json = JSON.stringify(h);
+  $('subtitle').textContent = h.pageSubtitle || DEFAULT_SUBTITLE;
   $('seller').textContent = h.seller || '';
-  $('periodLine').textContent = `Период отчёта ${h.periodFrom || '—'} — ${h.periodTo || '—'} · в рублях`;
-  $('hintDefault').textContent = `${h.defaultFrom || '—'} — ${h.defaultTo || '—'}`;
-  if (json !== state.headerJson) {            // поля дат — только если период изменился в листе
-    state.headerJson = json;
-    $('from').value = toISO(h.periodFrom);
-    $('to').value = toISO(h.periodTo);
+  $('periodLine').textContent = headerPeriodText(h);
+  $('genLine').textContent = h.generated ? ` · Сформирован: ${h.generated}` : '';
+  if (!h.noFilter) {
+    $('hintDefault').textContent = `${h.defaultFrom || '—'} — ${h.defaultTo || '—'}`;
+    const key = (h.periodFrom || '') + '|' + (h.periodTo || '');
+    if (key !== state.headerJson) {            // поля дат — только если период изменился в листе
+      state.headerJson = key;
+      $('from').value = toISO(h.periodFrom);
+      $('to').value = toISO(h.periodTo);
+    }
   }
   state.header = h;
 }
+// Данные вкладки пришли — обновляем шапку, только если вкладка сейчас открыта
+function applyHeaderFor(tabId, h){ if (state.tab === tabId) applyHeader(h); }
 function setStatus(st){
   const el = $('dataStatus');
   if (!st) { el.textContent = ''; return; }
@@ -157,6 +170,7 @@ function setTab(id){
   // период действует на P&L ОТЧЕТ, ТОВАРЫ, UNIT; на ПАРАМЕТРЫ и СПРАВКА — только «Обновить данные»
   $('filter').classList.toggle('lite', id === 'params' || id === 'ref');
   hideChart();
+  if (TABS[id].data && TABS[id].data.header) applyHeader(TABS[id].data.header);   // шапка этой вкладки
   TABS[id].load(!!TABS[id].data);   // есть что показать — обновляем тихо
 }
 document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
@@ -229,10 +243,10 @@ function reportHeaderHTML(){
   if (state.tab === 'ref' && TABS.ref.data) extra = ` · ${escapeHtml(TABS.ref.data.label)} ${escapeHtml(TABS.ref.data.selected)}`;
   return `
     <h1 style="font-size:20px;margin:0 0 2px">P&amp;L Report Wildberries</h1>
-    <div style="color:#737272;font-size:11.5px">${escapeHtml(tabTitle())}${extra}</div>
+    <div style="color:#737272;font-size:11.5px">${escapeHtml(h.pageSubtitle || DEFAULT_SUBTITLE)} · ${escapeHtml(tabTitle())}${extra}</div>
     <div style="font-weight:700;margin:4px 0 0">${escapeHtml(h.seller || '')}</div>
     <div style="color:#686f7d;font-size:11.5px;margin:2px 0 10px">
-      Период отчёта ${h.periodFrom || ''} — ${h.periodTo || ''} · в рублях
+      ${escapeHtml(headerPeriodText(h))}${h.generated ? ` · Сформирован: ${escapeHtml(h.generated)}` : ''}
     </div>`;
 }
 const EXPORT_CSS = `

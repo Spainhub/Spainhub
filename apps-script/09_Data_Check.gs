@@ -19,9 +19,8 @@
  *     (не отработала очистка), наличие ежедневного триггера, «зависшая»
  *     очередь загрузки.
  *
- * Результат: лист "DATA_CHECK", статус для Web App (плашка в шапке),
- * письмо владельцу при проблемах (не чаще 1 раза в день на одну и ту же
- * проблему). Пропуски дозагружаются автоматически в dailyUpdate()
+ * Результат: лист "DATA_CHECK" и статус для Web App (плашка в шапке).
+ * Пропуски дозагружаются автоматически в dailyUpdate()
  * (не более GAP_MAX_ATTEMPTS попыток на день) или вручную из меню.
  *
  * ВАЖНО: все имена в этом файле имеют префикс GAP_ / Gap_.
@@ -32,12 +31,10 @@ const GAP_GRACE_DAYS = 1;         // вчера может быть ещё не 
 const GAP_MAX_ATTEMPTS = 3;       // попыток дозагрузки одного дня
 const GAP_MAX_HEAL_RANGES = 6;    // диапазонов дозагрузки за один запуск
 const GAP_STALE_HOURS = 36;       // нет успешной загрузки дольше — тревога
-const GAP_NOTIFY_EMAIL = '';      // пусто = владелец триггера/скрипта
 
 const GAP_PROP_ATTEMPTS = 'GAP_HEAL_ATTEMPTS';
 const GAP_PROP_BASELINE = 'GAP_HEADER_BASELINE';
 const GAP_PROP_STATUS = 'GAP_STATUS';
-const GAP_PROP_NOTIFY = 'GAP_LAST_NOTIFY';
 
 // Колонки, на которые ссылаются формулы P&L ОТЧЕТ (кроме Z и AB — у них
 // своя проверка): должны быть числовыми полями API.
@@ -46,7 +43,7 @@ const GAP_MONEY_LETTERS = ['V', 'AH', 'AR', 'BI', 'BL', 'BM'];
 /* =================== МЕНЮ =================== */
 
 function Gap_checkMenu() {
-  const res = Gap_runCheck({ notify: false });
+  const res = Gap_runCheck();
   const ss = SpreadsheetApp.getActive();
   ss.setActiveSheet(ss.getSheetByName(SHEET_DATA_CHECK));
   SpreadsheetApp.getUi().alert(
@@ -99,7 +96,6 @@ function Gap_runCheck(opts) {
     low: res.low.length
   }));
 
-  if (opts.notify && res.status !== 'ok') Gap_notify_(res);
   return res;
 }
 
@@ -444,29 +440,6 @@ function Gap_writeSheet_(res) {
   sh.setColumnWidth(3, 110);
   sh.setColumnWidth(4, 160);
   sh.setColumnWidth(5, 150);
-}
-
-function Gap_notify_(res) {
-  const props = PropertiesService.getScriptProperties();
-  const sig = dayKey_(mskToday_()) + '|' + res.status + '|' + res.issues.map(i => i.text).join('|');
-  const digest = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, sig));
-  if (props.getProperty(GAP_PROP_NOTIFY) === digest) return;
-
-  let to = GAP_NOTIFY_EMAIL;
-  if (!to) {
-    try { to = Session.getEffectiveUser().getEmail(); } catch (e) { to = ''; }
-  }
-  if (!to) return;
-
-  const ss = SpreadsheetApp.getActive();
-  MailApp.sendEmail({
-    to: to,
-    subject: `[P&L WB] Контроль данных: ${Gap_statusLabel_(res.status)}`,
-    body: `Таблица: ${ss.getName()}\n${ss.getUrl()}\n\n` +
-      res.issues.map(i => '• ' + i.text).join('\n') +
-      `\n\nПодробности — лист «${SHEET_DATA_CHECK}».`
-  });
-  props.setProperty(GAP_PROP_NOTIFY, digest);
 }
 
 /* =================== УТИЛИТЫ =================== */

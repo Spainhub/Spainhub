@@ -11,7 +11,7 @@ let pnlSeries = null, pnlSeriesReq = 0;
 const byKey = (a, b) => a.key < b.key ? -1 : (a.key > b.key ? 1 : 0);
 
 function renderPnl(d){
-  applyHeader(d.header);
+  applyHeaderFor('pnl', d.header);
   const th = [
     `<th class="left num-col">${hierMasterHTML('pnlBody')}</th>`,
     `<th class="left">Наименование показателя</th>`,
@@ -32,7 +32,7 @@ function renderPnl(d){
         r.values.map(v => `<td class="${numClass(v)}">${fmtPeriodVal(v, r.isPercent)}</td>`).join('');
     return `<tr${cls ? ` class="${cls}"` : ''}${hierRowAttrs(r, idx)}>` + hierNumCell(r) + hierNameCell(r) + cells + `</tr>`;
   }).join('');
-  $('pnlTable').style.minWidth = (554 + d.periods.length * 100) + 'px';
+  $('pnlTable').style.minWidth = (574 + d.periods.length * 100) + 'px';
   $('pnlState').style.display = 'none';
   $('pnlTable').style.display = 'table';
   hierRender('pnlBody', d.rows);

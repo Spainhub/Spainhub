@@ -17,8 +17,7 @@
  *   времени (лимит 6 мин) прогресс сохраняется и скрипт сам
  *   продолжает через минуту. Данные пишутся после каждой страницы.
  * - 429/5xx/сетевые ошибки повторяются; каждый запуск пишется в лист
- *   LOG. После загрузки: очистка окна и проверка пропусков (письмо при
- *   проблемах).
+ *   LOG. После загрузки: очистка окна и проверка пропусков (DATA_CHECK).
  *
  * Названия функций firstRun, dailyUpdate, loadYesterday, continueLoadQueue
  * НЕ МЕНЯТЬ: на них могут быть созданы триггеры.
@@ -70,7 +69,7 @@ function clearDataSheet_() {
  * 1) перезапрашивает последние DAILY_OVERLAP_DAYS дней;
  * 2) если последние данные старше — догоняет с даты последних данных;
  * 3) дозагружает пропуски раньше этого окна (DATA_CHECK.gs);
- * 4) после загрузки: очистка, проверка + письмо.
+ * 4) после загрузки: очистка и проверка (DATA_CHECK).
  */
 function dailyUpdate() {
   const today = mskToday_();
@@ -325,7 +324,7 @@ function deleteContinuationTriggers_() {
 function afterLoad_() {
   const steps = [
     ['очистка', () => cleanupOldRows_(false)],
-    ['контроль данных', () => { if (typeof Gap_runCheck === 'function') Gap_runCheck({ notify: true }); }]
+    ['контроль данных', () => { if (typeof Gap_runCheck === 'function') Gap_runCheck(); }]
   ];
   steps.forEach(([name, fn]) => {
     try { fn(); } catch (e) { logLoad_(name, '', '', 0, 'ОШИБКА', e.message); }

@@ -24,13 +24,13 @@
 
 const PNL_CACHE_PREFIX = 'PNL_CHART_V2_';
 
-/** Шапка отчёта (из P&L ОТЧЕТ) для всех вкладок. */
+/** Шапка страницы Web App (из P&L ОТЧЕТ; валюта — B5), общая для вкладок; UNIT и СПРАВКА дополняют её своими значениями. */
 function Pnl_header_() {
   const sh = SpreadsheetApp.getActive().getSheetByName(SHEET_PNL);
   if (!sh) {
-    return { title: 'P&L Report', subtitle: '', seller: '', periodFrom: '', periodTo: '', defaultFrom: '', defaultTo: '' };
+    return { title: 'P&L Report', subtitle: '', seller: '', periodFrom: '', periodTo: '', defaultFrom: '', defaultTo: '', currency: '', generated: '' };
   }
-  const b = sh.getRange(1, 1, 4, 7).getValues();
+  const b = sh.getRange(1, 1, 5, 7).getValues();
   const s = v => String(v === null || v === undefined ? '' : v);
   return {
     title: s(b[0][0]),
@@ -39,7 +39,9 @@ function Pnl_header_() {
     periodFrom: fmtCell(b[1][4]) || fmtCell(b[3][4]),   // E2 или E4
     periodTo: fmtCell(b[1][6]) || fmtCell(b[3][6]),     // G2 или G4
     defaultFrom: fmtCell(b[3][4]),
-    defaultTo: fmtCell(b[3][6])
+    defaultTo: fmtCell(b[3][6]),
+    currency: s(b[4][1]).trim(),   // B5 — валюта отчёта (BYN, RUS …)
+    generated: ''
   };
 }
 

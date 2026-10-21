@@ -64,6 +64,14 @@ const PNL_HEADER_ROW = 6;
 const PNL_PARAMS_ROW = 7;
 const PNL_FIRST_PERIOD_COL = 5;   // E
 
+// Шапка страницы Web App. Валюта для ВСЕХ вкладок — ячейка B5 листа P&L ОТЧЕТ (BYN, RUS …).
+const HEADER_CURRENCY_CELL = 'B5';
+// UNIT: дата формирования отчёта — C4
+const UNIT_GENERATED_CELL = 'C4';
+// СПРАВКА: свои значения шапки (если H4 пусто — валюта берётся из P&L ОТЧЕТ!B5)
+const REF_HEADER_CELLS = { supplier: 'B4', generated: 'D2', from: 'D4', to: 'F4', currency: 'H4' };
+const REF_SUBTITLE = 'Сверка расчетов Wildberries';   // подзаголовок страницы на вкладке СПРАВКА
+
 // ТОВАРЫ: шапка как у P&L ОТЧЕТ, заголовки в строке 6, данные с 7-й строки
 const GOODS_HEADER_ROW = 6;
 const GOODS_FIRST_ROW = 7;

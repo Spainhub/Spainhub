@@ -14,6 +14,10 @@
  * Значения в Web App показываются ТАК ЖЕ, как в таблице (формат ячеек:
  * проценты, знаки после запятой, единицы).
  *
+ * Шапка страницы на этой вкладке — из ячеек листа СПРАВКА (Ref_header_ ниже):
+ * B4 поставщик, D2 дата формирования, D4 / F4 период, H4 валюта.
+ * Подзаголовок — «Сверка расчетов Wildberries» (REF_SUBTITLE в 00_Config.gs).
+ *
  * ВАЖНО: все имена в этом файле имеют префикс Ref_.
  **********************************************************************/
 
@@ -59,6 +63,7 @@ function Ref_getData() {
 
   return {
     title: String(sh.getRange('A1').getDisplayValue()).trim(),
+    header: Ref_header_(sh),
     label: label,
     selected: selected,
     options: options,
@@ -66,6 +71,31 @@ function Ref_getData() {
     headerName: head[1] || '',
     columns: colIdx.map(i => head[i]),
     rows: rows
+  };
+}
+
+/**
+ * Шапка страницы на вкладке СПРАВКА — значения из листа СПРАВКА:
+ * B4 — поставщик, D2 — дата формирования, D4 / F4 — начало / конец периода,
+ * H4 — валюта. Пустая ячейка заменяется значением из P&L ОТЧЕТ (период, валюта B5).
+ */
+function Ref_header_(sh) {
+  const base = Pnl_header_();
+  const c = REF_HEADER_CELLS;
+  const text = a1 => String(fmtCell(sh.getRange(a1).getValue())).trim();
+  let seller = text(c.supplier);
+  if (seller && !/^(продавец|поставщик)/i.test(seller)) seller = 'Продавец — ' + seller;
+  return {
+    title: base.title,
+    pageSubtitle: REF_SUBTITLE,
+    seller: seller || base.seller,
+    periodFrom: text(c.from) || base.periodFrom,
+    periodTo: text(c.to) || base.periodTo,
+    defaultFrom: '',
+    defaultTo: '',
+    currency: text(c.currency) || base.currency,
+    generated: text(c.generated),
+    noFilter: true                 // на этой вкладке даты периода из шапки не подставляются в фильтр
   };
 }
 

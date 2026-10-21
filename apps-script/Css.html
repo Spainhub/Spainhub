@@ -32,6 +32,7 @@
   .rpt-sub{color:var(--muted);font-size:12px;margin:0}
   .rpt-seller{font-weight:600;color:var(--ink-2);margin:4px 0 0;font-size:13px}
   .rpt-period{color:var(--ink-4);font-size:11.5px;margin:2px 0 0}
+  #genLine{white-space:nowrap}
   .actions{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
   /* BUTTONS */
   /* Кнопки действий в шапке — без рамок/фона, просто текст-ссылка */
@@ -63,7 +64,7 @@
   .tbl-wrap{border:1px solid var(--line);border-radius:var(--radius);overflow:auto;background:#fff}
   table.pnl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;
     min-width:1410px;table-layout:fixed}
-  table.pnl.hier th:nth-child(1), table.pnl.hier td:nth-child(1){width:64px}
+  table.pnl.hier th:nth-child(1), table.pnl.hier td:nth-child(1){width:84px}
   table.pnl thead th{position:sticky;top:0;background:#fff;z-index:2;
     border-bottom:1px solid var(--line);padding:6px 8px;text-align:right;
     font-weight:700;color:var(--ink-2);white-space:nowrap;font-size:11px;letter-spacing:.02em;
@@ -71,11 +72,11 @@
   /* Закреплённые столбцы: №, Наименование, Сумма, Доля,% — не уезжают при
      горизонтальной прокрутке. Ширины заданы жёстко (table-layout:fixed),
      иначе "left" для sticky-колонок нельзя посчитать заранее. */
-  table.pnl th:nth-child(1), table.pnl td:nth-child(1){width:64px;position:sticky;left:0;z-index:3}
-  table.pnl th:nth-child(2), table.pnl td:nth-child(2){width:290px;position:sticky;left:64px;z-index:3;
+  table.pnl th:nth-child(1), table.pnl td:nth-child(1){width:84px;position:sticky;left:0;z-index:3}
+  table.pnl th:nth-child(2), table.pnl td:nth-child(2){width:290px;position:sticky;left:84px;z-index:3;
     overflow:hidden;text-overflow:ellipsis}
-  table.pnl th:nth-child(3), table.pnl td:nth-child(3){width:110px;position:sticky;left:354px;z-index:3}
-  table.pnl th:nth-child(4), table.pnl td:nth-child(4){width:90px;position:sticky;left:464px;z-index:3;
+  table.pnl th:nth-child(3), table.pnl td:nth-child(3){width:110px;position:sticky;left:374px;z-index:3}
+  table.pnl th:nth-child(4), table.pnl td:nth-child(4){width:90px;position:sticky;left:484px;z-index:3;
     box-shadow:2px 0 4px -2px rgba(0,0,0,.15)}
   table.pnl thead th:nth-child(-n+4){z-index:4}
   table.pnl th:nth-child(n+5), table.pnl td:nth-child(n+5){width:100px}
@@ -101,9 +102,15 @@
   table.pnl tbody tr.lv5 td.left.name{font-style:italic;color:var(--ink-4);font-weight:400}
   table.pnl tbody tr.collapsible{cursor:pointer;user-select:none}
   table.pnl tbody tr.collapsible:hover td{background:var(--sec-bg-hover)}
-  /* Стрелка раскрытия — в столбце "№" */
-  .toggle{display:inline-block;width:10px;margin-right:3px;color:var(--muted);font-weight:700;transition:transform .15s}
+  /* Колонка «№»: СЛЕВА крупная стрелка (место под неё есть у каждой строки), справа номер —
+     поэтому первые цифры номеров (1, 1.1, 2.1.1 …) стоят на одной вертикали */
+  table.pnl.hier tbody td.num-col{text-align:left;padding-left:6px}
+  table.pnl.hier thead th.num-col{padding-left:8px}
+  .toggle{display:inline-block;width:22px;margin-right:2px;font-size:17px;line-height:1;text-align:center;
+    color:var(--ink-4);font-weight:700;vertical-align:-1px;transition:transform .15s}
+  .toggle.off{visibility:hidden}
   tr.collapsed .toggle{transform:rotate(-90deg)}
+  tr.collapsible:hover .toggle{color:var(--accent)}
   /* Строка параметров (дни недели) */
   table.pnl tbody tr.row-params td{color:var(--muted);font-size:11px;
     background:#fbfbfb;border-bottom:1px solid var(--line);padding:4px 8px}
@@ -222,7 +229,7 @@
   .ref-bar select:disabled{opacity:.6}
   .ref-info{color:var(--muted);font-size:11.5px}
   table.pnl.ref th:nth-child(n+3), table.pnl.ref td:nth-child(n+3){position:static;box-shadow:none;left:auto;width:120px}
-  table.pnl.ref th:nth-child(3), table.pnl.ref td:nth-child(3){background:var(--total-bg)}
+  table.pnl.ref th:nth-child(3), table.pnl.ref td:nth-child(3){background:var(--total-bg);text-align:center}
   table.pnl.ref tbody tr.lv1 td:nth-child(3){background:var(--total-bg)}
   table.pnl.ref th:nth-child(2), table.pnl.ref td:nth-child(2){box-shadow:2px 0 4px -2px rgba(0,0,0,.15)}
   /* UNIT */

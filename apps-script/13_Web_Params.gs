@@ -61,6 +61,7 @@ function Params_getData() {
   return {
     title: String(sh.getRange('A1').getDisplayValue()).trim(),
     subtitle: String(sh.getRange('A2').getDisplayValue()).trim(),
+    header: Pnl_header_(),
     headers: head,
     rows: rows
   };

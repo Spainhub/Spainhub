@@ -46,6 +46,7 @@ function unitHasData(r){
   return nums.length > 1 && nums.some(v => v);
 }
 function renderUnit(d){
+  applyHeaderFor('unit', d.header);
   // Выпадающий список: перестраиваем, только если изменился состав
   const skuJson = JSON.stringify(d.skus);
   const sel = $('unitSku');
@@ -72,7 +73,7 @@ function renderUnit(d){
       `<td class="total-col num">${fmtShare(r.share)}</td>` +
       r.values.map(v => `<td class="${numClass(v)}">${fmtPeriodVal(v, r.isPercent)}</td>`).join('') + `</tr>`;
   }).join('');
-  $('unitTable').style.minWidth = (554 + d.periods.length * 100) + 'px';
+  $('unitTable').style.minWidth = (574 + d.periods.length * 100) + 'px';
   $('unitState').style.display = 'none';
   $('unitTable').style.display = 'table';
   hierRender('unitBody', d.rows);

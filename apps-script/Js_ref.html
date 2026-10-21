@@ -37,6 +37,7 @@ $('refSelect').addEventListener('change', e => {
     .Ref_setReport(v);
 });
 function renderRef(d){
+  applyHeaderFor('ref', d.header);
   $('refLabel').textContent = d.label || 'Номер отчёта';
   const sel = $('refSelect');
   const optJson = JSON.stringify(d.options);
@@ -57,7 +58,7 @@ function renderRef(d){
     return `<tr${cls ? ` class="${cls}"` : ''}${hierRowAttrs(r, idx)}>` + hierNumCell(r) + hierNameCell(r) +
       r.cells.map((c, j) => `<td class="num${r.vals[j] !== null && r.vals[j] < 0 ? ' neg' : ''}">${escapeHtml(c)}</td>`).join('') + `</tr>`;
   }).join('');
-  $('refTable').style.minWidth = (354 + d.columns.length * 120) + 'px';
+  $('refTable').style.minWidth = (374 + d.columns.length * 120) + 'px';
   const empty = !d.rows.length;
   $('refState').style.display = empty ? 'block' : 'none';
   if (empty) $('refState').textContent = 'В листе СПРАВКА нет строк (данные — с 7-й строки).';

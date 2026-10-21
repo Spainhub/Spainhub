@@ -57,7 +57,7 @@ function goodsCell(c, v, cs, service){
 function renderGoods(d){
   d = d || goodsTab.data;
   if (!d) return;
-  applyHeader(d.header);
+  applyHeaderFor('goods', d.header);
   const cols = d.columns;
   if (goods.sort.col >= cols.length) goods.sort = { col: -1, dir: 1 };
 
