@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E-commerce 2.0</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <?!= include('Styles'); ?>
+</head>
+<body>
+
+<!-- Индикатор загрузки -->
+<div id="busy" class="busy" hidden></div>
+
+<!-- Экран входа: показывается до проверки пароля -->
+<div id="login" class="login" hidden>
+  <form id="loginForm" class="login-card" autocomplete="off">
+    <div class="brand brand-lg"><span class="brand-mark"></span><span>E-commerce 2.0</span></div>
+    <p class="muted">Система управления проектом. Для входа введите пароль.</p>
+    <label class="field">
+      <span>Ваше имя</span>
+      <input id="loginName" type="text" maxlength="100" placeholder="Например, Анна Смирнова">
+    </label>
+    <label class="field">
+      <span>Пароль</span>
+      <input id="loginPass" type="password" required autofocus>
+    </label>
+    <div id="loginError" class="form-error" hidden></div>
+    <button type="submit" class="btn primary block">Войти</button>
+  </form>
+</div>
+
+<!-- Основное приложение -->
+<div id="app" class="app" hidden>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark"></span><span>E-commerce 2.0</span></div>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-act="tab" data-tab="home">Главная</button>
+      <button class="tab" data-act="tab" data-tab="exchange">Обмен</button>
+      <button class="tab" data-act="tab" data-tab="meetings">Встречи</button>
+      <button class="tab" data-act="tab" data-tab="gantt">Диаграмма Ганта</button>
+      <button class="tab" data-act="tab" data-tab="log">Журнал</button>
+      <span class="tab-ind" id="tabInd"></span>
+    </nav>
+
+    <div class="top-actions">
+      <div class="menu-wrap">
+        <button class="btn primary" data-act="toggle-create" id="createBtn">Создать</button>
+        <div class="menu" id="createMenu" hidden>
+          <button data-act="new" data-type="stage">Этап</button>
+          <button data-act="new" data-type="task">Задача</button>
+          <button data-act="new" data-type="subtask">Подзадача</button>
+          <button data-act="new" data-type="meeting">Встреча</button>
+          <button data-act="new" data-type="approval">Согласование</button>
+        </div>
+      </div>
+      <div class="user"><span id="userName"></span><button class="link-btn" data-act="logout">Выйти</button></div>
+    </div>
+  </header>
+
+  <main class="content">
+    <section class="view active" id="v-home"></section>
+    <section class="view" id="v-exchange"></section>
+    <section class="view" id="v-meetings"></section>
+    <section class="view" id="v-gantt"></section>
+    <section class="view" id="v-log"></section>
+  </main>
+
+  <footer class="footer">CapProject 2026-2027</footer>
+</div>
+
+<!-- Боковая карточка объекта (создание / просмотр / редактирование) -->
+<div id="scrim" class="scrim" data-act="close-drawer" hidden></div>
+<aside id="drawer" class="drawer" aria-hidden="true"></aside>
+
+<!-- Модальное окно -->
+<div id="modalWrap" class="modal-wrap" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-head"><h3 id="modalTitle"></h3><button class="icon-btn" data-act="modal-close" aria-label="Закрыть">&times;</button></div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot" id="modalFoot"></div>
+  </div>
+</div>
+
+<!-- Подсказка-уведомление -->
+<div id="toast" class="toast" hidden></div>
+
+<datalist id="usersList"></datalist>
+
+<?!= include('JavaScript'); ?>
+</body>
+</html>

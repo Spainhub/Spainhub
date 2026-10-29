@@ -1,0 +1,1038 @@
+<script>
+/* ============================================================================
+ * E-commerce 2.0 — клиентская логика (vanilla JS, без зависимостей).
+ * Данные приходят с сервера одним снимком (getAllData), интерфейс строится из него.
+ * Любое изменение отправляется на сервер, после чего снимок перечитывается из таблицы.
+ * ========================================================================== */
+(function () {
+  'use strict';
+
+  /* ---------- Состояние ---------- */
+  var S = {
+    token: null, user: '', data: null, meta: null,
+    tab: 'home',
+    idx: { byId: {}, parent: {}, children: {}, docs: {} },
+    cal: { mode: 'month', cursor: null },
+    gantt: { zoom: 'day' },
+    exch: { filter: 'flow', q: '' },
+    logFilter: { entity_type: '', date_from: '', date_to: '', entity_id: '' },
+    drawer: null,
+    modalButtons: []
+  };
+
+  var DAY = 864e5;
+  var MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+  var WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  var ACTIONS = {
+    create: 'Создание', update: 'Изменение', 'delete': 'Удаление',
+    link_add: 'Связь добавлена', link_update: 'Связь изменена', link_delete: 'Связь удалена',
+    doc_add: 'Документ добавлен', doc_update: 'Документ изменён', doc_delete: 'Документ удалён',
+    login: 'Вход', setting: 'Настройки проекта'
+  };
+
+  /* ---------- Утилиты ---------- */
+  function $(s, r) { return (r || document).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+  function esc(v) {
+    return String(v === null || v === undefined ? '' : v).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function p2(n) { return (n < 10 ? '0' : '') + n; }
+  function pd(s) {                       // 'ГГГГ-ММ-ДД' -> UTC-миллисекунды (NaN при ошибке)
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || '');
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : NaN;
+  }
+  function fd(ms) { var d = new Date(ms); return d.getUTCFullYear() + '-' + p2(d.getUTCMonth() + 1) + '-' + p2(d.getUTCDate()); }
+  function ru(s) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? m[3] + '.' + m[2] + '.' + m[1] : ''; }
+  function ruShort(s) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? m[3] + '.' + m[2] : ''; }
+  function fmtTs(ts) { var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(ts || ''); return m ? m[3] + '.' + m[2] + '.' + m[1] + ' ' + m[4] + ':' + m[5] : (ts || ''); }
+  function today() { return S.meta.today; }
+  function store(k, v) { try { if (v === null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch (e) { /* хранилище недоступно */ } }
+  function load(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+
+  var busyCount = 0;
+  function busy(d) { busyCount = Math.max(0, busyCount + d); $('#busy').hidden = busyCount === 0; }
+
+  var toastTimer;
+  function toast(msg, isErr) {
+    var t = $('#toast');
+    t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.hidden = true; }, isErr ? 6000 : 2600);
+  }
+
+  /** Вызов серверного метода через google.script.run -> Promise<data>. */
+  function call(method) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    busy(1);
+    return new Promise(function (resolve, reject) {
+      var run = google.script.run
+        .withSuccessHandler(function (r) {
+          busy(-1);
+          if (r && r.ok) resolve(r.data);
+          else { var err = new Error((r && r.error) || 'Ошибка сервера'); err.code = r && r.code; reject(err); }
+        })
+        .withFailureHandler(function (e) { busy(-1); reject(new Error((e && e.message) || String(e))); });
+      run[method].apply(run, args);
+    });
+  }
+  /** Вызов с токеном сессии; при истёкшей сессии возвращает на экран входа. */
+  function authCall(method) {
+    var args = [method, S.token].concat(Array.prototype.slice.call(arguments, 1));
+    return call.apply(null, args).catch(function (err) {
+      if (err.code === 'AUTH') showLogin('Сессия истекла, войдите снова');
+      throw err;
+    });
+  }
+
+  /* ---------- Справочники и производные значения ---------- */
+  function enumOf(name) { return (S.meta.enums[name] || []); }
+  function enumLabel(name, val) {
+    var x = enumOf(name).filter(function (e) { return e.value === val; })[0];
+    return x ? x.label : (val || '');
+  }
+  function typeLabel(t) { return (S.meta.types[t] && S.meta.types[t].label) || ({ system: 'Система', project: 'Проект' }[t]) || t || ''; }
+  function fieldDefs(t) { return S.meta.types[t].fields; }
+  function statusEnum(t) {
+    var d = fieldDefs(t).filter(function (f) { return f.key === 'status'; })[0];
+    return d ? d.enum : 'status';
+  }
+  function fieldLabel(k) { return S.meta.fieldLabels[k] || k; }
+  function statusLabel(e) { return enumLabel(statusEnum(e._type), e.status); }
+  function pill(e) { return '<span class="pill s-' + esc(String(e.status).replace(/\s/g, '')) + '">' + esc(statusLabel(e)) + '</span>'; }
+  function typeTag(t) { return '<span class="tag t-' + t + '">' + esc(typeLabel(t)) + '</span>'; }
+  function ownerOf(e) { return e._type === 'approval' ? (e.approver || e.assignee) : e.assignee; }
+
+  function isDoneLike(e) {
+    return ['Done', 'Approved', 'Rejected', 'Held', 'Cancelled'].indexOf(e.status) !== -1;
+  }
+  function isBlocked(e) { return e.blocked === true || e.status === 'Blocked'; }
+  function dateOf(e) { return e._type === 'meeting' ? e.meeting_date : e.deadline; }
+  function isOverdue(e) {
+    if (e._type === 'meeting') return false;
+    return !!e.deadline && e.deadline < today() && !isDoneLike(e);
+  }
+
+  function buildIndex() {
+    var d = S.data, idx = { byId: {}, parent: {}, children: {}, docs: {} };
+    S.meta.typeOrder.forEach(function (t) {
+      d.entities[t].forEach(function (e) { e._type = t; idx.byId[e.id] = e; });
+    });
+    d.links.forEach(function (l) {
+      if (l.link_type === 'parent') {
+        idx.parent[l.source_id] = l.target_id;
+        (idx.children[l.target_id] = idx.children[l.target_id] || []).push(l.source_id);
+      }
+    });
+    d.documents.forEach(function (x) { (idx.docs[x.entity_id] = idx.docs[x.entity_id] || []).push(x); });
+    S.idx = idx;
+  }
+
+  /** Прогресс: у этапа/задачи с дочерними элементами считается как среднее по ним. */
+  function effProgress(e) {
+    var kids = (S.idx.children[e.id] || []).map(function (id) { return S.idx.byId[id]; }).filter(function (k) {
+      return k && (k._type === 'task' || k._type === 'subtask');
+    });
+    if (e._type === 'approval') return e.status === 'Approved' ? 100 : 0;
+    if (!kids.length) return e.status === 'Done' ? 100 : Math.round(Number(e.progress) || 0);
+    var sum = 0;
+    kids.forEach(function (k) { sum += effProgress(k); });
+    return Math.round(sum / kids.length);
+  }
+  function progressItems() {            // корневые элементы для общего прогресса
+    var d = S.data.entities;
+    if (d.stage.length) return d.stage;
+    return d.task;
+  }
+
+  /* ---------- Вход / выход ---------- */
+  function showLogin(msg) {
+    S.token = null; store('ec2_token', null);
+    $('#app').hidden = true; $('#login').hidden = false;
+    closeDrawer(); closeModal();
+    var er = $('#loginError');
+    er.hidden = !msg; er.textContent = msg || '';
+    try { $('#loginName').value = localStorage.getItem('ec2_name') || ''; } catch (e) { /* ничего */ }
+    $('#loginPass').value = '';
+    setTimeout(function () { $('#loginPass').focus(); }, 50);
+  }
+
+  function onLogin(ev) {
+    ev.preventDefault();
+    var name = $('#loginName').value, pass = $('#loginPass').value;
+    call('login', pass, name).then(function (r) {
+      S.token = r.token; store('ec2_token', r.token);
+      try { localStorage.setItem('ec2_name', name); } catch (e) { /* ничего */ }
+      $('#login').hidden = true;
+      return loadAll();
+    }).catch(function (err) {
+      var er = $('#loginError'); er.hidden = false; er.textContent = err.message;
+    });
+  }
+
+  function logout() {
+    var t = S.token;
+    if (t) call('logout', t).catch(function () { /* не критично */ });
+    showLogin('');
+  }
+
+  /* ---------- Загрузка данных ---------- */
+  function loadAll() {
+    return authCall('getAllData').then(function (data) {
+      S.data = data; S.meta = data.meta; S.user = data.user;
+      buildIndex();
+      $('#userName').textContent = S.user;
+      $('#usersList').innerHTML = data.users.map(function (u) { return '<option value="' + esc(u.name) + '">'; }).join('');
+      $('#app').hidden = false; $('#login').hidden = true;
+      if (!S.cal.cursor) S.cal.cursor = today();
+      renderTab(S.tab);
+    });
+  }
+
+  /** Перечитать данные и перерисовать открытую вкладку и разделы карточки. */
+  function reload() {
+    return authCall('getAllData').then(function (data) {
+      S.data = data; S.meta = data.meta;
+      buildIndex();
+      $('#usersList').innerHTML = data.users.map(function (u) { return '<option value="' + esc(u.name) + '">'; }).join('');
+      renderTab(S.tab, true);
+      if (S.drawer && S.drawer.id) renderDrawerSections();
+    });
+  }
+
+  /* ---------- Вкладки ---------- */
+  function switchTab(tab) {
+    S.tab = tab;
+    $$('.tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === tab); });
+    $$('.view').forEach(function (v) { v.classList.toggle('active', v.id === 'v-' + tab); });
+    renderTab(tab);
+  }
+
+  function renderTab(tab, keepScroll) {
+    if (!S.data) return;
+    if (tab === 'home') renderHome();
+    else if (tab === 'exchange') renderExchange();
+    else if (tab === 'meetings') renderMeetings();
+    else if (tab === 'gantt') renderGantt(keepScroll);
+    else if (tab === 'log') renderLog();
+  }
+
+  /* ============================================================================
+   * ГЛАВНАЯ
+   * ========================================================================== */
+  function describeLog(r) {
+    var base = (ACTIONS[r.action] || r.action);
+    if (/^(link|doc)_/.test(r.action)) {          // в тексте связи/документа идентификаторы уже есть
+      return base + ': ' + (r.new_value || r.old_value);
+    }
+    if (r.entity_id) base += ': ' + typeLabel(r.entity_type).toLowerCase() + ' ' + r.entity_id;
+    if (r.action === 'update') {
+      base += ', «' + fieldLabel(r.field) + '»: ' + fmtLogVal(r, r.old_value) + ' → ' + fmtLogVal(r, r.new_value);
+    } else if (r.action === 'create' && r.new_value) {
+      base += ' «' + r.new_value + '»';
+    } else if (r.action === 'delete' && r.old_value) {
+      base += ' «' + r.old_value + '»';
+    } else if (r.action === 'setting') {
+      base = ACTIONS.setting + ': ' + fieldLabel(r.field);
+    }
+    return base;
+  }
+
+  function fmtLogVal(r, v) {
+    if (v === '' || v === null || v === undefined) return '—';
+    if (r.field === 'status' && S.meta.types[r.entity_type]) return enumLabel(statusEnum(r.entity_type), v);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return ru(v);
+    if (r.field === 'progress') return v + '%';
+    return v;
+  }
+
+  function renderHome() {
+    var d = S.data.entities, t0 = today();
+    var items = progressItems();
+    var total = items.length ? Math.round(items.reduce(function (s, e) { return s + effProgress(e); }, 0) / items.length) : 0;
+    var all = [].concat(d.stage, d.task, d.subtask, d.approval, d.meeting);
+    var overdue = all.filter(isOverdue);
+    var blocked = all.filter(function (e) { return e._type !== 'meeting' && isBlocked(e) && !isDoneLike(e); });
+    var pendingAp = d.approval.filter(function (a) { return a.status === 'Pending'; });
+
+    // Задачи по статусам
+    var st = enumOf('status');
+    var statRows = st.map(function (s) {
+      var n = d.task.filter(function (t) { return t.status === s.value; }).length;
+      var pct = d.task.length ? Math.round(n / d.task.length * 100) : 0;
+      return '<div class="stat-row"><span><span class="pill s-' + s.value.replace(/\s/g, '') + '">' + esc(s.label) + '</span></span>' +
+        '<div class="bar"><i style="width:' + pct + '%"></i></div><b class="right">' + n + '</b></div>';
+    }).join('');
+
+    // Ближайшие сроки: просроченные и ближайшие 14 дней
+    var limit = fd(pd(t0) + 14 * DAY);
+    var upcoming = all.filter(function (e) {
+      var dt = dateOf(e);
+      return dt && !isDoneLike(e) && dt <= limit;
+    }).sort(function (a, b) { return dateOf(a).localeCompare(dateOf(b)); }).slice(0, 8);
+    var upHtml = upcoming.length ? upcoming.map(function (e) {
+      var late = isOverdue(e);
+      return '<div class="list-item" data-act="open" data-id="' + esc(e.id) + '">' +
+        '<span class="date-chip' + (late ? ' late' : '') + '">' + ru(dateOf(e)) + '</span>' +
+        '<div class="grow"><div class="title">' + esc(e.name) + '</div><div class="small muted">' + esc(ownerOf(e) || 'Не назначен') + '</div></div>' +
+        typeTag(e._type) + '</div>';
+    }).join('') : '<div class="empty">Ближайших сроков нет</div>';
+
+    var blHtml = blocked.length ? blocked.map(function (e) {
+      return '<div class="list-item" data-act="open" data-id="' + esc(e.id) + '">' +
+        '<div class="grow"><div class="title">' + esc(e.name) + '</div>' +
+        '<div class="small muted">' + esc(e.block_reason || 'Причина не указана') +
+        (e.blocked_by ? ' · ' + esc(e.blocked_by) : '') + '</div></div>' + typeTag(e._type) + '</div>';
+    }).join('') : '<div class="empty">Заблокированных элементов нет</div>';
+
+    var evHtml = S.data.recentLog.length ? S.data.recentLog.map(function (r) {
+      return '<div class="hist-item"><span class="when">' + esc(fmtTs(r.timestamp)) + '</span><b>' + esc(r.user) + '</b> · ' + esc(describeLog(r)) + '</div>';
+    }).join('') : '<div class="empty">Событий пока нет</div>';
+
+    $('#v-home').innerHTML =
+      '<div class="view-head"><h2>Главная</h2></div>' +
+      '<div class="grid">' +
+      '<div class="card span-4"><div class="card-head"><h4>Общий прогресс проекта</h4></div>' +
+      '<div class="big-num">' + total + '<small>%</small></div>' +
+      '<div class="bar" style="margin-top:14px"><i style="width:' + total + '%"></i></div>' +
+      '<div class="kpis">' +
+      '<div class="kpi"><b>' + d.stage.length + '</b><span>этапов</span></div>' +
+      '<div class="kpi"><b>' + d.task.length + '</b><span>задач</span></div>' +
+      '<div class="kpi"><b>' + pendingAp.length + '</b><span>ждут решения</span></div>' +
+      '<div class="kpi ' + (overdue.length ? 'bad' : '') + '"><b>' + overdue.length + '</b><span>просрочено</span></div>' +
+      '<div class="kpi ' + (blocked.length ? 'bad' : '') + '"><b>' + blocked.length + '</b><span>заблокировано</span></div>' +
+      '<div class="kpi"><b>' + d.meeting.filter(function (m) { return m.meeting_date >= t0 && m.status === 'Planned'; }).length + '</b><span>встреч впереди</span></div>' +
+      '</div></div>' +
+      '<div class="card span-4"><div class="card-head"><h4>Задачи по статусам</h4><span class="muted small">всего ' + d.task.length + '</span></div>' + statRows + '</div>' +
+      '<div class="card span-4"><div class="card-head"><h4>Заблокировано</h4></div><div class="list">' + blHtml + '</div></div>' +
+      '<div class="card span-6"><div class="card-head"><h4>Ближайшие сроки</h4><span class="muted small">14 дней и просрочка</span></div><div class="list">' + upHtml + '</div></div>' +
+      '<div class="card span-6"><div class="card-head"><h4>Последние события</h4><button class="link-btn small" data-act="tab" data-tab="log">Весь журнал</button></div>' + evHtml + '</div>' +
+      '<div class="card span-12 desc-box"><div class="card-head"><h4>Описание проекта</h4></div>' +
+      '<textarea id="projDesc" maxlength="5000">' + esc(S.data.settings.project_description || '') + '</textarea>' +
+      '<div style="margin-top:10px"><button class="btn primary sm" data-act="save-desc">Сохранить описание</button></div></div>' +
+      '</div>';
+  }
+
+  /* ============================================================================
+   * ОБМЕН (связи между объектами)
+   * ========================================================================== */
+  function entCell(id) {
+    var e = S.idx.byId[id];
+    if (!e) return '<td>' + esc(id) + ' <span class="muted small">(удалён)</span></td>';
+    return '<td class="cell-entity" data-act="open" data-id="' + esc(id) + '">' +
+      '<div>' + typeTag(e._type) + ' <span class="muted small">' + esc(id) + '</span></div>' +
+      '<div class="nm">' + esc(e.name) + '</div>' +
+      '<div class="small muted">' + esc(ownerOf(e) || 'Не назначен') + ' · ' + pill(e) + '</div></td>';
+  }
+
+  function linkState(l) {
+    if (l.link_type !== 'handoff') return '<span class="muted">—</span>';
+    var s = S.idx.byId[l.source_id];
+    if (!s) return '<span class="muted">—</span>';
+    if (isDoneLike(s)) return '<span class="pill s-Done">Передано</span>';
+    if (isBlocked(s)) return '<span class="pill s-Blocked">Заблокировано</span>';
+    if (isOverdue(s)) return '<span class="pill s-late">Просрочено</span>';
+    return '<span class="pill s-Pending">Ожидается</span>';
+  }
+
+  function renderExchange() {
+    var f = S.exch.filter, q = S.exch.q.toLowerCase();
+    var links = S.data.links.filter(function (l) {
+      if (f === 'flow' && l.link_type === 'parent') return false;
+      if (f !== 'flow' && f !== 'all' && l.link_type !== f) return false;
+      if (q) {
+        var a = S.idx.byId[l.source_id], b = S.idx.byId[l.target_id];
+        var hay = [l.source_id, l.target_id, a && a.name, b && b.name, a && ownerOf(a), b && ownerOf(b), l.note].join(' ').toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+    var rows = links.map(function (l) {
+      return '<tr>' + entCell(l.source_id) + '<td class="arrow-cell">&rarr;</td>' + entCell(l.target_id) +
+        '<td>' + esc(enumLabel('link_type', l.link_type)) + (l.note ? '<div class="small muted">' + esc(l.note) + '</div>' : '') + '</td>' +
+        '<td>' + linkState(l) + '</td>' +
+        '<td class="nowrap right"><button class="link-btn" data-act="link-edit" data-id="' + esc(l.link_id) + '">Изменить</button> ' +
+        '<button class="link-btn danger" data-act="link-del" data-id="' + esc(l.link_id) + '">Удалить</button></td></tr>';
+    }).join('');
+
+    var opts = [['flow', 'Обмен (без иерархии)'], ['handoff', 'Передача результата'], ['related', 'Прочие связи'], ['parent', 'Иерархия'], ['all', 'Все']];
+    $('#v-exchange').innerHTML =
+      '<div class="view-head"><h2>Обмен</h2><div class="toolbar">' +
+      '<input type="text" id="exQ" placeholder="Поиск по названию, ID, исполнителю" value="' + esc(S.exch.q) + '">' +
+      '<select id="exF">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === f ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+      '<button class="btn primary" data-act="link-new">Добавить связь</button></div></div>' +
+      '<p class="muted">Кто кому передаёт информацию и результаты: источник &rarr; получатель. Статус связи показывает, передан ли результат.</p>' +
+      '<div class="card table-card"><div class="table-wrap"><table class="tbl"><thead><tr>' +
+      '<th>Источник</th><th></th><th>Получатель</th><th>Тип связи</th><th>Статус</th><th></th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="6" class="empty">Связей нет. Нажмите «Добавить связь».</td></tr>') + '</tbody></table></div></div>';
+  }
+
+  /* Модальное окно связи (создание и редактирование) */
+  function openLinkModal(linkId, presetSource) {
+    var l = linkId ? S.data.links.filter(function (x) { return x.link_id === linkId; })[0] : null;
+    var body =
+      '<label class="field"><span>Источник (кто передаёт)</span><select id="mlSrc">' +
+      entityOptions(l ? l.source_id : presetSource, null, l || presetSource ? null : 'Выберите…') + '</select></label>' +
+      '<label class="field"><span>Тип связи</span><select id="mlType">' +
+      enumOf('link_type').map(function (o) {
+        return '<option value="' + o.value + '"' + ((l ? l.link_type : 'handoff') === o.value ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+      }).join('') + '</select></label>' +
+      '<label class="field"><span>Получатель</span><select id="mlTgt">' +
+      entityOptions(l ? l.target_id : '', null, 'Выберите…') + '</select></label>' +
+      '<label class="field"><span>Примечание (что именно передаётся)</span><input type="text" id="mlNote" maxlength="500" value="' + esc(l ? l.note : '') + '"></label>' +
+      '<div id="modalErr" class="form-error" hidden></div>';
+    openModal(l ? 'Изменить связь' : 'Новая связь', body, [
+      { text: 'Отмена', fn: function () { } },
+      {
+        text: 'Сохранить', cls: 'primary', fn: function () {
+          var d = { source_id: $('#mlSrc').value, target_id: $('#mlTgt').value, link_type: $('#mlType').value, note: $('#mlNote').value };
+          if (!d.source_id || !d.target_id) throw new Error('Выберите источник и получателя');
+          var p = l ? authCall('updateLink', l.link_id, d) : authCall('createLink', d);
+          return p.then(function () { toast('Связь сохранена'); return reload(); });
+        }
+      }
+    ]);
+  }
+
+  /** <option> для всех объектов, сгруппированные по типам. */
+  function entityOptions(selected, filterFn, emptyLabel) {
+    var h = emptyLabel ? '<option value="">' + esc(emptyLabel) + '</option>' : '';
+    S.meta.typeOrder.forEach(function (t) {
+      var list = S.data.entities[t].filter(function (e) { return !filterFn || filterFn(e); });
+      if (!list.length) return;
+      h += '<optgroup label="' + esc(typeLabel(t)) + '">' + list.map(function (e) {
+        return '<option value="' + esc(e.id) + '"' + (e.id === selected ? ' selected' : '') + '>' + esc(e.id + ' · ' + e.name) + '</option>';
+      }).join('') + '</optgroup>';
+    });
+    return h;
+  }
+
+  /* ============================================================================
+   * ВСТРЕЧИ (календарь)
+   * ========================================================================== */
+  function renderMeetings() {
+    var cal = S.cal, c = pd(cal.cursor), cd = new Date(c);
+    var start, count, title;
+    if (cal.mode === 'month') {
+      var first = Date.UTC(cd.getUTCFullYear(), cd.getUTCMonth(), 1);
+      var dow = (new Date(first).getUTCDay() + 6) % 7;
+      var dim = new Date(Date.UTC(cd.getUTCFullYear(), cd.getUTCMonth() + 1, 0)).getUTCDate();
+      start = first - dow * DAY; count = Math.ceil((dow + dim) / 7) * 7;
+      title = MONTHS[cd.getUTCMonth()] + ' ' + cd.getUTCFullYear();
+    } else {
+      start = c - ((cd.getUTCDay() + 6) % 7) * DAY; count = 7;
+      var end = start + 6 * DAY;
+      title = ru(fd(start)) + ' — ' + ru(fd(end));
+    }
+    var byDate = {};
+    S.data.entities.meeting.forEach(function (m) { (byDate[m.meeting_date] = byDate[m.meeting_date] || []).push(m); });
+    Object.keys(byDate).forEach(function (k) { byDate[k].sort(function (a, b) { return String(a.meeting_time).localeCompare(String(b.meeting_time)); }); });
+
+    var cells = '';
+    for (var i = 0; i < count; i++) {
+      var ms = start + i * DAY, ds = fd(ms), dd = new Date(ms);
+      var other = cal.mode === 'month' && dd.getUTCMonth() !== cd.getUTCMonth();
+      var evs = (byDate[ds] || []).map(function (m) {
+        return '<button class="ev s-' + esc(m.status) + '" data-act="open" data-id="' + esc(m.id) + '" title="' + esc(m.name + (m.location ? ' · ' + m.location : '')) + '">' +
+          '<span class="t">' + esc(m.meeting_time) + '</span>' + esc(m.name) + '</button>';
+      }).join('');
+      cells += '<div class="cal-day' + (other ? ' other' : '') + (ds === today() ? ' today' : '') + '" data-act="new-meeting-day" data-date="' + ds + '">' +
+        '<span class="num">' + dd.getUTCDate() + '</span>' + evs + '</div>';
+    }
+    $('#v-meetings').innerHTML =
+      '<div class="view-head"><h2>Встречи</h2><div class="toolbar">' +
+      '<button class="btn sm" data-act="cal-nav" data-d="-1">&larr;</button>' +
+      '<b style="min-width:170px;text-align:center">' + esc(title) + '</b>' +
+      '<button class="btn sm" data-act="cal-nav" data-d="1">&rarr;</button>' +
+      '<button class="btn sm" data-act="cal-today">Сегодня</button>' +
+      '<div class="seg"><button class="' + (cal.mode === 'month' ? 'on' : '') + '" data-act="cal-mode" data-m="month">Месяц</button>' +
+      '<button class="' + (cal.mode === 'week' ? 'on' : '') + '" data-act="cal-mode" data-m="week">Неделя</button></div>' +
+      '<button class="btn primary" data-act="new" data-type="meeting">Создать встречу</button></div></div>' +
+      '<p class="muted">Нажмите на день, чтобы создать встречу, или на встречу, чтобы открыть карточку.</p>' +
+      '<div class="card cal ' + (cal.mode === 'week' ? 'cal-week' : '') + '">' +
+      '<div class="cal-head">' + WEEKDAYS.map(function (w) { return '<div>' + w + '</div>'; }).join('') + '</div>' +
+      '<div class="cal-grid">' + cells + '</div></div>';
+  }
+
+  function calNav(dir) {
+    var c = pd(S.cal.cursor), d = new Date(c);
+    if (S.cal.mode === 'month') S.cal.cursor = fd(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + dir, 1));
+    else S.cal.cursor = fd(c + dir * 7 * DAY);
+    renderMeetings();
+  }
+
+  /* ============================================================================
+   * ДИАГРАММА ГАНТА
+   * ========================================================================== */
+  var ROW_H = 46, GROUP_H = 34;
+
+  function spanOf(e) {
+    var end = pd(e.deadline);
+    if (isNaN(end)) return null;
+    if (e._type === 'approval') return { s: end, e: end };
+    var st = pd(e.start_date);
+    if (isNaN(st)) st = pd((e.created_at || '').slice(0, 10));
+    if (isNaN(st) || st > end) st = end;
+    return { s: st, e: end };
+  }
+
+  function ganttRows() {
+    var rows = [];
+    var key = function (e) { return String(e.start_date || e.deadline || '') + e.id; };
+    var sortFn = function (a, b) { return key(a) < key(b) ? -1 : 1; };
+    var kids = function (id) {
+      return (S.idx.children[id] || []).map(function (i) { return S.idx.byId[i]; })
+        .filter(function (e) { return e && e._type !== 'meeting'; }).sort(sortFn);
+    };
+    function walk(e, depth) { rows.push({ e: e, depth: depth }); kids(e.id).forEach(function (k) { walk(k, depth + 1); }); }
+    S.data.entities.stage.slice().sort(sortFn).forEach(function (s) { walk(s, 0); });
+    [['task', 'Задачи без этапа'], ['subtask', 'Подзадачи без задачи'], ['approval', 'Согласования без привязки']].forEach(function (g) {
+      var list = S.data.entities[g[0]].filter(function (e) { return !S.idx.byId[S.idx.parent[e.id]]; }).sort(sortFn);
+      if (!list.length) return;
+      rows.push({ group: g[1] });
+      list.forEach(function (e) { walk(e, 1); });
+    });
+    return rows;
+  }
+
+  function renderGantt(keepScroll) {
+    var root = $('#v-gantt');
+    var prev = keepScroll && $('#gScroll') ? { l: $('#gScroll').scrollLeft, t: $('#gScroll').scrollTop } : null;
+    var rows = ganttRows();
+    var LW = window.innerWidth <= 760 ? 200 : 320;
+    var t0 = pd(today()), min = Infinity, max = -Infinity;
+    rows.forEach(function (r) {
+      if (r.group) return;
+      r.sp = spanOf(r.e);
+      if (r.sp) { min = Math.min(min, r.sp.s); max = Math.max(max, r.sp.e); }
+    });
+    if (min === Infinity) { min = t0; max = t0 + 30 * DAY; }
+    min = Math.min(min, t0) - 3 * DAY; max = Math.max(max, t0) + 10 * DAY;
+    min -= ((new Date(min).getUTCDay() + 6) % 7) * DAY;           // начало недели — понедельник
+
+    var dayW = { day: 30, week: 12, month: 4 }[S.gantt.zoom];
+    var days = Math.round((max - min) / DAY) + 1, W = days * dayW;
+    var X = function (ms) { return (ms - min) / DAY * dayW; };
+
+    // Шапка шкалы времени: месяцы и дни / недели
+    var months = [], cur = null, i;
+    for (i = 0; i < days; i++) {
+      var dd = new Date(min + i * DAY), key = dd.getUTCFullYear() * 12 + dd.getUTCMonth();
+      if (!cur || cur.key !== key) { cur = { key: key, label: MONTHS[dd.getUTCMonth()] + ' ' + dd.getUTCFullYear(), n: 0 }; months.push(cur); }
+      cur.n++;
+    }
+    var monthsHtml = months.map(function (m) { return '<div style="width:' + (m.n * dayW) + 'px">' + (m.n * dayW > 60 ? esc(m.label) : '') + '</div>'; }).join('');
+    var lower = '';
+    if (S.gantt.zoom === 'day') {
+      for (i = 0; i < days; i++) {
+        var x = new Date(min + i * DAY), wd = (x.getUTCDay() + 6) % 7;
+        lower += '<div class="' + (wd > 4 ? 'we' : '') + '" style="width:' + dayW + 'px">' + x.getUTCDate() + '</div>';
+      }
+    } else if (S.gantt.zoom === 'week') {
+      for (i = 0; i < days; i += 7) lower += '<div style="width:' + (7 * dayW) + 'px">' + new Date(min + i * DAY).getUTCDate() + '</div>';
+    }
+
+    // Строки и геометрия
+    var pos = {}, y = 0, rowsHtml = '';
+    var gridStyle = 'width:' + W + 'px;background-image:linear-gradient(to right,#eef0f3 1px,transparent 1px);background-size:' +
+      (S.gantt.zoom === 'day' ? dayW : 7 * dayW) + 'px 100%';
+    rows.forEach(function (r) {
+      if (r.group) {
+        rowsHtml += '<div class="g-row group"><div class="g-label">' + esc(r.group) + '</div><div class="g-track" style="' + gridStyle + '"></div></div>';
+        y += GROUP_H; return;
+      }
+      var e = r.e, sp = r.sp, bar = '', late = isOverdue(e), blk = isBlocked(e) && !isDoneLike(e), pct = effProgress(e);
+      var yc = y + ROW_H / 2;
+      var tip = e.id + ' · ' + e.name + '\n' + statusLabel(e) + (ownerOf(e) ? ' · ' + ownerOf(e) : '') +
+        (sp ? '\n' + ru(fd(sp.s)) + ' — ' + ru(fd(sp.e)) : '') + (blk ? '\nБлокировка: ' + (e.block_reason || '') : '');
+      if (sp && e._type === 'approval') {
+        var cx = X(sp.s) + dayW / 2;
+        var cls = 's-' + e.status + (late ? ' late' : '') + (blk ? ' blocked' : '');
+        var lbl = e.status === 'Pending' ? 'Требуется решение' : enumLabel('approval_status', e.status);
+        bar = '<div class="g-dia ' + cls + '" data-act="open" data-id="' + esc(e.id) + '" style="left:' + (cx - 8.5) + 'px" title="' + esc(tip) + '"></div>' +
+          '<div class="g-dlabel ' + cls + '" data-act="open" data-id="' + esc(e.id) + '" style="left:' + (cx + 16) + 'px">' + esc(lbl) + '</div>';
+        pos[e.id] = { l: cx - 10, r: cx + 10, y: yc };
+      } else if (sp) {
+        var left = X(sp.s), width = ((sp.e - sp.s) / DAY + 1) * dayW;
+        var c2 = 'g-bar t-' + e._type + (blk ? ' blocked' : '') + (late ? ' overdue' : '') + (isDoneLike(e) ? ' done' : '');
+        bar = '<div class="' + c2 + '" data-act="open" data-id="' + esc(e.id) + '" style="left:' + left + 'px;width:' + width + 'px" title="' + esc(tip) + '">' +
+          '<i class="g-fill" style="width:' + pct + '%"></i>' + (width > 46 ? '<span class="g-pct">' + pct + '%</span>' : '') + '</div>';
+        pos[e.id] = { l: left, r: left + width, y: yc };
+      }
+      var flags = (blk ? ' <span class="pill s-Blocked">Блок</span>' : '') + (late ? ' <span class="pill s-late">Просрочено</span>' : '');
+      var sub = e.id + ' · ' + (ownerOf(e) || 'Не назначен') + (sp ? '' : ' · нет срока');
+      rowsHtml += '<div class="g-row"><div class="g-label d-' + e._type + '" data-act="open" data-id="' + esc(e.id) + '" style="padding-left:' + (12 + r.depth * 18) + 'px" title="' + esc(tip) + '">' +
+        '<div class="nm">' + typeTag(e._type) + '<span style="overflow:hidden;text-overflow:ellipsis">' + esc(e.name) + '</span>' + flags + '</div>' +
+        '<div class="sub">' + esc(sub) + '</div></div>' +
+        '<div class="g-track" style="' + gridStyle + '">' + bar + '</div></div>';
+      y += ROW_H;
+    });
+    var H = y;
+
+    // Стрелки зависимостей (передача результата — стрелка, «связан с» — пунктир)
+    var paths = '';
+    S.data.links.forEach(function (l) {
+      if (l.link_type === 'parent') return;
+      var a = pos[l.source_id], b = pos[l.target_id];
+      if (!a || !b) return;
+      var s = S.idx.byId[l.source_id];
+      var conflict = l.link_type === 'handoff' && b.l < a.r && !isDoneLike(s);
+      var col = conflict ? '#c0392b' : '#8a93a6';
+      var d = 'M' + a.r + ' ' + a.y + ' C' + (a.r + 28) + ' ' + a.y + ' ' + (b.l - 28) + ' ' + b.y + ' ' + b.l + ' ' + b.y;
+      paths += '<path d="' + d + '" fill="none" stroke="' + col + '" stroke-width="1.6"' +
+        (l.link_type === 'related' ? ' stroke-dasharray="4 4"' : ' marker-end="url(#' + (conflict ? 'ahr' : 'ah') + ')"') + '/>';
+    });
+    var svg = '<svg class="g-arrows" style="left:' + LW + 'px;width:' + W + 'px;height:' + H + 'px"><defs>' +
+      '<marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#8a93a6"/></marker>' +
+      '<marker id="ahr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#c0392b"/></marker>' +
+      '</defs>' + paths + '</svg>';
+    var todayLine = '<div class="g-today" style="left:' + (LW + X(t0) + dayW / 2) + 'px"></div>';
+
+    var zoomBtns = [['day', 'Дни'], ['week', 'Недели'], ['month', 'Месяцы']].map(function (z) {
+      return '<button class="' + (S.gantt.zoom === z[0] ? 'on' : '') + '" data-act="g-zoom" data-z="' + z[0] + '">' + z[1] + '</button>';
+    }).join('');
+
+    root.innerHTML =
+      '<div class="view-head"><h2>Диаграмма Ганта</h2><div class="toolbar">' +
+      '<button class="btn sm" data-act="g-today">Сегодня</button><div class="seg">' + zoomBtns + '</div></div></div>' +
+      '<div class="legend">' +
+      '<span class="it"><span class="lg-bar stage"></span>Этап</span>' +
+      '<span class="it"><span class="lg-bar"></span>Задача / подзадача (заливка — прогресс)</span>' +
+      '<span class="it"><span class="lg-bar overdue"></span>Просрочено</span>' +
+      '<span class="it"><span class="lg-bar blocked"></span>Заблокировано</span>' +
+      '<span class="it"><span class="lg-dia"></span>Требуется решение</span>' +
+      '<span class="it"><span class="lg-arrow"></span>Передача результата</span>' +
+      '<span class="it"><span class="lg-today"></span>Сегодня</span></div>' +
+      '<div class="card g-card"><div class="g-scroll" id="gScroll"><div class="g-canvas" style="width:' + (LW + W) + 'px;--lw:' + LW + 'px">' +
+      '<div class="g-head"><div class="g-corner">Структура проекта</div><div class="g-timehead" style="width:' + W + 'px">' +
+      '<div class="g-months">' + monthsHtml + '</div>' + (lower ? '<div class="g-days">' + lower + '</div>' : '<div class="g-days"></div>') + '</div></div>' +
+      '<div class="g-body">' + (rowsHtml || '<div class="empty">Пока нет данных. Создайте первый этап.</div>') + svg + todayLine + '</div></div></div></div>';
+
+    var sc = $('#gScroll');
+    S.gantt.scrollToday = function () { sc.scrollLeft = Math.max(0, X(t0) - 120); };
+    if (prev) { sc.scrollLeft = prev.l; sc.scrollTop = prev.t; } else S.gantt.scrollToday();
+  }
+
+  /* ============================================================================
+   * ЖУРНАЛ
+   * ========================================================================== */
+  function renderLog() {
+    var f = S.logFilter;
+    var typeOpts = '<option value="">Все сущности</option>' + S.meta.typeOrder.map(function (t) {
+      return '<option value="' + t + '"' + (f.entity_type === t ? ' selected' : '') + '>' + esc(typeLabel(t)) + '</option>';
+    }).join('') + '<option value="project"' + (f.entity_type === 'project' ? ' selected' : '') + '>Проект</option>' +
+      '<option value="system"' + (f.entity_type === 'system' ? ' selected' : '') + '>Система</option>';
+    $('#v-log').innerHTML =
+      '<div class="view-head"><h2>Журнал изменений</h2><div class="toolbar">' +
+      '<select id="lgType">' + typeOpts + '</select>' +
+      '<input type="date" id="lgFrom" value="' + esc(f.date_from) + '" title="С даты">' +
+      '<input type="date" id="lgTo" value="' + esc(f.date_to) + '" title="По дату">' +
+      '<input type="text" id="lgId" placeholder="ID, например TSK-0001" value="' + esc(f.entity_id) + '" style="min-width:170px">' +
+      '<button class="btn" data-act="log-apply">Применить</button>' +
+      '<button class="btn" data-act="log-reset">Сбросить</button></div></div>' +
+      '<div class="card table-card"><div class="table-wrap" id="logTable"><div class="empty">Загрузка…</div></div></div>';
+    authCall('getLog', f).then(function (res) {
+      if (S.tab !== 'log') return;
+      var rows = res.rows.map(function (r) {
+        var e = S.idx.byId[r.entity_id];
+        return '<tr><td class="nowrap">' + esc(fmtTs(r.timestamp)) + '</td><td>' + esc(r.user) + '</td>' +
+          '<td>' + esc(ACTIONS[r.action] || r.action) + '</td>' +
+          '<td>' + (r.entity_id ? '<span class="tag t-' + esc(r.entity_type) + '">' + esc(typeLabel(r.entity_type)) + '</span> ' +
+            (e ? '<a href="#" data-act="open" data-id="' + esc(r.entity_id) + '">' + esc(r.entity_id) + '</a>' : esc(r.entity_id)) +
+            (e ? '<div class="small muted">' + esc(e.name) + '</div>' : '') : '<span class="muted">' + esc(typeLabel(r.entity_type)) + '</span>') + '</td>' +
+          '<td>' + esc(r.field ? fieldLabel(r.field) : '') + '</td>' +
+          '<td>' + (r.action === 'update' ? '<span class="log-old">' + esc(fmtLogVal(r, r.old_value)) + '</span> → <b>' + esc(fmtLogVal(r, r.new_value)) + '</b>'
+            : esc([r.old_value, r.new_value].filter(Boolean).join(' → '))) + '</td></tr>';
+      }).join('');
+      $('#logTable').innerHTML = '<table class="tbl"><thead><tr><th>Дата и время</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>Поле</th><th>Было → стало</th></tr></thead><tbody>' +
+        (rows || '<tr><td colspan="6" class="empty">Записей нет</td></tr>') + '</tbody></table>' +
+        (res.total > res.rows.length ? '<div class="small muted" style="padding:10px 14px">Показано ' + res.rows.length + ' из ' + res.total + '. Уточните фильтры.</div>' : '');
+    }).catch(function (err) { $('#logTable').innerHTML = '<div class="form-error">' + esc(err.message) + '</div>'; });
+  }
+
+  /* ============================================================================
+   * БОКОВАЯ КАРТОЧКА: создание и редактирование
+   * ========================================================================== */
+  function fieldHTML(def, val) {
+    var id = 'f_' + def.key, req = def.required ? ' <span class="req">*</span>' : '';
+    var v = val === undefined || val === null ? '' : val;
+    var wrapStart = '<div class="field' + (def.type === 'textarea' || def.type === 'progress' || def.type === 'bool' ? ' full' : '') + '" data-field="' + def.key + '"' +
+      (def.showIf ? ' data-showif="' + def.showIf + '"' : '') + '>';
+    var lab = '<label for="' + id + '">' + esc(def.label) + req + '</label>';
+    switch (def.type) {
+      case 'textarea': return wrapStart + lab + '<textarea id="' + id + '" rows="3">' + esc(v) + '</textarea></div>';
+      case 'date': return wrapStart + lab + '<input type="date" id="' + id + '" value="' + esc(v) + '"></div>';
+      case 'time': return wrapStart + lab + '<input type="time" id="' + id + '" value="' + esc(v) + '"></div>';
+      case 'user': return wrapStart + lab + '<input type="text" id="' + id + '" list="usersList" value="' + esc(v) + '" placeholder="Выберите или введите имя" autocomplete="off"></div>';
+      case 'bool': return wrapStart + '<label class="check-row"><input type="checkbox" id="' + id + '"' + (v === true ? ' checked' : '') + '>' + esc(def.label) + '</label></div>';
+      case 'select':
+        return wrapStart + lab + '<select id="' + id + '">' + (def.required ? '' : '<option value="">—</option>') +
+          enumOf(def.enum).map(function (o) { return '<option value="' + esc(o.value) + '"' + (o.value === v ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select></div>';
+      case 'progress':
+        var n = Number(v) || 0;
+        return wrapStart + lab + '<div class="prog-row"><input type="range" id="f_progress_r" min="0" max="100" step="1" value="' + n + '">' +
+          '<input type="number" id="' + id + '" min="0" max="100" step="1" value="' + n + '"></div>' +
+          '<div class="bar"><i id="progBar" style="width:' + n + '%"></i></div><div class="hint" id="progHint"></div></div>';
+      default: return wrapStart + lab + '<input type="text" id="' + id + '" value="' + esc(v) + '" maxlength="' + (def.max || 500) + '"></div>';
+    }
+  }
+
+  function openEntity(type, id, preset) {
+    var cfg = S.meta.types[type], e = id ? S.idx.byId[id] : null;
+    if (id && !e) { toast('Объект не найден', true); return; }
+    S.drawer = { type: type, id: id || null };
+    preset = preset || {};
+    var vals = {};
+    cfg.fields.forEach(function (f) {
+      vals[f.key] = e ? e[f.key] : (preset[f.key] !== undefined ? preset[f.key] : (f.dflt !== undefined ? f.dflt : ''));
+    });
+    var head = e
+      ? typeTag(type) + ' <span class="muted small">' + esc(e.id) + '</span> ' + pill(e) + '<h3>' + esc(e.name) + '</h3>'
+      : typeTag(type) + '<h3>' + esc(cfg.newLabel) + '</h3>';
+
+    var linkBlock = '';
+    if (!e) {
+      linkBlock = '<div class="section"><h4>Связь с другим объектом</h4><div class="form-grid">' +
+        '<div class="field"><label for="cLinkType">Тип связи</label><select id="cLinkType">' +
+        S.meta.createLinkOptions.filter(function (o) { return o.value !== 'parent' || cfg.parents.length; })
+          .map(function (o) { return '<option value="' + o.value + '">' + esc(o.label) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field"><label for="cLinkTarget">Объект</label><select id="cLinkTarget"></select></div></div>' +
+        '<div class="hint">Связь записывается в лист Links. Её можно добавить и позже.</div></div>';
+    }
+
+    $('#drawer').innerHTML =
+      '<div class="drawer-head"><div>' + head + '</div><button class="icon-btn" data-act="close-drawer" aria-label="Закрыть">&times;</button></div>' +
+      '<div class="drawer-body"><form id="entForm" onsubmit="return false"><div class="form-grid">' +
+      cfg.fields.map(function (f) { return fieldHTML(f, vals[f.key]); }).join('') + '</div>' +
+      '<div id="formErr" class="form-error" hidden></div></form>' + linkBlock +
+      (e ? '<div class="section" id="secParent"></div><div class="section"><h4>Документы</h4><div id="docList"></div>' +
+        '<div class="doc-add"><input type="text" id="docName" placeholder="Название документа" maxlength="200">' +
+        '<input type="url" id="docUrl" placeholder="https://…"><button class="btn sm" data-act="doc-add">Добавить</button></div></div>' +
+        '<div class="section"><h4>Связи</h4><div id="linkList"></div><button class="btn sm" data-act="ent-link-add">Добавить связь</button></div>' +
+        '<div class="section"><h4>История изменений</h4><div id="histList"><div class="muted small">Загрузка…</div></div></div>' : '') +
+      '</div>' +
+      '<div class="drawer-foot"><div>' + (e ? '<button class="btn danger" data-act="ent-delete">Удалить</button>' : '') + '</div>' +
+      '<div style="display:flex;gap:8px"><button class="btn" data-act="close-drawer">Закрыть</button><button class="btn primary" data-act="ent-save">' + (e ? 'Сохранить' : 'Создать') + '</button></div></div>';
+
+    $('#scrim').hidden = false;
+    $('#drawer').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false');
+    syncShowIf(); syncProgress();
+    if (!e) { fillLinkTargets(type); } else {
+      renderDrawerSections();
+      authCall('getLog', { entity_id: id, limit: 15 }).then(function (r) {
+        var h = $('#histList'); if (!h || !S.drawer || S.drawer.id !== id) return;
+        h.innerHTML = r.rows.length ? r.rows.map(function (x) {
+          return '<div class="hist-item"><span class="when">' + esc(fmtTs(x.timestamp)) + '</span><b>' + esc(x.user) + '</b> · ' + esc(describeLog(x)) + '</div>';
+        }).join('') : '<div class="muted small">Изменений нет</div>';
+      }).catch(function () { });
+    }
+    var first = $('#f_name'); if (first && !e) first.focus();
+  }
+
+  function closeDrawer() {
+    S.drawer = null;
+    $('#drawer').classList.remove('open'); $('#drawer').setAttribute('aria-hidden', 'true');
+    $('#scrim').hidden = true;
+  }
+
+  /** Разделы карточки, зависящие от данных: родитель, документы, связи. */
+  function renderDrawerSections() {
+    var d = S.drawer; if (!d || !d.id) return;
+    var e = S.idx.byId[d.id]; if (!e) { closeDrawer(); return; }
+    var cfg = S.meta.types[d.type];
+
+    var sp = $('#secParent');
+    if (sp) {
+      var kids = (S.idx.children[e.id] || []).map(function (i) { return S.idx.byId[i]; }).filter(Boolean);
+      sp.innerHTML = (cfg.parents.length
+        ? '<h4>Родитель</h4><select id="parentSel">' + entityOptions(S.idx.parent[e.id], function (x) { return cfg.parents.indexOf(x._type) !== -1; }, 'Без родителя') + '</select>'
+        : '') +
+        (kids.length ? '<h4 style="margin-top:14px">Входит в состав</h4>' + kids.map(function (k) {
+          return '<div class="link-item"><div class="grow">' + typeTag(k._type) + ' ' + esc(k.name) + '</div><button class="link-btn" data-act="open" data-id="' + esc(k.id) + '">Открыть</button></div>';
+        }).join('') : '');
+      if (!cfg.parents.length && !kids.length) sp.hidden = true; else sp.hidden = false;
+    }
+
+    var docs = S.idx.docs[e.id] || [];
+    $('#docList').innerHTML = docs.length ? docs.map(function (x) {
+      return '<div class="doc-item"><div class="grow"><a href="' + esc(x.doc_url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.doc_name) + '</a></div>' +
+        '<button class="link-btn" data-act="doc-edit" data-id="' + esc(x.doc_id) + '">Изменить</button>' +
+        '<button class="link-btn danger" data-act="doc-del" data-id="' + esc(x.doc_id) + '">Удалить</button></div>';
+    }).join('') : '<div class="muted small">Документов нет</div>';
+
+    var links = S.data.links.filter(function (l) { return l.source_id === e.id || l.target_id === e.id; });
+    $('#linkList').innerHTML = links.length ? links.map(function (l) {
+      var out = l.source_id === e.id, other = out ? l.target_id : l.source_id, o = S.idx.byId[other];
+      var verb = l.link_type === 'parent' ? (out ? 'Входит в' : 'Включает')
+        : l.link_type === 'handoff' ? (out ? 'Передаёт результат →' : 'Получает результат от') : 'Связан с';
+      return '<div class="link-item"><div class="grow"><span class="muted">' + verb + '</span> <a href="#" data-act="open" data-id="' + esc(other) + '">' +
+        esc(other) + '</a> ' + esc(o ? o.name : '') + '</div>' +
+        '<button class="link-btn danger" data-act="link-del" data-id="' + esc(l.link_id) + '">Удалить</button></div>';
+    }).join('') : '<div class="muted small">Связей нет</div>';
+  }
+
+  /** Список объектов для связи в форме создания (для «Входит в» — только допустимые родители). */
+  function fillLinkTargets(type) {
+    var sel = $('#cLinkTarget'), lt = $('#cLinkType').value, parents = S.meta.types[type].parents;
+    sel.innerHTML = entityOptions('', lt === 'parent' ? function (e) { return parents.indexOf(e._type) !== -1; } : null, 'Без связи');
+  }
+
+  function syncShowIf() {
+    var blocked = $('#f_blocked');
+    $$('[data-showif]').forEach(function (el) {
+      var k = el.getAttribute('data-showif'), cb = $('#f_' + k);
+      el.hidden = !(cb && cb.checked);
+    });
+    return blocked;
+  }
+
+  function syncProgress() {
+    var n = $('#f_progress'); if (!n) return;
+    var v = Math.max(0, Math.min(100, Number(n.value) || 0));
+    var bar = $('#progBar'); if (bar) bar.style.width = v + '%';
+    var d = S.drawer && S.drawer.id ? S.idx.byId[S.drawer.id] : null;
+    var hint = $('#progHint');
+    if (hint && d) {
+      var eff = effProgress(d);
+      hint.textContent = (S.idx.children[d.id] || []).length && (d._type === 'stage' || d._type === 'task')
+        ? 'Итог по дочерним элементам: ' + eff + '%. Собственное значение используется, пока их нет.' : '';
+    }
+  }
+
+  function collectForm(cfg) {
+    var out = {};
+    cfg.fields.forEach(function (f) {
+      var el = $('#f_' + f.key); if (!el) return;
+      out[f.key] = f.type === 'bool' ? el.checked : el.value;
+    });
+    return out;
+  }
+
+  function formError(msg) {
+    var b = $('#formErr'); if (!b) return;
+    b.hidden = !msg; b.textContent = msg || '';
+    if (msg) b.scrollIntoView({ block: 'nearest' });
+  }
+
+  function clientValidate(cfg, data) {
+    var errs = [];
+    cfg.fields.forEach(function (f) {
+      var hidden = f.showIf && !data[f.showIf];
+      if (f.required && !hidden && String(data[f.key] === undefined ? '' : data[f.key]).trim() === '') errs.push('«' + f.label + '» обязательно');
+    });
+    if (data.start_date && data.deadline && data.start_date > data.deadline) errs.push('Дата начала позже срока');
+    if (data.blocked && !String(data.block_reason || '').trim()) errs.push('Укажите причину блокировки');
+    var p = Number(data.progress);
+    if (data.progress !== undefined && (!isFinite(p) || p < 0 || p > 100 || Math.floor(p) !== p)) errs.push('Прогресс — целое число от 0 до 100');
+    return errs.join('; ');
+  }
+
+  function saveEntity() {
+    var d = S.drawer; if (!d) return;
+    var cfg = S.meta.types[d.type], data = collectForm(cfg);
+    var err = clientValidate(cfg, data);
+    if (err) { formError(err); return; }
+    formError('');
+    var btn = $('[data-act="ent-save"]'); if (btn) btn.disabled = true;
+    var p;
+    if (!d.id) {
+      var target = $('#cLinkTarget').value;
+      var link = target ? { other_id: target, link_type: $('#cLinkType').value } : null;
+      p = authCall('createEntity', d.type, data, link).then(function (res) {
+        toast('Создано: ' + res.entity.id);
+        return reload().then(function () { openEntity(d.type, res.entity.id); });
+      });
+    } else {
+      var e = S.idx.byId[d.id], changes = {};
+      cfg.fields.forEach(function (f) {
+        var old = e[f.key] === undefined || e[f.key] === null ? '' : e[f.key];
+        if (String(old) !== String(data[f.key])) changes[f.key] = data[f.key];
+      });
+      if (!Object.keys(changes).length) { toast('Изменений нет'); if (btn) btn.disabled = false; return; }
+      p = authCall('updateEntity', d.id, changes).then(function () {
+        toast('Сохранено');
+        return reload().then(function () { openEntity(d.type, d.id); });
+      });
+    }
+    p.catch(function (er) { formError(er.message); if (btn) btn.disabled = false; });
+  }
+
+  function deleteEntity() {
+    var d = S.drawer, e = d && S.idx.byId[d.id]; if (!e) return;
+    confirmBox('Удалить «' + e.name + '» (' + e.id + ')? Будут удалены связи и документы объекта. Действие нельзя отменить.', 'Удалить').then(function (ok) {
+      if (!ok) return;
+      authCall('deleteEntity', e.id).then(function () { closeDrawer(); toast('Удалено'); return reload(); })
+        .catch(function (er) { toast(er.message, true); });
+    });
+  }
+
+  /* ---------- Документы и связи в карточке ---------- */
+  function addDoc() {
+    var name = $('#docName').value, url = $('#docUrl').value;
+    authCall('addDocument', S.drawer.id, name, url).then(function () {
+      $('#docName').value = ''; $('#docUrl').value = '';
+      toast('Документ добавлен'); return reload();
+    }).catch(function (er) { toast(er.message, true); });
+  }
+
+  function editDoc(docId) {
+    var doc = S.data.documents.filter(function (x) { return x.doc_id === docId; })[0]; if (!doc) return;
+    openModal('Документ',
+      '<label class="field"><span>Название</span><input type="text" id="mdName" maxlength="200" value="' + esc(doc.doc_name) + '"></label>' +
+      '<label class="field"><span>Ссылка</span><input type="url" id="mdUrl" value="' + esc(doc.doc_url) + '"></label><div id="modalErr" class="form-error" hidden></div>', [
+        { text: 'Отмена', fn: function () { } },
+        {
+          text: 'Сохранить', cls: 'primary', fn: function () {
+            return authCall('updateDocument', docId, { doc_name: $('#mdName').value, doc_url: $('#mdUrl').value })
+              .then(function () { toast('Документ обновлён'); return reload(); });
+          }
+        }]);
+  }
+
+  function delDoc(docId) {
+    confirmBox('Удалить ссылку на документ?', 'Удалить').then(function (ok) {
+      if (ok) authCall('deleteDocument', docId).then(function () { toast('Документ удалён'); return reload(); }).catch(function (er) { toast(er.message, true); });
+    });
+  }
+
+  function delLink(linkId) {
+    confirmBox('Удалить связь?', 'Удалить').then(function (ok) {
+      if (ok) authCall('deleteLink', linkId).then(function () { toast('Связь удалена'); return reload(); }).catch(function (er) { toast(er.message, true); });
+    });
+  }
+
+  /* ============================================================================
+   * МОДАЛЬНОЕ ОКНО
+   * ========================================================================== */
+  function openModal(title, bodyHtml, buttons) {
+    $('#modalTitle').textContent = title;
+    $('#modalBody').innerHTML = bodyHtml;
+    S.modalButtons = buttons;
+    $('#modalFoot').innerHTML = buttons.map(function (b, i) {
+      return '<button class="btn ' + (b.cls || '') + '" data-act="modal-btn" data-i="' + i + '">' + esc(b.text) + '</button>';
+    }).join('');
+    $('#modalWrap').hidden = false;
+    var f = $('#modalBody input, #modalBody select'); if (f) f.focus();
+  }
+  function closeModal() { $('#modalWrap').hidden = true; S.modalButtons = []; }
+
+  function runModalButton(i) {
+    var b = S.modalButtons[i]; if (!b) return;
+    var er = $('#modalErr'); if (er) er.hidden = true;
+    var res;
+    try { res = b.fn(); } catch (e) { showModalErr(e); return; }
+    if (res && typeof res.then === 'function') {
+      res.then(function () { closeModal(); }).catch(showModalErr);
+    } else closeModal();
+  }
+  function showModalErr(e) {
+    var er = $('#modalErr');
+    if (er) { er.hidden = false; er.textContent = e.message; } else toast(e.message, true);
+  }
+
+  function confirmBox(text, okText) {
+    return new Promise(function (resolve) {
+      openModal('Подтверждение', '<p>' + esc(text) + '</p>', [
+        { text: 'Отмена', fn: function () { resolve(false); } },
+        { text: okText || 'Да', cls: 'primary', fn: function () { resolve(true); } }
+      ]);
+    });
+  }
+
+  /* ============================================================================
+   * ОБРАБОТЧИКИ СОБЫТИЙ
+   * ========================================================================== */
+  var ACT = {
+    'tab': function (a) { switchTab(a.getAttribute('data-tab')); },
+    'toggle-create': function () { $('#createMenu').hidden = !$('#createMenu').hidden; },
+    'new': function (a) { $('#createMenu').hidden = true; openEntity(a.getAttribute('data-type'), null, {}); },
+    'new-meeting-day': function (a) { openEntity('meeting', null, { meeting_date: a.getAttribute('data-date') }); },
+    'open': function (a, ev) {
+      ev.preventDefault();
+      var e = S.idx.byId[a.getAttribute('data-id')];
+      if (e) openEntity(e._type, e.id);
+    },
+    'close-drawer': function () { closeDrawer(); },
+    'logout': logout,
+    'save-desc': function () {
+      authCall('saveSetting', 'project_description', $('#projDesc').value)
+        .then(function () { toast('Описание сохранено'); return reload(); }).catch(function (er) { toast(er.message, true); });
+    },
+    'ent-save': saveEntity,
+    'ent-delete': deleteEntity,
+    'doc-add': addDoc,
+    'doc-edit': function (a) { editDoc(a.getAttribute('data-id')); },
+    'doc-del': function (a) { delDoc(a.getAttribute('data-id')); },
+    'link-new': function () { openLinkModal(null, ''); },
+    'link-edit': function (a) { openLinkModal(a.getAttribute('data-id')); },
+    'link-del': function (a) { delLink(a.getAttribute('data-id')); },
+    'ent-link-add': function () { openLinkModal(null, S.drawer.id); },
+    'cal-nav': function (a) { calNav(Number(a.getAttribute('data-d'))); },
+    'cal-today': function () { S.cal.cursor = today(); renderMeetings(); },
+    'cal-mode': function (a) { S.cal.mode = a.getAttribute('data-m'); renderMeetings(); },
+    'g-zoom': function (a) { S.gantt.zoom = a.getAttribute('data-z'); renderGantt(); },
+    'g-today': function () { if (S.gantt.scrollToday) S.gantt.scrollToday(); },
+    'log-apply': function () {
+      S.logFilter = { entity_type: $('#lgType').value, date_from: $('#lgFrom').value, date_to: $('#lgTo').value, entity_id: $('#lgId').value.trim().toUpperCase() };
+      renderLog();
+    },
+    'log-reset': function () { S.logFilter = { entity_type: '', date_from: '', date_to: '', entity_id: '' }; renderLog(); },
+    'modal-close': closeModal,
+    'modal-btn': function (a) { runModalButton(Number(a.getAttribute('data-i'))); }
+  };
+
+  document.addEventListener('click', function (ev) {
+    var a = ev.target.closest('[data-act]');
+    if (!a) {
+      if (!ev.target.closest('.menu-wrap')) $('#createMenu').hidden = true;
+      return;
+    }
+    var h = ACT[a.getAttribute('data-act')];
+    if (h) h(a, ev);
+  });
+
+  document.addEventListener('change', function (ev) {
+    var t = ev.target, id = t.id;
+    if (id === 'f_blocked') syncShowIf();
+    else if (id === 'f_status' && t.value === 'Done' && $('#f_progress')) { $('#f_progress').value = 100; $('#f_progress_r').value = 100; syncProgress(); }
+    else if (id === 'cLinkType') fillLinkTargets(S.drawer.type);
+    else if (id === 'parentSel') {
+      authCall('setParent', S.drawer.id, t.value).then(function () { toast('Родитель изменён'); return reload(); })
+        .catch(function (er) { toast(er.message, true); return reload(); });
+    } else if (id === 'exF') { S.exch.filter = t.value; renderExchange(); }
+  });
+
+  document.addEventListener('input', function (ev) {
+    var id = ev.target.id;
+    if (id === 'f_progress_r') { $('#f_progress').value = ev.target.value; syncProgress(); }
+    else if (id === 'f_progress') { $('#f_progress_r').value = ev.target.value; syncProgress(); }
+    else if (id === 'exQ') {
+      S.exch.q = ev.target.value; var pos = ev.target.selectionStart;
+      renderExchange(); var q = $('#exQ'); q.focus(); q.setSelectionRange(pos, pos);
+    }
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') {
+      if (!$('#modalWrap').hidden) closeModal();
+      else if (S.drawer) closeDrawer();
+    } else if (ev.key === 'Enter' && ev.target.id === 'docUrl') { ev.preventDefault(); addDoc(); }
+    else if (ev.key === 'Enter' && !$('#modalWrap').hidden && ev.target.tagName === 'INPUT') {
+      ev.preventDefault(); var last = S.modalButtons.length - 1; if (last >= 0) runModalButton(last);
+    }
+  });
+
+  window.addEventListener('resize', function () { if (S.tab === 'gantt' && S.data) renderGantt(true); });
+
+  /* ---------- Запуск ---------- */
+  $('#loginForm').addEventListener('submit', onLogin);
+  var saved = load('ec2_token');
+  if (saved) {
+    S.token = saved;
+    loadAll().catch(function () { showLogin(''); });
+  } else {
+    showLogin('');
+  }
+})();
+</script>
