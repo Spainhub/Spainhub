@@ -11,10 +11,13 @@
   var S = {
     token: null, user: '', data: null, meta: null,
     tab: 'home',
-    idx: { byId: {}, parent: {}, children: {}, docs: {} },
+    idx: { byId: {}, parent: {}, children: {}, docs: {}, votes: {} },
     cal: { mode: 'month', cursor: null },
-    gantt: { zoom: 'day' },
+    gantt: { dw: 24, blockOnly: false, ctx: true, sel: null },   // dw — пикселей на день
     exch: { filter: 'flow', q: '' },
+    exchCards: null, exchErr: '',
+    info: null, infoErr: '', infoBusy: false, infoAt: 0,
+    regOpen: {},
     logFilter: { entity_type: '', date_from: '', date_to: '', entity_id: '' },
     drawer: null,
     modalButtons: []
@@ -27,8 +30,10 @@
     create: 'Создание', update: 'Изменение', 'delete': 'Удаление',
     link_add: 'Связь добавлена', link_update: 'Связь изменена', link_delete: 'Связь удалена',
     doc_add: 'Документ добавлен', doc_update: 'Документ изменён', doc_delete: 'Документ удалён',
-    login: 'Вход', setting: 'Настройки проекта'
+    login: 'Вход', setting: 'Настройки проекта', vote: 'Голосование'
   };
+  // Подписи полей, которых нет в схеме сущностей
+  var FIELD_EXTRA = { vote: 'Голос', vote_comment: 'Комментарий к голосу', voters: 'Участники голосования' };
 
   /* ---------- Утилиты ---------- */
   function $(s, r) { return (r || document).querySelector(s); }
@@ -98,7 +103,7 @@
     var d = fieldDefs(t).filter(function (f) { return f.key === 'status'; })[0];
     return d ? d.enum : 'status';
   }
-  function fieldLabel(k) { return S.meta.fieldLabels[k] || k; }
+  function fieldLabel(k) { return FIELD_EXTRA[k] || S.meta.fieldLabels[k] || k; }
   function statusLabel(e) { return enumLabel(statusEnum(e._type), e.status); }
   function pill(e) { return '<span class="pill s-' + esc(String(e.status).replace(/\s/g, '')) + '">' + esc(statusLabel(e)) + '</span>'; }
   function typeTag(t) { return '<span class="tag t-' + t + '">' + esc(typeLabel(t)) + '</span>'; }
@@ -115,7 +120,7 @@
   }
 
   function buildIndex() {
-    var d = S.data, idx = { byId: {}, parent: {}, children: {}, docs: {} };
+    var d = S.data, idx = { byId: {}, parent: {}, children: {}, docs: {}, votes: {} };
     S.meta.typeOrder.forEach(function (t) {
       d.entities[t].forEach(function (e) { e._type = t; idx.byId[e.id] = e; });
     });
@@ -126,6 +131,7 @@
       }
     });
     d.documents.forEach(function (x) { (idx.docs[x.entity_id] = idx.docs[x.entity_id] || []).push(x); });
+    (d.register || []).forEach(function (r) { (idx.votes[r.approval_id] = idx.votes[r.approval_id] || []).push(r); });
     S.idx = idx;
   }
 
@@ -214,6 +220,7 @@
     if (tab === 'home') renderHome();
     else if (tab === 'exchange') renderExchange();
     else if (tab === 'meetings') renderMeetings();
+    else if (tab === 'kanban') renderKanban();
     else if (tab === 'gantt') renderGantt(keepScroll);
     else if (tab === 'log') renderLog();
   }
@@ -227,7 +234,7 @@
       return base + ': ' + (r.new_value || r.old_value);
     }
     if (r.entity_id) base += ': ' + typeLabel(r.entity_type).toLowerCase() + ' ' + r.entity_id;
-    if (r.action === 'update') {
+    if (r.action === 'update' || r.action === 'vote') {
       base += ', «' + fieldLabel(r.field) + '»: ' + fmtLogVal(r, r.old_value) + ' → ' + fmtLogVal(r, r.new_value);
     } else if (r.action === 'create' && r.new_value) {
       base += ' «' + r.new_value + '»';
@@ -241,10 +248,89 @@
 
   function fmtLogVal(r, v) {
     if (v === '' || v === null || v === undefined) return '—';
+    if (r.field === 'vote') return enumLabel('vote', v);
     if (r.field === 'status' && S.meta.types[r.entity_type]) return enumLabel(statusEnum(r.entity_type), v);
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return ru(v);
     if (r.field === 'progress') return v + '%';
     return v;
+  }
+
+  /* ---------- Блок «Файлы проекта» (лист Info, диапазон A1:K50) ---------- */
+  function infoBlockHTML() {
+    var i = S.info;
+    var openLink = i && i.sheet_url
+      ? '<a class="small" href="' + esc(i.sheet_url) + '" target="_blank" rel="noopener noreferrer">Открыть в Google Sheets</a>' : '';
+    var head = '<div class="card-head"><h4>Файлы проекта</h4><span class="small muted">' +
+      '<button class="link-btn" data-act="info-refresh">Обновить</button>' + (openLink ? ' · ' + openLink : '') + '</span></div>';
+    if (S.infoErr) return head + '<div class="form-error">' + esc(S.infoErr) + '</div>';
+    if (!i) return head + '<div class="loading"><span class="spinner"></span>Загрузка…</div>';
+    if (!i.count) {
+      return head + '<div class="empty"><b>Файлов пока нет</b>Добавьте на лист Info название папки (столбец A) и ссылку (столбец B), ' +
+        'диапазон A1:K50.' + (openLink ? '<br>' + openLink : '') + '</div>';
+    }
+    var h = '<div class="files">';
+    i.rows.forEach(function (row) {
+      if (row.length === 1 && !row[0].url) { h += '<div class="files-group">' + esc(row[0].name) + '</div>'; return; }
+      row.forEach(function (it) {
+        h += it.url
+          ? '<a class="file-card" href="' + esc(it.url) + '" target="_blank" rel="noopener noreferrer" title="' + esc(it.url) + '"><span class="file-ico"></span><span class="file-name">' + esc(it.name) + '</span></a>'
+          : '<div class="file-card nolink"><span class="file-ico"></span><span class="file-name">' + esc(it.name) + '</span></div>';
+      });
+    });
+    return head + h + '</div>';
+  }
+
+  /** Загружает Info в фоне и обновляет только блок (повторный запрос не чаще, чем раз в 20 секунд). */
+  function loadInfo(force) {
+    if (S.infoBusy) return;
+    if (!force && S.info && Date.now() - S.infoAt < 20000) return;
+    S.infoBusy = true;
+    authCall('getInfo').then(function (r) { S.info = r; S.infoErr = ''; })
+      .catch(function (e) { S.infoErr = e.message; })
+      .then(function () {
+        S.infoBusy = false; S.infoAt = Date.now();
+        var b = $('#infoBlock'); if (b) b.innerHTML = infoBlockHTML();
+      });
+  }
+
+  /* ---------- Реестр согласований (лист ApprovalsRegister) ---------- */
+  function voteSummary(id) {
+    var v = S.idx.votes[id] || [];
+    return { total: v.length, agree: v.filter(function (x) { return x.vote === 'Agree'; }).length, rows: v };
+  }
+  function votePill(v) {
+    return '<span class="pill v-' + esc(String(v).replace(/\s/g, '')) + '">' + esc(enumLabel('vote', v)) + '</span>';
+  }
+
+  function registerHTML() {
+    var list = S.data.entities.approval.slice().sort(function (a, b) { return String(a.deadline).localeCompare(String(b.deadline)); });
+    var head = '<div class="card-head" style="padding:0 var(--card-pad)"><h4>Реестр согласований</h4><span class="small muted">Лист ApprovalsRegister · ' + list.length + '</span></div>';
+    if (!list.length) {
+      return head + '<div class="empty"><b>Согласований пока нет</b>Создайте согласование кнопкой «Создать» и выберите участников голосования.</div>';
+    }
+    var rows = list.map(function (a) {
+      var vs = voteSummary(a.id), open = !!S.regOpen[a.id], late = isOverdue(a);
+      var r = '<tr class="reg-row' + (open ? ' open' : '') + '" data-act="reg-toggle" data-id="' + esc(a.id) + '">' +
+        '<td class="nowrap"><span class="reg-caret">&#9656;</span> ' + esc(a.id) + '</td>' +
+        '<td>' + esc(a.name) + '</td><td>' + esc(a.initiator) + '</td>' +
+        '<td class="nowrap">' + ru(String(a.created_at).slice(0, 10)) + '</td>' +
+        '<td class="nowrap' + (late ? ' log-late' : '') + '" style="' + (late ? 'color:var(--danger)' : '') + '">' + ru(a.deadline) + '</td>' +
+        '<td>' + pill(a) + '</td>' +
+        '<td class="nowrap">' + (vs.total ? vs.agree + ' из ' + vs.total + ' согласны' : '<span class="muted">без голосования</span>') + '</td>' +
+        '<td class="right"><button class="link-btn" data-act="open" data-id="' + esc(a.id) + '">Открыть</button></td></tr>';
+      if (open) {
+        r += '<tr class="reg-sub"><td colspan="8">' + (vs.total
+          ? '<table class="tbl"><thead><tr><th>Участник</th><th>Голос</th><th>Комментарий</th><th>Дата голоса</th></tr></thead><tbody>' +
+            vs.rows.map(function (v) {
+              return '<tr><td>' + esc(v.voter) + '</td><td>' + votePill(v.vote) + '</td><td>' + esc(v.vote_comment || '—') +
+                '</td><td class="nowrap">' + esc(v.vote_date ? fmtTs(v.vote_date) : '—') + '</td></tr>';
+            }).join('') + '</tbody></table>'
+          : '<span class="muted small">Участники не назначены: статус задаётся вручную в карточке.</span>') + '</td></tr>';
+      }
+      return r;
+    }).join('');
+    return head + '<div class="table-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Название</th><th>Инициатор</th><th>Создано</th>' +
+      '<th>Срок</th><th>Статус</th><th>Голоса</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
   function renderHome() {
@@ -254,11 +340,10 @@
     var all = [].concat(d.stage, d.task, d.subtask, d.approval, d.meeting);
     var overdue = all.filter(isOverdue);
     var blocked = all.filter(function (e) { return e._type !== 'meeting' && isBlocked(e) && !isDoneLike(e); });
-    var pendingAp = d.approval.filter(function (a) { return a.status === 'Pending'; });
+    var pendingAp = d.approval.filter(function (a) { return a.status === 'Pending' || a.status === 'In Progress'; });
 
     // Задачи по статусам
-    var st = enumOf('status');
-    var statRows = st.map(function (s) {
+    var statRows = enumOf('status').map(function (s) {
       var n = d.task.filter(function (t) { return t.status === s.value; }).length;
       var pct = d.task.length ? Math.round(n / d.task.length * 100) : 0;
       return '<div class="stat-row"><span><span class="pill s-' + s.value.replace(/\s/g, '') + '">' + esc(s.label) + '</span></span>' +
@@ -277,18 +362,18 @@
         '<span class="date-chip' + (late ? ' late' : '') + '">' + ru(dateOf(e)) + '</span>' +
         '<div class="grow"><div class="title">' + esc(e.name) + '</div><div class="small muted">' + esc(ownerOf(e) || 'Не назначен') + '</div></div>' +
         typeTag(e._type) + '</div>';
-    }).join('') : '<div class="empty">Ближайших сроков нет</div>';
+    }).join('') : '<div class="empty"><b>Ближайших сроков нет</b>Просроченных и приближающихся задач нет.</div>';
 
     var blHtml = blocked.length ? blocked.map(function (e) {
       return '<div class="list-item" data-act="open" data-id="' + esc(e.id) + '">' +
         '<div class="grow"><div class="title">' + esc(e.name) + '</div>' +
         '<div class="small muted">' + esc(e.block_reason || 'Причина не указана') +
         (e.blocked_by ? ' · ' + esc(e.blocked_by) : '') + '</div></div>' + typeTag(e._type) + '</div>';
-    }).join('') : '<div class="empty">Заблокированных элементов нет</div>';
+    }).join('') : '<div class="empty"><b>Всё в движении</b>Заблокированных элементов нет.</div>';
 
     var evHtml = S.data.recentLog.length ? S.data.recentLog.map(function (r) {
       return '<div class="hist-item"><span class="when">' + esc(fmtTs(r.timestamp)) + '</span><b>' + esc(r.user) + '</b> · ' + esc(describeLog(r)) + '</div>';
-    }).join('') : '<div class="empty">Событий пока нет</div>';
+    }).join('') : '<div class="empty"><b>Событий пока нет</b>Здесь появятся последние изменения.</div>';
 
     $('#v-home').innerHTML =
       '<div class="view-head"><h2>Главная</h2></div>' +
@@ -308,71 +393,84 @@
       '<div class="card span-4"><div class="card-head"><h4>Заблокировано</h4></div><div class="list">' + blHtml + '</div></div>' +
       '<div class="card span-6"><div class="card-head"><h4>Ближайшие сроки</h4><span class="muted small">14 дней и просрочка</span></div><div class="list">' + upHtml + '</div></div>' +
       '<div class="card span-6"><div class="card-head"><h4>Последние события</h4><button class="link-btn small" data-act="tab" data-tab="log">Весь журнал</button></div>' + evHtml + '</div>' +
+      '<div class="card span-12" id="infoBlock">' + infoBlockHTML() + '</div>' +
+      '<div class="card span-12 table-card" id="regBlock" style="padding:var(--card-pad) 0 0">' + registerHTML() + '</div>' +
       '<div class="card span-12 desc-box"><div class="card-head"><h4>Описание проекта</h4></div>' +
       '<textarea id="projDesc" maxlength="5000">' + esc(S.data.settings.project_description || '') + '</textarea>' +
-      '<div style="margin-top:10px"><button class="btn primary sm" data-act="save-desc">Сохранить описание</button></div></div>' +
+      '<div style="margin-top:var(--s-3)"><button class="btn primary sm" data-act="save-desc">Сохранить описание</button></div></div>' +
       '</div>';
+    loadInfo(false);
   }
 
   /* ============================================================================
-   * ОБМЕН (связи между объектами)
+   * ОБМЕН: карточки «источник — получатель — дополнительно»
    * ========================================================================== */
-  function entCell(id) {
-    var e = S.idx.byId[id];
-    if (!e) return '<td>' + esc(id) + ' <span class="muted small">(удалён)</span></td>';
-    return '<td class="cell-entity" data-act="open" data-id="' + esc(id) + '">' +
-      '<div>' + typeTag(e._type) + ' <span class="muted small">' + esc(id) + '</span></div>' +
-      '<div class="nm">' + esc(e.name) + '</div>' +
-      '<div class="small muted">' + esc(ownerOf(e) || 'Не назначен') + ' · ' + pill(e) + '</div></td>';
+  /** Карточка связи. Строки: кто (источник), кому (получатель), что (задача), когда (дата и статус передачи). */
+  function exchangeCardHTML(c) {
+    var h = c.handover, cls = { ok: 's-Done', wait: 's-Pending', bad: 's-Blocked', none: '' }[h.code] || '';
+    var side = function (label, e) {
+      return '<div class="xc-block" data-act="open" data-id="' + esc(e.id) + '" title="Открыть: ' + esc(e.id + ' · ' + e.name) + '">' +
+        '<div class="xc-label">' + label + '</div>' +
+        '<div class="xc-who">' + esc(e.owner || 'Не назначен') + '</div>' +
+        '<div class="xc-task">' + esc(e.name) + '</div>' +
+        '<div class="xc-task-label">' + esc(e.type_label) + ' · ' + (e.date ? ru(e.date) : 'без срока') + ' · Статус: ' + esc(e.status_label) + '</div></div>';
+    };
+    var extra = '';
+    if (c.note) extra += '<p>' + esc(c.note) + '</p>';
+    if (c.source.comment) extra += '<p class="muted">Комментарий: ' + esc(c.source.comment) + '</p>';
+    c.source.docs.forEach(function (d) {
+      extra += '<p><a href="' + esc(d.url) + '" target="_blank" rel="noopener noreferrer">' + esc(d.name) + '</a></p>';
+    });
+    return '<div class="card xc">' +
+      '<div class="xc-top"><span class="xc-type">' + esc(c.type_label) + '</span><span class="nowrap">' +
+      '<button class="link-btn small" data-act="link-edit" data-id="' + esc(c.link_id) + '">Изменить</button> ' +
+      '<button class="link-btn danger small" data-act="link-del" data-id="' + esc(c.link_id) + '">Удалить</button></span></div>' +
+      side('Источник', c.source) + side('Получатель', c.target) +
+      (extra ? '<div class="xc-block xc-extra"><div class="xc-label">Дополнительно</div>' + extra + '</div>' : '') +
+      '<div class="xc-foot"><div><div><span class="muted">Что:</span> ' + esc(c.source.name) + '</div>' +
+      '<div><span class="muted">Когда:</span> ' + (h.date ? ru(h.date) : 'без срока') + '</div></div>' +
+      (cls ? '<span class="pill ' + cls + '">' + esc(h.label) + '</span>' : '<span class="muted">—</span>') + '</div></div>';
   }
 
-  function linkState(l) {
-    if (l.link_type !== 'handoff') return '<span class="muted">—</span>';
-    var s = S.idx.byId[l.source_id];
-    if (!s) return '<span class="muted">—</span>';
-    if (isDoneLike(s)) return '<span class="pill s-Done">Передано</span>';
-    if (isBlocked(s)) return '<span class="pill s-Blocked">Заблокировано</span>';
-    if (isOverdue(s)) return '<span class="pill s-late">Просрочено</span>';
-    return '<span class="pill s-Pending">Ожидается</span>';
+  /** Перерисовывает только список карточек (поиск и фильтр работают по уже загруженным данным). */
+  function drawExchangeCards() {
+    var body = $('#xcBody'); if (!body) return;
+    if (S.exchErr) { body.innerHTML = '<div class="form-error">' + esc(S.exchErr) + '</div>'; return; }
+    if (!S.exchCards) { body.innerHTML = '<div class="loading"><span class="spinner"></span>Загрузка связей…</div>'; return; }
+    var f = S.exch.filter, q = S.exch.q.toLowerCase();
+    var cards = S.exchCards.filter(function (c) {
+      if (f === 'flow' && c.link_type === 'parent') return false;
+      if (f !== 'flow' && f !== 'all' && c.link_type !== f) return false;
+      if (!q) return true;
+      return [c.source.id, c.target.id, c.source.name, c.target.name, c.source.owner, c.target.owner, c.note, c.type_label]
+        .join(' ').toLowerCase().indexOf(q) !== -1;
+    });
+    body.innerHTML = cards.length
+      ? '<div class="xc-grid">' + cards.map(exchangeCardHTML).join('') + '</div>'
+      : '<div class="card"><div class="empty"><b>Связей не найдено</b>Измените фильтр или нажмите «Добавить связь».</div></div>';
   }
 
   function renderExchange() {
-    var f = S.exch.filter, q = S.exch.q.toLowerCase();
-    var links = S.data.links.filter(function (l) {
-      if (f === 'flow' && l.link_type === 'parent') return false;
-      if (f !== 'flow' && f !== 'all' && l.link_type !== f) return false;
-      if (q) {
-        var a = S.idx.byId[l.source_id], b = S.idx.byId[l.target_id];
-        var hay = [l.source_id, l.target_id, a && a.name, b && b.name, a && ownerOf(a), b && ownerOf(b), l.note].join(' ').toLowerCase();
-        if (hay.indexOf(q) === -1) return false;
-      }
-      return true;
-    });
-    var rows = links.map(function (l) {
-      return '<tr>' + entCell(l.source_id) + '<td class="arrow-cell">&rarr;</td>' + entCell(l.target_id) +
-        '<td>' + esc(enumLabel('link_type', l.link_type)) + (l.note ? '<div class="small muted">' + esc(l.note) + '</div>' : '') + '</td>' +
-        '<td>' + linkState(l) + '</td>' +
-        '<td class="nowrap right"><button class="link-btn" data-act="link-edit" data-id="' + esc(l.link_id) + '">Изменить</button> ' +
-        '<button class="link-btn danger" data-act="link-del" data-id="' + esc(l.link_id) + '">Удалить</button></td></tr>';
-    }).join('');
-
-    var opts = [['flow', 'Обмен (без иерархии)'], ['handoff', 'Передача результата'], ['related', 'Прочие связи'], ['parent', 'Иерархия'], ['all', 'Все']];
+    var opts = [['flow', 'Обмен (без иерархии)'], ['blocks', 'Блокировки'], ['handoff', 'Передача информации'],
+      ['approval', 'Согласования'], ['related', 'Прочие связи'], ['parent', 'Иерархия'], ['all', 'Все']];
     $('#v-exchange').innerHTML =
       '<div class="view-head"><h2>Обмен</h2><div class="toolbar">' +
-      '<input type="text" id="exQ" placeholder="Поиск по названию, ID, исполнителю" value="' + esc(S.exch.q) + '">' +
-      '<select id="exF">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === f ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+      '<input type="text" id="exQ" placeholder="Поиск по названию, ID, участнику" value="' + esc(S.exch.q) + '">' +
+      '<select id="exF">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === S.exch.filter ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
       '<button class="btn primary" data-act="link-new">Добавить связь</button></div></div>' +
-      '<p class="muted">Кто кому передаёт информацию и результаты: источник &rarr; получатель. Статус связи показывает, передан ли результат.</p>' +
-      '<div class="card table-card"><div class="table-wrap"><table class="tbl"><thead><tr>' +
-      '<th>Источник</th><th></th><th>Получатель</th><th>Тип связи</th><th>Статус</th><th></th></tr></thead><tbody>' +
-      (rows || '<tr><td colspan="6" class="empty">Связей нет. Нажмите «Добавить связь».</td></tr>') + '</tbody></table></div></div>';
+      '<p class="view-lead">Кто кому передаёт информацию и результаты. Нажмите на участника, чтобы открыть карточку задачи.</p>' +
+      '<div id="xcBody"></div>';
+    drawExchangeCards();
+    authCall('getExchangeCards', { type: 'all' }).then(function (r) { S.exchCards = r.cards; S.exchErr = ''; })
+      .catch(function (e) { S.exchErr = e.message; })
+      .then(drawExchangeCards);
   }
 
   /* Модальное окно связи (создание и редактирование) */
   function openLinkModal(linkId, presetSource) {
     var l = linkId ? S.data.links.filter(function (x) { return x.link_id === linkId; })[0] : null;
     var body =
-      '<label class="field"><span>Источник (кто передаёт)</span><select id="mlSrc">' +
+      '<label class="field"><span>Источник (кто передаёт / блокирует / требует)</span><select id="mlSrc">' +
       entityOptions(l ? l.source_id : presetSource, null, l || presetSource ? null : 'Выберите…') + '</select></label>' +
       '<label class="field"><span>Тип связи</span><select id="mlType">' +
       enumOf('link_type').map(function (o) {
@@ -463,9 +561,151 @@
   }
 
   /* ============================================================================
+   * КАНБАН
+   * Колонки: В процессе / Планируются / Готово / Ожидают решения (просроченные).
+   * Перетаскивание на pointer-событиях (мышь и касание), статус сохраняется на сервере (moveTask).
+   * ========================================================================== */
+  var KB_COLS = [
+    { id: 'progress', title: 'В процессе', empty: 'Задач в работе нет' },
+    { id: 'planned', title: 'Планируются', empty: 'Запланированных задач нет' },
+    { id: 'done', title: 'Готово', empty: 'Завершённых задач пока нет' },
+    { id: 'awaiting', title: 'Ожидают решения', empty: 'Просроченных задач нет' }
+  ];
+  var KB_STATUS = { progress: 'In Progress', planned: 'Not Started', done: 'Done' };
+
+  /** Колонка задачи: просрочка (срок прошёл, не «Готово») важнее статуса. */
+  function kbColumn(t) {
+    if (t.status === 'Done') return 'done';
+    if (t.deadline && t.deadline < today()) return 'awaiting';
+    if (t.status === 'Not Started') return 'planned';
+    return 'progress';
+  }
+
+  function kbCardHTML(t) {
+    var late = isOverdue(t), blk = isBlocked(t) && t.status !== 'Done', pct = effProgress(t);
+    var days = late ? Math.round((pd(today()) - pd(t.deadline)) / DAY) : 0;
+    var tip = t.id + ' · ' + t.name + (t.description ? '\n' + t.description : '') + (blk ? '\nБлокировка: ' + (t.block_reason || 'причина не указана') : '');
+    return '<div class="k-card' + (blk ? ' blocked' : '') + (late ? ' late' : '') + '" data-act="open" data-id="' + esc(t.id) + '" title="' + esc(tip) + '">' +
+      '<span class="k-grip" aria-hidden="true"></span>' +
+      '<div class="k-title">' + esc(t.name) + '</div>' +
+      '<div class="k-meta"><span>' + esc(t.assignee || 'Не назначен') + '</span>' +
+      '<span class="' + (late ? 'late' : '') + '">' + (t.deadline ? ru(t.deadline) : 'без срока') + (late ? ' · +' + days + ' дн.' : '') + '</span></div>' +
+      '<div class="k-prog"><div class="bar"><i style="width:' + pct + '%"></i></div><b>' + pct + '%</b></div>' +
+      ((blk || (t.status !== 'In Progress' && t.status !== 'Not Started' && t.status !== 'Done'))
+        ? '<div class="k-flags">' + (blk ? '<span class="pill s-Blocked">Блок</span>' : '') +
+          (t.status === 'Under Review' ? '<span class="pill s-UnderReview">На проверке</span>' : '') + '</div>' : '') +
+      '</div>';
+  }
+
+  function renderKanban() {
+    var tasks = S.data.entities.task, cols = {};
+    KB_COLS.forEach(function (c) { cols[c.id] = []; });
+    tasks.forEach(function (t) { cols[kbColumn(t)].push(t); });
+    var byDeadline = function (a, b) { return String(a.deadline || '9999').localeCompare(String(b.deadline || '9999')); };
+    $('#v-kanban').innerHTML =
+      '<div class="view-head"><h2>Канбан</h2><div class="toolbar"><button class="btn primary" data-act="new" data-type="task">Новая задача</button></div></div>' +
+      '<p class="view-lead">Перетаскивайте карточки между колонками — статус сохранится в таблице. ' +
+      'В «Ожидают решения» задачи попадают автоматически, когда срок прошёл, а задача не завершена.</p>' +
+      '<div class="kb" id="kb">' + KB_COLS.map(function (c) {
+        var list = cols[c.id].sort(byDeadline);
+        return '<div class="kb-col" data-col="' + c.id + '"><div class="kb-head"><h3><span class="kb-dot"></span>' + c.title +
+          '</h3><span class="kb-count">' + list.length + '</span></div><div class="kb-body">' +
+          (list.length ? list.map(kbCardHTML).join('') : '<div class="kb-empty">' + c.empty + '</div>') + '</div></div>';
+      }).join('') + '</div>';
+  }
+
+  /* ---------- Перетаскивание ---------- */
+  var drag = null;
+
+  function dragStart(ev) {
+    var card = ev.target.closest && ev.target.closest('.k-card');
+    if (!card || ev.button > 0 || S.tab !== 'kanban') return;
+    // мышью тянем за любое место карточки, пальцем — только за «ручку» (чтобы колонка прокручивалась)
+    if (ev.pointerType !== 'mouse' && !ev.target.closest('.k-grip')) return;
+    drag = { card: card, id: card.getAttribute('data-id'), from: card.closest('.kb-col').getAttribute('data-col'),
+      sx: ev.clientX, sy: ev.clientY, active: false, ghost: null, over: null };
+  }
+
+  function dragMove(ev) {
+    if (!drag) return;
+    if (!drag.active) {
+      if (Math.abs(ev.clientX - drag.sx) + Math.abs(ev.clientY - drag.sy) < 8) return;
+      drag.active = true;
+      var r = drag.card.getBoundingClientRect();
+      drag.dx = ev.clientX - r.left; drag.dy = ev.clientY - r.top;
+      var g = drag.card.cloneNode(true);
+      g.className += ' k-ghost'; g.style.width = r.width + 'px';
+      document.body.appendChild(g);
+      drag.ghost = g;
+      drag.card.classList.add('k-dragging');
+      document.body.style.userSelect = 'none';
+    }
+    ev.preventDefault();
+    drag.ghost.style.left = (ev.clientX - drag.dx) + 'px';
+    drag.ghost.style.top = (ev.clientY - drag.dy) + 'px';
+    var el = document.elementFromPoint(ev.clientX, ev.clientY);
+    var col = el && el.closest ? el.closest('.kb-col') : null;
+    $$('.kb-col').forEach(function (c) { c.classList.remove('k-over', 'k-deny'); });
+    drag.over = col ? col.getAttribute('data-col') : null;
+    if (col && drag.over !== drag.from) col.classList.add(drag.over === 'awaiting' ? 'k-deny' : 'k-over');
+  }
+
+  function dragEnd(ev, cancelled) {
+    if (!drag) return;
+    var d = drag; drag = null;
+    if (!d.active) return;
+    if (d.ghost) d.ghost.remove();
+    d.card.classList.remove('k-dragging');
+    document.body.style.userSelect = '';
+    $$('.kb-col').forEach(function (c) { c.classList.remove('k-over', 'k-deny'); });
+    S.noClick = true; setTimeout(function () { S.noClick = false; }, 0);   // отпускание не должно открывать карточку
+    if (!cancelled) dropCard(d.id, d.from, d.over);
+  }
+
+  /** Перенос карточки: сразу обновляем интерфейс, при ошибке сервера возвращаем прежнее состояние. */
+  function dropCard(id, from, to) {
+    if (!to || to === from) return;
+    if (to === 'awaiting') {
+      toast('Колонка «Ожидают решения» заполняется автоматически: сюда попадают просроченные задачи', true);
+      return;
+    }
+    var e = S.idx.byId[id]; if (!e) return;
+    var prev = { status: e.status, progress: e.progress };
+    e.status = KB_STATUS[to];
+    if (to === 'done') e.progress = 100;
+    renderKanban();
+    var moved = $('.k-card[data-id="' + id + '"]'); if (moved) moved.classList.add('k-flash');
+    authCall('moveTask', id, to).then(function (res) {
+      toast(res.overdue
+        ? 'Статус обновлён, но срок прошёл: задача остаётся в «Ожидают решения». Перенесите срок в карточке.'
+        : 'Статус изменён: ' + enumLabel('status', KB_STATUS[to]));
+      return reload();
+    }).catch(function (err) {
+      e.status = prev.status; e.progress = prev.progress;
+      renderKanban();
+      toast(err.message, true);
+    });
+  }
+
+  /* ============================================================================
    * ДИАГРАММА ГАНТА
+   * Ортогональные скруглённые коннекторы со стрелками, три стиля связей, подсветка цепочки,
+   * плавный масштаб ползунком, фильтр «Блокирующие», ромбы согласований.
    * ========================================================================== */
   var ROW_H = 46, GROUP_H = 34;
+  var DW_MIN = 1.5, DW_MAX = 80, DW_DEFAULT = 24;      // пикселей на день: обзор проекта ... детали по дням
+
+  /** Стили коннекторов: блокировка — сплошная, передача информации — штрих, согласование — точки. */
+  var LINK_STYLE = {
+    blocks: { color: '#3b4256', dash: '', width: 1.8, arrow: true },
+    handoff: { color: '#4d6fd0', dash: '7 4', width: 1.7, arrow: true },
+    approval: { color: '#a8690c', dash: '0.1 5', width: 2.6, arrow: true, cap: 'round' },
+    related: { color: '#9aa1ad', dash: '3 5', width: 1.2, arrow: false }
+  };
+  var DIRECTED = { blocks: true, handoff: true, approval: true };    // связи, образующие цепочку зависимостей
+
+  function dwFromSlider(v) { return DW_MIN * Math.pow(DW_MAX / DW_MIN, v / 100); }
+  function sliderFromDw(dw) { return Math.round(Math.log(dw / DW_MIN) / Math.log(DW_MAX / DW_MIN) * 100); }
 
   function spanOf(e) {
     var end = pd(e.deadline);
@@ -477,6 +717,7 @@
     return { s: st, e: end };
   }
 
+  /** Строки диаграммы: этапы -> задачи -> подзадачи/согласования. В режиме «Блокирующие» остаются заблокированные и (приглушённо) соседи. */
   function ganttRows() {
     var rows = [];
     var key = function (e) { return String(e.start_date || e.deadline || '') + e.id; };
@@ -493,13 +734,142 @@
       rows.push({ group: g[1] });
       list.forEach(function (e) { walk(e, 1); });
     });
+
+    var bl = {};
+    if (S.gantt.blockOnly) {
+      var keep = {}, ctx = {};
+      var work = function (e) { return e && e._type !== 'meeting'; };
+      var addAncestors = function (id) {
+        var cur = S.idx.parent[id];
+        while (cur && S.idx.byId[cur]) { if (!keep[cur]) { keep[cur] = true; ctx[cur] = true; } cur = S.idx.parent[cur]; }
+      };
+      [].concat(S.data.entities.stage, S.data.entities.task, S.data.entities.subtask, S.data.entities.approval).forEach(function (e) {
+        if (isBlocked(e) && !isDoneLike(e)) { bl[e.id] = true; keep[e.id] = true; ctx[e.id] = false; }
+      });
+      if (S.gantt.ctx) {
+        S.data.links.forEach(function (l) {
+          if (l.link_type === 'parent') return;
+          [[l.source_id, l.target_id], [l.target_id, l.source_id]].forEach(function (p) {
+            if (bl[p[0]] && work(S.idx.byId[p[1]]) && !keep[p[1]]) { keep[p[1]] = true; ctx[p[1]] = true; }
+          });
+        });
+      }
+      Object.keys(keep).forEach(addAncestors);
+      rows = rows.filter(function (r) { return r.group || keep[r.e.id]; });
+      rows.forEach(function (r) { if (!r.group) r.ctx = !!ctx[r.e.id]; });
+      // убираем заголовки групп без строк
+      rows = rows.filter(function (r, i) { return !r.group || (rows[i + 1] && !rows[i + 1].group); });
+    }
+    rows.blocked = bl;
     return rows;
   }
 
+  /** Скруглённая ломаная: углы сглаживаются квадратичными кривыми. */
+  function roundedPath(pts, r) {
+    var p = pts.filter(function (a, i) { return !i || a[0] !== pts[i - 1][0] || a[1] !== pts[i - 1][1]; });
+    var d = 'M' + p[0][0] + ' ' + p[0][1];
+    for (var i = 1; i < p.length - 1; i++) {
+      var a = p[i - 1], b = p[i], c = p[i + 1];
+      var l1 = Math.hypot(a[0] - b[0], a[1] - b[1]), l2 = Math.hypot(c[0] - b[0], c[1] - b[1]);
+      var rr = Math.min(r, l1 / 2, l2 / 2);
+      d += ' L' + (b[0] + (a[0] - b[0]) / l1 * rr) + ' ' + (b[1] + (a[1] - b[1]) / l1 * rr) +
+        ' Q' + b[0] + ' ' + b[1] + ' ' + (b[0] + (c[0] - b[0]) / l2 * rr) + ' ' + (b[1] + (c[1] - b[1]) / l2 * rr);
+    }
+    var z = p[p.length - 1];
+    return d + ' L' + z[0] + ' ' + z[1];
+  }
+
+  /** Коннектор от правого края источника (x1,y1) к левому краю получателя (x2,y2). */
+  function elbow(x1, y1, x2, y2) {
+    var g = 12, pts;
+    if (Math.abs(y1 - y2) < 1) pts = [[x1, y1], [x2, y2]];
+    else if (x2 >= x1 + 2 * g) {
+      var xv = x1 + Math.min(g * 1.5, (x2 - x1) / 2);
+      pts = [[x1, y1], [xv, y1], [xv, y2], [x2, y2]];
+    } else {                                     // получатель начинается раньше окончания источника — обходим по границе строк
+      var ym = y1 + (y2 > y1 ? ROW_H / 2 : -ROW_H / 2);
+      pts = [[x1, y1], [x1 + g, y1], [x1 + g, ym], [x2 - g, ym], [x2 - g, y2], [x2, y2]];
+    }
+    return roundedPath(pts, 7);
+  }
+
+  /** Цепочка зависимостей: все предшественники и последователи (через направленные связи). */
+  function chainOf(ids) {
+    var nodes = {}, links = {}, stack = ids.slice();
+    ids.forEach(function (i) { nodes[i] = true; });
+    [['target_id', 'source_id'], ['source_id', 'target_id']].forEach(function (dir) {   // вверх по потоку, затем вниз
+      var seen = {}, st = ids.slice();
+      while (st.length) {
+        var cur = st.pop();
+        if (seen[cur]) continue; seen[cur] = true;
+        S.data.links.forEach(function (l) {
+          if (!DIRECTED[l.link_type] || l[dir[0]] !== cur) return;
+          links[l.link_id] = true; nodes[l[dir[1]]] = true; st.push(l[dir[1]]);
+        });
+      }
+    });
+    return { nodes: nodes, links: links, stack: stack };
+  }
+
+  function applyChain(ids) {
+    var cv = $('.g-canvas'); if (!cv) return;
+    $$('.hl', cv).forEach(function (x) { x.classList.remove('hl'); });
+    cv.classList.remove('chain-on');
+    if (!ids || !ids.length) return;
+    var ch = chainOf(ids);
+    if (!Object.keys(ch.links).length) return;           // у изолированного объекта подсвечивать нечего
+    cv.classList.add('chain-on');
+    $$('[data-id]', cv).forEach(function (el) { if (ch.nodes[el.getAttribute('data-id')]) el.classList.add('hl'); });
+    $$('[data-lid]', cv).forEach(function (el) { if (ch.links[el.getAttribute('data-lid')]) el.classList.add('hl'); });
+  }
+
+  function voteBadge(a) {
+    var vs = voteSummary(a.id);
+    return vs.total ? ' · ' + vs.agree + '/' + vs.total : '';
+  }
+
+  /** Каркас вкладки: панель управления (не перерисовывается при масштабировании) и область диаграммы. */
   function renderGantt(keepScroll) {
-    var root = $('#v-gantt');
-    var prev = keepScroll && $('#gScroll') ? { l: $('#gScroll').scrollLeft, t: $('#gScroll').scrollTop } : null;
-    var rows = ganttRows();
+    var sc = $('#gScroll');
+    var prev = keepScroll && sc ? { l: sc.scrollLeft, t: sc.scrollTop } : null;
+    var g = S.gantt;
+    $('#v-gantt').innerHTML =
+      '<div class="view-head"><h2>Диаграмма Ганта</h2><div class="toolbar"><button class="btn sm" data-act="g-today">Сегодня</button></div></div>' +
+      '<div class="g-bar-top">' +
+      '<div class="zoom-ctl"><span class="zl">Весь проект</span>' +
+      '<input type="range" id="gZoom" min="0" max="100" step="1" value="' + sliderFromDw(g.dw) + '" aria-label="Масштаб диаграммы">' +
+      '<span class="zl">По дням</span>' +
+      '<button class="btn sm" data-act="g-fit" title="Уместить весь проект по ширине">Уместить</button>' +
+      '<button class="btn sm" data-act="g-reset" title="Вернуть масштаб по умолчанию">Сбросить</button></div>' +
+      '<label class="toggle"><input type="checkbox" id="gBlock"' + (g.blockOnly ? ' checked' : '') + '><span class="sw"></span>Блокирующие</label>' +
+      '<label class="toggle"><input type="checkbox" id="gCtx"' + (g.ctx ? ' checked' : '') + (g.blockOnly ? '' : ' disabled') + '><span class="sw"></span>с зависимостями</label>' +
+      '</div>' +
+      '<div class="legend">' +
+      '<span class="it"><span class="lg-bar stage"></span>Этап</span>' +
+      '<span class="it"><span class="lg-bar"></span>Задача (заливка — прогресс)</span>' +
+      '<span class="it"><span class="lg-bar overdue"></span>Просрочено</span>' +
+      '<span class="it"><span class="lg-bar blocked"></span>Заблокировано</span>' +
+      '<span class="it"><span class="lg-dia"></span>Требуется решение</span>' +
+      '<span class="it"><span class="lg-dia ok"></span>Согласовано</span>' +
+      '<span class="it"><span class="lg-dia bad"></span>Отклонено</span>' +
+      '<span class="it"><span class="lg-line blocks"></span>Блокирует</span>' +
+      '<span class="it"><span class="lg-line handoff"></span>Передаёт информацию</span>' +
+      '<span class="it"><span class="lg-line approval"></span>Согласование</span>' +
+      '<span class="it"><span class="lg-line related"></span>Связан</span>' +
+      '<span class="it"><span class="lg-today"></span>Сегодня</span></div>' +
+      '<div class="card g-card"><div id="gChart"></div><div class="g-tip" id="gTip" hidden></div></div>';
+    drawGantt({ scroll: prev });
+  }
+
+  /** Рисует диаграмму. opts.scroll — вернуть позицию прокрутки; opts.recenter — сохранить дату в центре экрана при смене масштаба. */
+  function drawGantt(opts) {
+    opts = opts || {};
+    var root = $('#gChart'); if (!root) return;
+    var sc0 = $('#gScroll'), g = S.gantt;
+    var anchor = null;
+    if (opts.recenter && sc0 && g.drawnDw) anchor = (sc0.scrollLeft + sc0.clientWidth / 2 - g.LW) / g.drawnDw;
+
+    var rows = ganttRows(), bl = rows.blocked;
     var LW = window.innerWidth <= 760 ? 200 : 320;
     var t0 = pd(today()), min = Infinity, max = -Infinity;
     rows.forEach(function (r) {
@@ -511,58 +881,63 @@
     min = Math.min(min, t0) - 3 * DAY; max = Math.max(max, t0) + 10 * DAY;
     min -= ((new Date(min).getUTCDay() + 6) % 7) * DAY;           // начало недели — понедельник
 
-    var dayW = { day: 30, week: 12, month: 4 }[S.gantt.zoom];
-    var days = Math.round((max - min) / DAY) + 1, W = days * dayW;
+    var dayW = g.dw;
+    var days = Math.round((max - min) / DAY) + 1, W = Math.ceil(days * dayW);
     var X = function (ms) { return (ms - min) / DAY * dayW; };
+    g.days = days; g.LW = LW; g.drawnDw = dayW; g.todayX = X(t0);
 
-    // Шапка шкалы времени: месяцы и дни / недели
+    // Шапка шкалы: месяцы + дни (крупно) или недели (средне); при мелком масштабе — только месяцы
     var months = [], cur = null, i;
     for (i = 0; i < days; i++) {
       var dd = new Date(min + i * DAY), key = dd.getUTCFullYear() * 12 + dd.getUTCMonth();
-      if (!cur || cur.key !== key) { cur = { key: key, label: MONTHS[dd.getUTCMonth()] + ' ' + dd.getUTCFullYear(), n: 0 }; months.push(cur); }
+      if (!cur || cur.key !== key) { cur = { key: key, m: dd.getUTCMonth(), y: dd.getUTCFullYear(), n: 0 }; months.push(cur); }
       cur.n++;
     }
-    var monthsHtml = months.map(function (m) { return '<div style="width:' + (m.n * dayW) + 'px">' + (m.n * dayW > 60 ? esc(m.label) : '') + '</div>'; }).join('');
+    var monthsHtml = months.map(function (m) {
+      var w = m.n * dayW, label = w > 120 ? MONTHS[m.m] + ' ' + m.y : (w > 36 ? MONTHS[m.m].slice(0, 3) + (w > 70 ? ' ' + m.y : '') : '');
+      return '<div style="width:' + w + 'px">' + label + '</div>';
+    }).join('');
     var lower = '';
-    if (S.gantt.zoom === 'day') {
+    if (dayW >= 22) {
       for (i = 0; i < days; i++) {
         var x = new Date(min + i * DAY), wd = (x.getUTCDay() + 6) % 7;
         lower += '<div class="' + (wd > 4 ? 'we' : '') + '" style="width:' + dayW + 'px">' + x.getUTCDate() + '</div>';
       }
-    } else if (S.gantt.zoom === 'week') {
+    } else if (dayW >= 9) {
       for (i = 0; i < days; i += 7) lower += '<div style="width:' + (7 * dayW) + 'px">' + new Date(min + i * DAY).getUTCDate() + '</div>';
     }
+    var gridStep = dayW >= 22 ? dayW : (dayW >= 5 ? 7 * dayW : 0);
+    var gridStyle = 'width:' + W + 'px' + (gridStep ? ';background-image:linear-gradient(to right,#eef0f3 1px,transparent 1px);background-size:' + gridStep + 'px 100%' : '');
 
     // Строки и геометрия
     var pos = {}, y = 0, rowsHtml = '';
-    var gridStyle = 'width:' + W + 'px;background-image:linear-gradient(to right,#eef0f3 1px,transparent 1px);background-size:' +
-      (S.gantt.zoom === 'day' ? dayW : 7 * dayW) + 'px 100%';
     rows.forEach(function (r) {
       if (r.group) {
         rowsHtml += '<div class="g-row group"><div class="g-label">' + esc(r.group) + '</div><div class="g-track" style="' + gridStyle + '"></div></div>';
         y += GROUP_H; return;
       }
       var e = r.e, sp = r.sp, bar = '', late = isOverdue(e), blk = isBlocked(e) && !isDoneLike(e), pct = effProgress(e);
-      var yc = y + ROW_H / 2;
+      var yc = y + ROW_H / 2, id = esc(e.id);
       var tip = e.id + ' · ' + e.name + '\n' + statusLabel(e) + (ownerOf(e) ? ' · ' + ownerOf(e) : '') +
         (sp ? '\n' + ru(fd(sp.s)) + ' — ' + ru(fd(sp.e)) : '') + (blk ? '\nБлокировка: ' + (e.block_reason || '') : '');
       if (sp && e._type === 'approval') {
         var cx = X(sp.s) + dayW / 2;
-        var cls = 's-' + e.status + (late ? ' late' : '') + (blk ? ' blocked' : '');
-        var lbl = e.status === 'Pending' ? 'Требуется решение' : enumLabel('approval_status', e.status);
-        bar = '<div class="g-dia ' + cls + '" data-act="open" data-id="' + esc(e.id) + '" style="left:' + (cx - 8.5) + 'px" title="' + esc(tip) + '"></div>' +
-          '<div class="g-dlabel ' + cls + '" data-act="open" data-id="' + esc(e.id) + '" style="left:' + (cx + 16) + 'px">' + esc(lbl) + '</div>';
-        pos[e.id] = { l: cx - 10, r: cx + 10, y: yc };
+        var decision = e.status === 'Pending' || e.status === 'In Progress';
+        var cls = 's-' + e.status.replace(/\s/g, '') + (late ? ' late' : '') + (blk ? ' blocked' : '');
+        var lbl = decision ? 'Требуется решение' + voteBadge(e) : enumLabel('approval_status', e.status);
+        bar = '<div class="g-dia g-node ' + cls + '" data-act="open" data-id="' + id + '" style="left:' + (cx - 9) + 'px" title="' + esc(tip) + '"></div>' +
+          '<div class="g-dlabel g-node ' + cls + '" data-act="open" data-id="' + id + '" style="left:' + (cx + 17) + 'px">' + esc(lbl) + '</div>';
+        pos[e.id] = { l: cx - 12, r: cx + 12, y: yc };
       } else if (sp) {
-        var left = X(sp.s), width = ((sp.e - sp.s) / DAY + 1) * dayW;
-        var c2 = 'g-bar t-' + e._type + (blk ? ' blocked' : '') + (late ? ' overdue' : '') + (isDoneLike(e) ? ' done' : '');
-        bar = '<div class="' + c2 + '" data-act="open" data-id="' + esc(e.id) + '" style="left:' + left + 'px;width:' + width + 'px" title="' + esc(tip) + '">' +
+        var left = X(sp.s), width = Math.max(((sp.e - sp.s) / DAY + 1) * dayW, 3);
+        var c2 = 'g-bar g-node t-' + e._type + (blk ? ' blocked' : '') + (late ? ' overdue' : '') + (isDoneLike(e) ? ' done' : '');
+        bar = '<div class="' + c2 + '" data-act="open" data-id="' + id + '" style="left:' + left + 'px;width:' + width + 'px" title="' + esc(tip) + '">' +
           '<i class="g-fill" style="width:' + pct + '%"></i>' + (width > 46 ? '<span class="g-pct">' + pct + '%</span>' : '') + '</div>';
         pos[e.id] = { l: left, r: left + width, y: yc };
       }
       var flags = (blk ? ' <span class="pill s-Blocked">Блок</span>' : '') + (late ? ' <span class="pill s-late">Просрочено</span>' : '');
       var sub = e.id + ' · ' + (ownerOf(e) || 'Не назначен') + (sp ? '' : ' · нет срока');
-      rowsHtml += '<div class="g-row"><div class="g-label d-' + e._type + '" data-act="open" data-id="' + esc(e.id) + '" style="padding-left:' + (12 + r.depth * 18) + 'px" title="' + esc(tip) + '">' +
+      rowsHtml += '<div class="g-row' + (r.ctx ? ' ctx' : '') + '"><div class="g-label g-node d-' + e._type + '" data-act="open" data-id="' + id + '" style="padding-left:' + (12 + r.depth * 18) + 'px" title="' + esc(tip) + '">' +
         '<div class="nm">' + typeTag(e._type) + '<span style="overflow:hidden;text-overflow:ellipsis">' + esc(e.name) + '</span>' + flags + '</div>' +
         '<div class="sub">' + esc(sub) + '</div></div>' +
         '<div class="g-track" style="' + gridStyle + '">' + bar + '</div></div>';
@@ -570,48 +945,75 @@
     });
     var H = y;
 
-    // Стрелки зависимостей (передача результата — стрелка, «связан с» — пунктир)
+    // Коннекторы
     var paths = '';
     S.data.links.forEach(function (l) {
       if (l.link_type === 'parent') return;
       var a = pos[l.source_id], b = pos[l.target_id];
       if (!a || !b) return;
+      if (S.gantt.blockOnly && !bl[l.source_id] && !bl[l.target_id]) return;
       var s = S.idx.byId[l.source_id];
-      var conflict = l.link_type === 'handoff' && b.l < a.r && !isDoneLike(s);
-      var col = conflict ? '#c0392b' : '#8a93a6';
-      var d = 'M' + a.r + ' ' + a.y + ' C' + (a.r + 28) + ' ' + a.y + ' ' + (b.l - 28) + ' ' + b.y + ' ' + b.l + ' ' + b.y;
-      paths += '<path d="' + d + '" fill="none" stroke="' + col + '" stroke-width="1.6"' +
-        (l.link_type === 'related' ? ' stroke-dasharray="4 4"' : ' marker-end="url(#' + (conflict ? 'ahr' : 'ah') + ')"') + '/>';
+      var st = LINK_STYLE[l.link_type] || LINK_STYLE.related;
+      var conflict = (l.link_type === 'blocks' || l.link_type === 'handoff') && b.l < a.r && !isDoneLike(s);
+      var col = conflict ? '#c0392b' : st.color;
+      var d = elbow(a.r, a.y, b.l, b.y);
+      paths += '<g class="g-conn" data-lid="' + esc(l.link_id) + '">' +
+        '<path class="hit" d="' + d + '" fill="none" stroke="transparent" stroke-width="12" pointer-events="stroke"/>' +
+        '<path class="line" d="' + d + '" fill="none" stroke="' + col + '" stroke-width="' + st.width + '"' +
+        (st.dash ? ' stroke-dasharray="' + st.dash + '"' : '') + (st.cap ? ' stroke-linecap="' + st.cap + '"' : '') +
+        (st.arrow ? ' marker-end="url(#ah-' + (conflict ? 'conflict' : l.link_type) + ')"' : '') + '/></g>';
     });
+    var marker = function (id, col) {
+      return '<marker id="ah-' + id + '" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">' +
+        '<path d="M0 0L10 5L0 10z" fill="' + col + '"/></marker>';
+    };
     var svg = '<svg class="g-arrows" style="left:' + LW + 'px;width:' + W + 'px;height:' + H + 'px"><defs>' +
-      '<marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#8a93a6"/></marker>' +
-      '<marker id="ahr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" fill="#c0392b"/></marker>' +
-      '</defs>' + paths + '</svg>';
+      marker('blocks', LINK_STYLE.blocks.color) + marker('handoff', LINK_STYLE.handoff.color) +
+      marker('approval', LINK_STYLE.approval.color) + marker('conflict', '#c0392b') + '</defs>' + paths + '</svg>';
     var todayLine = '<div class="g-today" style="left:' + (LW + X(t0) + dayW / 2) + 'px"></div>';
 
-    var zoomBtns = [['day', 'Дни'], ['week', 'Недели'], ['month', 'Месяцы']].map(function (z) {
-      return '<button class="' + (S.gantt.zoom === z[0] ? 'on' : '') + '" data-act="g-zoom" data-z="' + z[0] + '">' + z[1] + '</button>';
-    }).join('');
+    var empty = !rows.some(function (r) { return !r.group; });
+    var emptyHtml = '<div class="empty"><b>' + (S.gantt.blockOnly ? 'Заблокированных элементов нет' : 'Пока нет данных') + '</b>' +
+      (S.gantt.blockOnly ? 'Отключите фильтр «Блокирующие», чтобы увидеть весь план.' : 'Создайте первый этап кнопкой «Создать».') + '</div>';
 
-    root.innerHTML =
-      '<div class="view-head"><h2>Диаграмма Ганта</h2><div class="toolbar">' +
-      '<button class="btn sm" data-act="g-today">Сегодня</button><div class="seg">' + zoomBtns + '</div></div></div>' +
-      '<div class="legend">' +
-      '<span class="it"><span class="lg-bar stage"></span>Этап</span>' +
-      '<span class="it"><span class="lg-bar"></span>Задача / подзадача (заливка — прогресс)</span>' +
-      '<span class="it"><span class="lg-bar overdue"></span>Просрочено</span>' +
-      '<span class="it"><span class="lg-bar blocked"></span>Заблокировано</span>' +
-      '<span class="it"><span class="lg-dia"></span>Требуется решение</span>' +
-      '<span class="it"><span class="lg-arrow"></span>Передача результата</span>' +
-      '<span class="it"><span class="lg-today"></span>Сегодня</span></div>' +
-      '<div class="card g-card"><div class="g-scroll" id="gScroll"><div class="g-canvas" style="width:' + (LW + W) + 'px;--lw:' + LW + 'px">' +
+    root.innerHTML = '<div class="g-scroll" id="gScroll"><div class="g-canvas" style="width:' + (LW + W) + 'px;--lw:' + LW + 'px">' +
       '<div class="g-head"><div class="g-corner">Структура проекта</div><div class="g-timehead" style="width:' + W + 'px">' +
-      '<div class="g-months">' + monthsHtml + '</div>' + (lower ? '<div class="g-days">' + lower + '</div>' : '<div class="g-days"></div>') + '</div></div>' +
-      '<div class="g-body">' + (rowsHtml || '<div class="empty">Пока нет данных. Создайте первый этап.</div>') + svg + todayLine + '</div></div></div></div>';
+      '<div class="g-months">' + monthsHtml + '</div><div class="g-days">' + lower + '</div></div></div>' +
+      '<div class="g-body">' + (empty ? emptyHtml : rowsHtml + svg + todayLine) + '</div></div></div>';
 
     var sc = $('#gScroll');
-    S.gantt.scrollToday = function () { sc.scrollLeft = Math.max(0, X(t0) - 120); };
-    if (prev) { sc.scrollLeft = prev.l; sc.scrollTop = prev.t; } else S.gantt.scrollToday();
+    g.scrollToday = function () { sc.scrollTo({ left: Math.max(0, X(t0) - 120), behavior: 'smooth' }); };
+    if (anchor !== null) sc.scrollLeft = LW + anchor * dayW - sc.clientWidth / 2;
+    else if (opts.scroll) { sc.scrollLeft = opts.scroll.l; sc.scrollTop = opts.scroll.t; }
+    else sc.scrollLeft = Math.max(0, X(t0) - 120);
+    applyChain(g.sel ? [g.sel] : null);
+  }
+
+  /* Подсказка к коннектору: источник, получатель, тип и даты */
+  function showConnTip(conn, ev) {
+    var l = S.data.links.filter(function (x) { return x.link_id === conn.getAttribute('data-lid'); })[0];
+    var tip = $('#gTip'); if (!l || !tip) return;
+    var a = S.idx.byId[l.source_id], b = S.idx.byId[l.target_id];
+    var ds = a && spanOf(a), dt = b && spanOf(b);
+    tip.innerHTML = '<b>' + esc(a ? a.name : l.source_id) + '</b> &rarr; <b>' + esc(b ? b.name : l.target_id) + '</b><br>' +
+      'Тип: ' + esc(enumLabel('link_type', l.link_type)) + (l.note ? '<br>' + esc(l.note) : '') + '<br>' +
+      'Срок источника: ' + (ds ? ru(fd(ds.e)) : '—') + ' · Старт получателя: ' + (dt ? ru(fd(dt.s)) : '—');
+    tip.hidden = false;
+    moveTip(ev);
+  }
+  function moveTip(ev) {
+    var tip = $('#gTip'), card = tip && tip.parentNode; if (!tip || tip.hidden) return;
+    var r = card.getBoundingClientRect();
+    var x = ev.clientX - r.left + 14, y = ev.clientY - r.top + 16;
+    x = Math.min(x, r.width - tip.offsetWidth - 8); y = Math.min(y, r.height - tip.offsetHeight - 8);
+    tip.style.left = Math.max(8, x) + 'px'; tip.style.top = Math.max(8, y) + 'px';
+  }
+
+  var zoomFrame = 0;
+  function onZoomInput(v) {
+    S.gantt.dw = dwFromSlider(Number(v));
+    if (zoomFrame) return;
+    zoomFrame = requestAnimationFrame(function () { zoomFrame = 0; drawGantt({ recenter: true }); });
   }
 
   /* ============================================================================
@@ -642,7 +1044,7 @@
             (e ? '<a href="#" data-act="open" data-id="' + esc(r.entity_id) + '">' + esc(r.entity_id) + '</a>' : esc(r.entity_id)) +
             (e ? '<div class="small muted">' + esc(e.name) + '</div>' : '') : '<span class="muted">' + esc(typeLabel(r.entity_type)) + '</span>') + '</td>' +
           '<td>' + esc(r.field ? fieldLabel(r.field) : '') + '</td>' +
-          '<td>' + (r.action === 'update' ? '<span class="log-old">' + esc(fmtLogVal(r, r.old_value)) + '</span> → <b>' + esc(fmtLogVal(r, r.new_value)) + '</b>'
+          '<td>' + ((r.action === 'update' || r.action === 'vote') ? '<span class="log-old">' + esc(fmtLogVal(r, r.old_value)) + '</span> → <b>' + esc(fmtLogVal(r, r.new_value)) + '</b>'
             : esc([r.old_value, r.new_value].filter(Boolean).join(' → '))) + '</td></tr>';
       }).join('');
       $('#logTable').innerHTML = '<table class="tbl"><thead><tr><th>Дата и время</th><th>Пользователь</th><th>Действие</th><th>Объект</th><th>Поле</th><th>Было → стало</th></tr></thead><tbody>' +
@@ -654,7 +1056,8 @@
   /* ============================================================================
    * БОКОВАЯ КАРТОЧКА: создание и редактирование
    * ========================================================================== */
-  function fieldHTML(def, val) {
+  function fieldHTML(def, val, locked) {
+    var dis = locked ? ' disabled' : '';
     var id = 'f_' + def.key, req = def.required ? ' <span class="req">*</span>' : '';
     var v = val === undefined || val === null ? '' : val;
     var wrapStart = '<div class="field' + (def.type === 'textarea' || def.type === 'progress' || def.type === 'bool' ? ' full' : '') + '" data-field="' + def.key + '"' +
@@ -667,7 +1070,7 @@
       case 'user': return wrapStart + lab + '<input type="text" id="' + id + '" list="usersList" value="' + esc(v) + '" placeholder="Выберите или введите имя" autocomplete="off"></div>';
       case 'bool': return wrapStart + '<label class="check-row"><input type="checkbox" id="' + id + '"' + (v === true ? ' checked' : '') + '>' + esc(def.label) + '</label></div>';
       case 'select':
-        return wrapStart + lab + '<select id="' + id + '">' + (def.required ? '' : '<option value="">—</option>') +
+        return wrapStart + lab + '<select id="' + id + '"' + dis + '>' + (def.required ? '' : '<option value="">—</option>') +
           enumOf(def.enum).map(function (o) { return '<option value="' + esc(o.value) + '"' + (o.value === v ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') + '</select></div>';
       case 'progress':
         var n = Number(v) || 0;
@@ -691,12 +1094,21 @@
       ? typeTag(type) + ' <span class="muted small">' + esc(e.id) + '</span> ' + pill(e) + '<h3>' + esc(e.name) + '</h3>'
       : typeTag(type) + '<h3>' + esc(cfg.newLabel) + '</h3>';
 
+    // У согласования статус определяется голосами — поле только для чтения
+    var votedApproval = type === 'approval' && (!e || voteSummary(e.id).total > 0);
+    var voterNames = e ? (S.idx.votes[e.id] || []).map(function (v) { return v.voter; }) : [];
+    var votersBlock = type === 'approval' ? votersWidgetHTML(voterNames) : '';
+
     var linkBlock = '';
     if (!e) {
       linkBlock = '<div class="section"><h4>Связь с другим объектом</h4><div class="form-grid">' +
         '<div class="field"><label for="cLinkType">Тип связи</label><select id="cLinkType">' +
-        S.meta.createLinkOptions.filter(function (o) { return o.value !== 'parent' || cfg.parents.length; })
-          .map(function (o) { return '<option value="' + o.value + '">' + esc(o.label) + '</option>'; }).join('') + '</select></div>' +
+        S.meta.createLinkOptions.filter(function (o) {
+          if (o.value === 'parent') return cfg.parents.length > 0;
+          if (o.value === 'approval_out') return type !== 'approval' && type !== 'meeting';
+          if (o.value === 'approval_in') return type === 'approval';
+          return true;
+        }).map(function (o) { return '<option value="' + o.value + '">' + esc(o.label) + '</option>'; }).join('') + '</select></div>' +
         '<div class="field"><label for="cLinkTarget">Объект</label><select id="cLinkTarget"></select></div></div>' +
         '<div class="hint">Связь записывается в лист Links. Её можно добавить и позже.</div></div>';
     }
@@ -704,8 +1116,10 @@
     $('#drawer').innerHTML =
       '<div class="drawer-head"><div>' + head + '</div><button class="icon-btn" data-act="close-drawer" aria-label="Закрыть">&times;</button></div>' +
       '<div class="drawer-body"><form id="entForm" onsubmit="return false"><div class="form-grid">' +
-      cfg.fields.map(function (f) { return fieldHTML(f, vals[f.key]); }).join('') + '</div>' +
+      cfg.fields.map(function (f) { return fieldHTML(f, vals[f.key], votedApproval && f.key === 'status'); }).join('') + votersBlock + '</div>' +
+      (type === 'approval' ? '<div class="hint">Статус согласования определяется голосованием: любой «Не согласен» — отклонено, все «Согласен» — согласовано.</div>' : '') +
       '<div id="formErr" class="form-error" hidden></div></form>' + linkBlock +
+      (e && type === 'approval' ? '<div class="section" id="secVotes"></div>' : '') +
       (e ? '<div class="section" id="secParent"></div><div class="section"><h4>Документы</h4><div id="docList"></div>' +
         '<div class="doc-add"><input type="text" id="docName" placeholder="Название документа" maxlength="200">' +
         '<input type="url" id="docUrl" placeholder="https://…"><button class="btn sm" data-act="doc-add">Добавить</button></div></div>' +
@@ -718,6 +1132,8 @@
     $('#scrim').hidden = false;
     $('#drawer').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false');
     syncShowIf(); syncProgress();
+    S.gantt.sel = id || null;
+    if (S.tab === 'gantt') applyChain(id ? [id] : null);          // цепочка зависимостей выбранного объекта
     if (!e) { fillLinkTargets(type); } else {
       renderDrawerSections();
       authCall('getLog', { entity_id: id, limit: 15 }).then(function (r) {
@@ -732,6 +1148,8 @@
 
   function closeDrawer() {
     S.drawer = null;
+    S.gantt.sel = null;
+    if (S.tab === 'gantt') applyChain(null);
     $('#drawer').classList.remove('open'); $('#drawer').setAttribute('aria-hidden', 'true');
     $('#scrim').hidden = true;
   }
@@ -754,6 +1172,9 @@
       if (!cfg.parents.length && !kids.length) sp.hidden = true; else sp.hidden = false;
     }
 
+    var vsec = $('#secVotes');
+    if (vsec) vsec.innerHTML = votesSectionHTML(e);
+
     var docs = S.idx.docs[e.id] || [];
     $('#docList').innerHTML = docs.length ? docs.map(function (x) {
       return '<div class="doc-item"><div class="grow"><a href="' + esc(x.doc_url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.doc_name) + '</a></div>' +
@@ -765,7 +1186,9 @@
     $('#linkList').innerHTML = links.length ? links.map(function (l) {
       var out = l.source_id === e.id, other = out ? l.target_id : l.source_id, o = S.idx.byId[other];
       var verb = l.link_type === 'parent' ? (out ? 'Входит в' : 'Включает')
-        : l.link_type === 'handoff' ? (out ? 'Передаёт результат →' : 'Получает результат от') : 'Связан с';
+        : l.link_type === 'handoff' ? (out ? 'Передаёт информацию →' : 'Получает информацию от')
+        : l.link_type === 'blocks' ? (out ? 'Блокирует →' : 'Блокируется')
+        : l.link_type === 'approval' ? (out ? 'Требует согласования →' : 'Согласование для') : 'Связан с';
       return '<div class="link-item"><div class="grow"><span class="muted">' + verb + '</span> <a href="#" data-act="open" data-id="' + esc(other) + '">' +
         esc(other) + '</a> ' + esc(o ? o.name : '') + '</div>' +
         '<button class="link-btn danger" data-act="link-del" data-id="' + esc(l.link_id) + '">Удалить</button></div>';
@@ -775,7 +1198,70 @@
   /** Список объектов для связи в форме создания (для «Входит в» — только допустимые родители). */
   function fillLinkTargets(type) {
     var sel = $('#cLinkTarget'), lt = $('#cLinkType').value, parents = S.meta.types[type].parents;
-    sel.innerHTML = entityOptions('', lt === 'parent' ? function (e) { return parents.indexOf(e._type) !== -1; } : null, 'Без связи');
+    var filt = null;
+    if (lt === 'parent') filt = function (e) { return parents.indexOf(e._type) !== -1; };
+    else if (lt === 'approval_out') filt = function (e) { return e._type === 'approval'; };
+    else if (lt === 'approval_in') filt = function (e) { return ['stage', 'task', 'subtask'].indexOf(e._type) !== -1; };
+    sel.innerHTML = entityOptions('', filt, 'Без связи');
+  }
+
+  /** Мультивыбор участников голосования из Users (+ добавление нового имени). */
+  function votersWidgetHTML(selected) {
+    var names = S.data.users.map(function (u) { return u.name; });
+    selected.forEach(function (n) { if (names.indexOf(n) === -1) names.push(n); });
+    var sel = {}; selected.forEach(function (n) { sel[n.toLowerCase()] = true; });
+    return '<div class="field full" data-field="voters"><label>Участники голосования <span class="req">*</span></label>' +
+      '<div class="voters-box" id="votersBox">' + (names.length ? names.map(function (n) { return voterOptHTML(n, !!sel[n.toLowerCase()]); }).join('')
+        : '<span class="hint">Список пользователей пуст — добавьте участника ниже.</span>') + '</div>' +
+      '<div class="voter-add"><input type="text" id="voterNew" list="usersList" placeholder="Добавить участника по имени" autocomplete="off">' +
+      '<button type="button" class="btn sm" data-act="voter-add">Добавить</button></div></div>';
+  }
+  function voterOptHTML(n, checked) {
+    return '<label class="voter-opt"><input type="checkbox" value="' + esc(n) + '"' + (checked ? ' checked' : '') + '><span title="' + esc(n) + '">' + esc(n) + '</span></label>';
+  }
+  function collectVoters() {
+    return $$('#votersBox input:checked').map(function (c) { return c.value; });
+  }
+  function addVoterFromInput() {
+    var inp = $('#voterNew'), box = $('#votersBox'); if (!inp || !box) return;
+    var n = inp.value.trim(); if (!n) return;
+    var exist = $$('#votersBox input').filter(function (c) { return c.value.toLowerCase() === n.toLowerCase(); })[0];
+    if (exist) exist.checked = true;
+    else { var hint = $('.hint', box); if (hint) hint.remove(); box.insertAdjacentHTML('beforeend', voterOptHTML(n, true)); }
+    inp.value = '';
+  }
+
+  /** Раздел «Голосование» в карточке согласования: голоса всех участников, свой голос можно изменить. */
+  function votesSectionHTML(e) {
+    var vs = voteSummary(e.id);
+    if (!vs.total) {
+      return '<h4>Голосование</h4><div class="muted small">Участники не назначены. Отметьте их в блоке «Участники голосования» и сохраните — статус будет определяться голосами.</div>';
+    }
+    var me = String(S.user).toLowerCase();
+    var hasMe = vs.rows.some(function (v) { return v.voter.toLowerCase() === me; });
+    return '<h4>Голосование</h4><p class="small muted">Итог: ' + pill(e) + ' · ' + vs.agree + ' из ' + vs.total + ' согласны. ' +
+      (hasMe ? '' : 'Вы не участник голосования: войдите под именем участника, чтобы проголосовать.') + '</p>' +
+      vs.rows.map(function (v) {
+        var mine = v.voter.toLowerCase() === me;
+        var when = v.vote_date ? '<div class="cmt">' + esc(fmtTs(v.vote_date)) + '</div>' : '';
+        if (!mine) {
+          return '<div class="vote-row"><span class="who">' + esc(v.voter) + '</span>' + votePill(v.vote) +
+            (v.vote_comment ? '<div class="cmt">' + esc(v.vote_comment) + '</div>' : '') + when + '</div>';
+        }
+        return '<div class="vote-row me"><span class="who">' + esc(v.voter) + ' (вы)</span>' + votePill(v.vote) +
+          '<div class="vote-form"><select id="voteSel" aria-label="Ваш голос">' + enumOf('vote').map(function (o) {
+            return '<option value="' + esc(o.value) + '"' + (o.value === v.vote ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+          }).join('') + '</select><input type="text" id="voteComment" maxlength="1000" placeholder="Комментарий (необязательно)" value="' + esc(v.vote_comment) + '">' +
+          '<button class="btn primary sm" data-act="vote-cast">Проголосовать</button></div>' + when + '</div>';
+      }).join('');
+  }
+
+  function castVote() {
+    var d = S.drawer; if (!d || !d.id) return;
+    authCall('castVote', d.id, S.user, $('#voteSel').value, $('#voteComment').value).then(function (r) {
+      toast(r.changed ? 'Голос учтён. Статус: ' + enumLabel('approval_status', r.status) : 'Голос не изменился');
+      return reload();
+    }).catch(function (er) { toast(er.message, true); });
   }
 
   function syncShowIf() {
@@ -823,6 +1309,7 @@
     });
     if (data.start_date && data.deadline && data.start_date > data.deadline) errs.push('Дата начала позже срока');
     if (data.blocked && !String(data.block_reason || '').trim()) errs.push('Укажите причину блокировки');
+    if (cfg.prefix === 'APR' && !S.drawer.id && !collectVoters().length) errs.push('Выберите участников голосования');
     var p = Number(data.progress);
     if (data.progress !== undefined && (!isFinite(p) || p < 0 || p > 100 || Math.floor(p) !== p)) errs.push('Прогресс — целое число от 0 до 100');
     return errs.join('; ');
@@ -839,6 +1326,7 @@
     if (!d.id) {
       var target = $('#cLinkTarget').value;
       var link = target ? { other_id: target, link_type: $('#cLinkType').value } : null;
+      if (d.type === 'approval') data.voters = collectVoters();
       p = authCall('createEntity', d.type, data, link).then(function (res) {
         toast('Создано: ' + res.entity.id);
         return reload().then(function () { openEntity(d.type, res.entity.id); });
@@ -849,8 +1337,17 @@
         var old = e[f.key] === undefined || e[f.key] === null ? '' : e[f.key];
         if (String(old) !== String(data[f.key])) changes[f.key] = data[f.key];
       });
-      if (!Object.keys(changes).length) { toast('Изменений нет'); if (btn) btn.disabled = false; return; }
-      p = authCall('updateEntity', d.id, changes).then(function () {
+      var steps = [];
+      if (Object.keys(changes).length) steps.push(function () { return authCall('updateEntity', d.id, changes); });
+      if (d.type === 'approval') {            // состав голосующих меняется отдельным вызовом
+        var cur = (S.idx.votes[d.id] || []).map(function (v) { return v.voter.toLowerCase(); }).sort().join('|');
+        var now = collectVoters();
+        if (now.map(function (v) { return v.toLowerCase(); }).sort().join('|') !== cur) {
+          steps.push(function () { return authCall('setApprovalVoters', d.id, now); });
+        }
+      }
+      if (!steps.length) { toast('Изменений нет'); if (btn) btn.disabled = false; return; }
+      p = steps.reduce(function (acc, fn) { return acc.then(fn); }, Promise.resolve()).then(function () {
         toast('Сохранено');
         return reload().then(function () { openEntity(d.type, d.id); });
       });
@@ -971,8 +1468,24 @@
     'cal-nav': function (a) { calNav(Number(a.getAttribute('data-d'))); },
     'cal-today': function () { S.cal.cursor = today(); renderMeetings(); },
     'cal-mode': function (a) { S.cal.mode = a.getAttribute('data-m'); renderMeetings(); },
-    'g-zoom': function (a) { S.gantt.zoom = a.getAttribute('data-z'); renderGantt(); },
     'g-today': function () { if (S.gantt.scrollToday) S.gantt.scrollToday(); },
+    'g-fit': function () {            // уместить весь проект по ширине окна
+      var sc = $('#gScroll'); if (!sc || !S.gantt.days) return;
+      S.gantt.dw = Math.max(DW_MIN, Math.min(DW_MAX, (sc.clientWidth - S.gantt.LW - 12) / S.gantt.days));
+      $('#gZoom').value = sliderFromDw(S.gantt.dw);
+      drawGantt({}); sc = $('#gScroll'); sc.scrollLeft = 0;
+    },
+    'g-reset': function () {
+      S.gantt.dw = DW_DEFAULT; $('#gZoom').value = sliderFromDw(DW_DEFAULT);
+      drawGantt({});
+    },
+    'reg-toggle': function (a) {
+      var id = a.getAttribute('data-id'); S.regOpen[id] = !S.regOpen[id];
+      $('#regBlock').innerHTML = registerHTML();
+    },
+    'info-refresh': function () { S.info = null; S.infoErr = ''; var b = $('#infoBlock'); if (b) b.innerHTML = infoBlockHTML(); loadInfo(true); },
+    'voter-add': addVoterFromInput,
+    'vote-cast': castVote,
     'log-apply': function () {
       S.logFilter = { entity_type: $('#lgType').value, date_from: $('#lgFrom').value, date_to: $('#lgTo').value, entity_id: $('#lgId').value.trim().toUpperCase() };
       renderLog();
@@ -1000,17 +1513,19 @@
     else if (id === 'parentSel') {
       authCall('setParent', S.drawer.id, t.value).then(function () { toast('Родитель изменён'); return reload(); })
         .catch(function (er) { toast(er.message, true); return reload(); });
-    } else if (id === 'exF') { S.exch.filter = t.value; renderExchange(); }
+    } else if (id === 'exF') { S.exch.filter = t.value; drawExchangeCards(); }
+    else if (id === 'gBlock') {
+      S.gantt.blockOnly = t.checked; $('#gCtx').disabled = !t.checked;
+      drawGantt({ recenter: true });
+    } else if (id === 'gCtx') { S.gantt.ctx = t.checked; drawGantt({ recenter: true }); }
   });
 
   document.addEventListener('input', function (ev) {
     var id = ev.target.id;
     if (id === 'f_progress_r') { $('#f_progress').value = ev.target.value; syncProgress(); }
     else if (id === 'f_progress') { $('#f_progress_r').value = ev.target.value; syncProgress(); }
-    else if (id === 'exQ') {
-      S.exch.q = ev.target.value; var pos = ev.target.selectionStart;
-      renderExchange(); var q = $('#exQ'); q.focus(); q.setSelectionRange(pos, pos);
-    }
+    else if (id === 'exQ') { S.exch.q = ev.target.value; drawExchangeCards(); }
+    else if (id === 'gZoom') onZoomInput(ev.target.value);
   });
 
   document.addEventListener('keydown', function (ev) {
@@ -1018,9 +1533,41 @@
       if (!$('#modalWrap').hidden) closeModal();
       else if (S.drawer) closeDrawer();
     } else if (ev.key === 'Enter' && ev.target.id === 'docUrl') { ev.preventDefault(); addDoc(); }
+    else if (ev.key === 'Enter' && ev.target.id === 'voterNew') { ev.preventDefault(); addVoterFromInput(); }
     else if (ev.key === 'Enter' && !$('#modalWrap').hidden && ev.target.tagName === 'INPUT') {
       ev.preventDefault(); var last = S.modalButtons.length - 1; if (last >= 0) runModalButton(last);
     }
+  });
+
+  /* Канбан: перетаскивание карточек (pointer-события работают и мышью, и касанием) */
+  document.addEventListener('pointerdown', dragStart);
+  document.addEventListener('pointermove', dragMove, { passive: false });
+  document.addEventListener('pointerup', function (ev) { dragEnd(ev, false); });
+  document.addEventListener('pointercancel', function (ev) { dragEnd(ev, true); });
+  document.addEventListener('click', function (ev) {                 // сразу после перетаскивания клик не открывает карточку
+    if (S.noClick) { ev.stopPropagation(); ev.preventDefault(); }
+  }, true);
+
+  /* Гант: подсказка коннектора и подсветка цепочки зависимостей при наведении */
+  document.addEventListener('mouseover', function (ev) {
+    if (S.tab !== 'gantt' || !ev.target.closest) return;
+    var conn = ev.target.closest('.g-conn');
+    if (conn) {
+      showConnTip(conn, ev);
+      var l = S.data.links.filter(function (x) { return x.link_id === conn.getAttribute('data-lid'); })[0];
+      if (l) applyChain([l.source_id, l.target_id]);
+      return;
+    }
+    var n = ev.target.closest('.g-node');
+    if (n) applyChain([n.getAttribute('data-id')]);
+  });
+  document.addEventListener('mousemove', function (ev) { if (S.tab === 'gantt') moveTip(ev); });
+  document.addEventListener('mouseout', function (ev) {
+    if (S.tab !== 'gantt') return;
+    var to = ev.relatedTarget;
+    if (to && to.closest && (to.closest('.g-conn') || to.closest('.g-node'))) return;
+    var tip = $('#gTip'); if (tip) tip.hidden = true;
+    applyChain(S.gantt.sel ? [S.gantt.sel] : null);
   });
 
   window.addEventListener('resize', function () { if (S.tab === 'gantt' && S.data) renderGantt(true); });

@@ -36,6 +36,7 @@ var ENUMS = {
   ],
   approval_status: [
     { value: 'Pending', label: 'Ожидает решения' },
+    { value: 'In Progress', label: 'В процессе' },
     { value: 'Approved', label: 'Согласовано' },
     { value: 'Rejected', label: 'Отклонено' }
   ],
@@ -44,18 +45,40 @@ var ENUMS = {
   }),
   link_type: [
     { value: 'parent', label: 'Входит в' },
-    { value: 'handoff', label: 'Передаёт результат' },
+    { value: 'blocks', label: 'Блокирует' },
+    { value: 'handoff', label: 'Передаёт информацию' },
+    { value: 'approval', label: 'Требует согласования' },
     { value: 'related', label: 'Связан с' }
+  ],
+  // Варианты голоса участника (значение хранится в ApprovalsRegister.vote)
+  vote: [
+    { value: 'Agree', label: 'Согласен' },
+    { value: 'Discussed', label: 'Обсуждение' },
+    { value: 'No Decision', label: 'Нет решения' },
+    { value: 'Disagree', label: 'Не согласен' }
   ]
 };
 
 /** Варианты связи в форме создания: направление считается относительно СОЗДАВАЕМОГО объекта. */
 var CREATE_LINK_OPTIONS = [
   { value: 'parent', label: 'Входит в (родитель)' },
-  { value: 'handoff_in', label: 'Получает результат от' },
-  { value: 'handoff_out', label: 'Передаёт результат в' },
+  { value: 'blocks_in', label: 'Блокируется объектом' },
+  { value: 'blocks_out', label: 'Блокирует объект' },
+  { value: 'handoff_in', label: 'Получает информацию от' },
+  { value: 'handoff_out', label: 'Передаёт информацию в' },
+  { value: 'approval_out', label: 'Требует согласования (выбрать согласование)' },
+  { value: 'approval_in', label: 'Является согласованием для' },
   { value: 'related', label: 'Связан с' }
 ];
+
+/** Как вариант из формы создания превращается в запись Links: dir 'out' — новый объект источник, 'in' — получатель. */
+var CREATE_LINK_MAP = {
+  parent: { dir: 'out', type: 'parent' },
+  blocks_in: { dir: 'in', type: 'blocks' }, blocks_out: { dir: 'out', type: 'blocks' },
+  handoff_in: { dir: 'in', type: 'handoff' }, handoff_out: { dir: 'out', type: 'handoff' },
+  approval_in: { dir: 'in', type: 'approval' }, approval_out: { dir: 'out', type: 'approval' },
+  related: { dir: 'out', type: 'related' }
+};
 
 /**
  * Описание полей. Один справочник — для валидации на сервере и для генерации форм на клиенте.
@@ -142,8 +165,19 @@ var AUX = {
   Documents: ['doc_id', 'entity_id', 'entity_type', 'doc_name', 'doc_url', 'added_by', 'created_at'],
   Users: ['name', 'email', 'role'],
   Log: ['timestamp', 'user', 'action', 'entity_type', 'entity_id', 'field', 'old_value', 'new_value'],
-  Settings: ['key', 'value']
+  Settings: ['key', 'value'],
+  // Реестр согласований: одна строка = один участник голосования по одному согласованию
+  ApprovalsRegister: ['approval_id', 'title', 'initiator', 'created_at', 'deadline', 'status',
+    'voter', 'vote', 'vote_comment', 'vote_date']
 };
+
+/** Свободный лист «Файлы проекта»: читается диапазон A1:K50 (название папки + ссылка). */
+var INFO_SHEET = 'Info';
+var INFO_ROWS = 50;
+var INFO_COLS = 11;
+
+/** Колонка Kanban -> статус. Колонка «awaiting» заполняется автоматически (просрочка), статуса у неё нет. */
+var KANBAN_STATUS = { progress: 'In Progress', planned: 'Not Started', done: 'Done' };
 
 /** Столбцы, которые НЕ переводятся в текстовый формат (остальные хранятся как текст, чтобы Sheets не «портил» даты). */
 var NON_TEXT_COLS = { progress: true, blocked: true };
@@ -193,7 +227,9 @@ function apiTable_() {
     createEntity: createEntity, updateEntity: updateEntity, deleteEntity: deleteEntity,
     createLink: createLink, updateLink: updateLink, deleteLink: deleteLink, setParent: setParent,
     addDocument: addDocument, updateDocument: updateDocument, deleteDocument: deleteDocument,
-    addUser: addUser, saveSetting: saveSetting
+    addUser: addUser, saveSetting: saveSetting,
+    getInfo: getInfo, getApprovalsRegister: getApprovalsRegister, setApprovalVoters: setApprovalVoters,
+    castVote: castVote, moveTask: moveTask, getExchangeCards: getExchangeCards
   };
 }
 
@@ -212,6 +248,7 @@ function onOpen() {
     SpreadsheetApp.getUi().createMenu(APP_TITLE)
       .addItem('Инициализировать листы', 'setup')
       .addItem('Загрузить демо-данные', 'seedDemo')
+      .addItem('Пересчитать реестр согласований', 'syncApprovalsRegister')
       .addItem('Сменить пароль входа', 'changePasswordDialog')
       .addToUi();
   } catch (e) { /* автономный скрипт — меню не нужно */ }
@@ -267,6 +304,8 @@ function setup() {
     if (sh && ss.getSheets().length > 1 && sh.getLastRow() === 0) ss.deleteSheet(sh);
   });
 
+  ensureInfoSheet_(ss);
+
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('APP_PASSWORD') === null) props.setProperty('APP_PASSWORD', DEFAULT_PASSWORD);
   if (props.getProperty('SESSION_EPOCH') === null) props.setProperty('SESSION_EPOCH', '0');
@@ -279,6 +318,18 @@ function setup() {
 
 function setupIfNeeded_() {
   if (PropertiesService.getScriptProperties().getProperty('SETUP_DONE') !== '1') setup();
+}
+
+/** Лист Info создаётся пустым (структуру задаёт пользователь), в A1 — подсказка-примечание. */
+function ensureInfoSheet_(ss) {
+  var sh = ss.getSheetByName(INFO_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(INFO_SHEET);
+    sh.getRange(1, 1).setNote('Столбец A — название папки, столбец B — ссылка (http/https). ' +
+      'Читается диапазон A1:K50; ячейку можно оформить и как гиперссылку. ' +
+      'Строка с одним названием без ссылки показывается как заголовок группы.');
+  }
+  return sh;
 }
 
 /** Создаёт лист, дописывает недостающие заголовки, оформляет шапку и текстовый формат столбцов. */
@@ -757,9 +808,24 @@ function getAllData(token) {
           field: r[5], old_value: String(r[6]), new_value: String(r[7]) };
       });
     }
+    var register = readAll_('ApprovalsRegister').rows;
+    // Сверка Approvals и реестра: если голос поправили прямо в таблице, статус пересчитывается и пишется в Log
+    var stale = approvalsOutOfSync_(entities.approval, register);
+    if (stale.length) {
+      var lock = LockService.getScriptLock();
+      lock.waitLock(20000);
+      try {
+        stale.forEach(function (id) { syncApproval_(id, 'Система'); });
+      } finally {
+        lock.releaseLock();
+      }
+      entities.approval = readAll_('Approvals', 'approval').rows.map(pub_);
+      register = readAll_('ApprovalsRegister').rows;
+    }
     return {
       meta: buildMeta_(),
       user: session.user,
+      register: register.map(pub_),
       entities: entities,
       links: readAll_('Links').rows.map(pub_),
       documents: readAll_('Documents').rows.map(pub_),
@@ -816,18 +882,22 @@ function doCreate_(type, data, linkSpec, user) {
   if (!TYPES[type]) throw new Error('Неизвестный тип: ' + type);
   var cfg = TYPES[type];
   var clean = validate_(type, data, null);
+  var voters = [];
+  if (type === 'approval') {
+    // Участники голосования обязательны; статус согласования выводится из голосов (до первого голоса — «Ожидает решения»)
+    voters = normalizeVoters_(data && data.voters);
+    if (!voters.length) throw new Error('Проверка данных: укажите участников голосования');
+    clean.status = 'Pending';
+  }
   var id = nextId_(cfg.sheet, cfg.prefix);
 
   // Связь проверяем ДО записи объекта, чтобы не оставлять «полусозданные» данные
   var link = null;
   if (linkSpec && linkSpec.other_id) {
-    var o = String(linkSpec.other_id), lt = linkSpec.link_type, raw;
-    if (lt === 'parent') raw = { source_id: id, target_id: o, link_type: 'parent' };
-    else if (lt === 'handoff_in') raw = { source_id: o, target_id: id, link_type: 'handoff' };
-    else if (lt === 'handoff_out') raw = { source_id: id, target_id: o, link_type: 'handoff' };
-    else if (lt === 'related') raw = { source_id: id, target_id: o, link_type: 'related' };
-    else throw new Error('Неизвестный тип связи');
-    raw.note = linkSpec.note;
+    var o = String(linkSpec.other_id), map = CREATE_LINK_MAP[linkSpec.link_type];
+    if (!map) throw new Error('Неизвестный тип связи');
+    var raw = { source_id: map.dir === 'out' ? id : o, target_id: map.dir === 'out' ? o : id,
+      link_type: map.type, note: linkSpec.note };
     link = checkLink_(raw, readAll_('Links').rows, { newId: id, newType: type });
   }
 
@@ -841,6 +911,11 @@ function doCreate_(type, data, linkSpec, user) {
   ensureUsers_(collectUsers_(type, clean));
 
   var linkOut = link ? addLink_(link, user) : null;
+  if (type === 'approval') {
+    addVoterRows_(obj, voters);
+    ensureUsers_(voters);
+    writeLog_(user, [['create', type, id, 'voters', '', voters.join(', ')]]);
+  }
   return { entity: obj, link: linkOut };
 }
 
@@ -856,6 +931,12 @@ function doUpdate_(id, changes, user) {
   if (!f) throw new Error('Объект не найден: ' + id);
   var clean = validate_(f.type, changes, f.row);
 
+  // Статус согласования с голосованием определяется голосами и вручную не меняется
+  if (f.type === 'approval' && clean.status !== undefined && String(clean.status) !== String(f.row.status) &&
+      registerRowsOf_(id).length) {
+    throw new Error('Статус согласования определяется голосованием участников');
+  }
+
   var patch = {}, entries = [];
   Object.keys(clean).forEach(function (k) {
     if (String(f.row[k]) !== String(clean[k])) {
@@ -869,6 +950,7 @@ function doUpdate_(id, changes, user) {
   updateRow_(f.tbl.sh, f.tbl.headers, f.row._row, patch);
   writeLog_(user, entries);
   ensureUsers_(collectUsers_(f.type, clean));
+  if (f.type === 'approval') syncApproval_(id, user);   // название, срок, инициатор -> ApprovalsRegister
 
   var merged = pub_(f.row);
   Object.keys(patch).forEach(function (k) { merged[k] = patch[k]; });
@@ -896,6 +978,13 @@ function deleteEntity(token, id) {
         entries.push(['doc_delete', f.type, id, 'document', d.doc_name + ' — ' + d.doc_url, '']);
       }
     });
+    if (f.type === 'approval') {
+      var reg = readAll_('ApprovalsRegister'), removed = [];
+      reg.rows.slice().reverse().forEach(function (r) {
+        if (r.approval_id === id) { reg.sh.deleteRow(r._row); removed.unshift(r.voter); }
+      });
+      if (removed.length) entries.push(['update', f.type, id, 'voters', removed.join(', '), '']);
+    }
     f.tbl.sh.deleteRow(f.row._row);
     writeLog_(session.user, entries);
     return { id: id };
@@ -931,6 +1020,10 @@ function checkLink_(l, links, opts) {
     if (id !== opts.newId && !findEntity_(id)) throw new Error('Объект не найден: ' + id);
   });
 
+  if (l.link_type === 'approval') {
+    if (tt !== 'approval') throw new Error('Связь «Требует согласования» должна вести на согласование');
+    if (st === 'approval' || st === 'meeting') throw new Error('«' + TYPES[st].label + '» не может требовать согласования');
+  }
   if (l.link_type === 'parent') {
     if ((PARENT_RULES[st] || []).indexOf(tt) === -1) {
       throw new Error('«' + TYPES[st].label + '» не может входить в «' + TYPES[tt].label + '»');
@@ -1098,6 +1191,331 @@ function saveSetting(token, key, value) {
 }
 
 /* ============================================================================
+ * 12a. РЕЕСТР СОГЛАСОВАНИЙ (лист ApprovalsRegister) И ГОЛОСОВАНИЕ
+ * Одна строка реестра = один участник голосования по одному согласованию.
+ * Итоговый статус согласования выводится из голосов и записывается в Approvals.
+ * ========================================================================== */
+
+function normalizeVoters_(list) {
+  if (Object.prototype.toString.call(list) !== '[object Array]') list = [];
+  var seen = {}, out = [];
+  list.forEach(function (n) {
+    n = String(n === null || n === undefined ? '' : n).trim();
+    if (!n) return;
+    if (n.length > 100) throw new Error('Имя участника: не более 100 символов');
+    if (!seen[n.toLowerCase()]) { seen[n.toLowerCase()] = true; out.push(n); }
+  });
+  if (out.length > 50) throw new Error('Участников голосования не более 50');
+  return out;
+}
+
+/** Итог по голосам: любой «Не согласен» — Rejected; все «Согласен» — Approved; нет ни одного решения — Pending; иначе In Progress. */
+function deriveApprovalStatus_(votes) {
+  if (!votes.length) return 'Pending';
+  if (votes.some(function (v) { return v === 'Disagree'; })) return 'Rejected';
+  if (votes.every(function (v) { return v === 'Agree'; })) return 'Approved';
+  if (votes.every(function (v) { return v === 'No Decision' || v === ''; })) return 'Pending';
+  return 'In Progress';
+}
+
+function registerRowsOf_(approvalId) {
+  return readAll_('ApprovalsRegister').rows.filter(function (r) { return r.approval_id === approvalId; });
+}
+
+/** Добавляет строки реестра для новых участников (голос по умолчанию — «Нет решения»). */
+function addVoterRows_(approval, voters) {
+  var reg = readAll_('ApprovalsRegister');
+  voters.forEach(function (v) {
+    appendObj_(reg.sh, reg.headers, {
+      approval_id: approval.id, title: approval.name, initiator: approval.initiator,
+      created_at: String(approval.created_at).substring(0, 10), deadline: approval.deadline,
+      status: approval.status, voter: v, vote: 'No Decision', vote_comment: '', vote_date: ''
+    });
+  });
+}
+
+/**
+ * Приводит в соответствие Approvals и ApprovalsRegister для одного согласования:
+ * статус пересчитывается по голосам, шапка (название, срок, инициатор, статус) копируется в строки реестра.
+ * Возвращает true, если что-то изменилось.
+ */
+function syncApproval_(approvalId, user) {
+  var f = findEntity_(approvalId);
+  if (!f || f.type !== 'approval') return false;
+  var reg = readAll_('ApprovalsRegister');
+  var rows = reg.rows.filter(function (r) { return r.approval_id === approvalId; });
+  if (!rows.length) return false;
+  var changed = false;
+
+  var status = deriveApprovalStatus_(rows.map(function (r) { return r.vote; }));
+  if (status !== f.row.status) {
+    updateRow_(f.tbl.sh, f.tbl.headers, f.row._row, { status: status, updated_at: nowStr_() });
+    writeLog_(user, [['update', 'approval', approvalId, 'status', f.row.status, status]]);
+    changed = true;
+  }
+  var head = { title: f.row.name, initiator: f.row.initiator, created_at: String(f.row.created_at).substring(0, 10),
+    deadline: f.row.deadline, status: status };
+  rows.forEach(function (r) {
+    var patch = {}, any = false;
+    Object.keys(head).forEach(function (k) { if (String(r[k]) !== String(head[k])) { patch[k] = head[k]; any = true; } });
+    if (any) { updateRow_(reg.sh, reg.headers, r._row, patch); changed = true; }
+  });
+  return changed;
+}
+
+/** Согласования, у которых статус или шапка расходятся с реестром (например, голос поправили прямо в таблице). */
+function approvalsOutOfSync_(approvals, regRows) {
+  var by = {};
+  regRows.forEach(function (r) { (by[r.approval_id] = by[r.approval_id] || []).push(r); });
+  return approvals.filter(function (a) {
+    var rows = by[a.id];
+    if (!rows) return false;
+    var st = deriveApprovalStatus_(rows.map(function (r) { return r.vote; }));
+    return st !== a.status || rows.some(function (r) {
+      return r.title !== a.name || r.deadline !== a.deadline || r.initiator !== a.initiator || r.status !== st;
+    });
+  }).map(function (a) { return a.id; });
+}
+
+/** Чтение реестра: все строки или только одного согласования. */
+function getApprovalsRegister(token, approvalId) {
+  return api_(token, function () {
+    return readAll_('ApprovalsRegister').rows.filter(function (r) {
+      return !approvalId || r.approval_id === approvalId;
+    }).map(pub_);
+  });
+}
+
+/** Изменение состава голосующих: новые получают «Нет решения», у оставшихся голоса сохраняются. */
+function setApprovalVoters(token, approvalId, voters) {
+  return api_(token, function (session) {
+    var f = findEntity_(approvalId);
+    if (!f || f.type !== 'approval') throw new Error('Согласование не найдено: ' + approvalId);
+    var list = normalizeVoters_(voters);
+    if (!list.length) throw new Error('Укажите хотя бы одного участника голосования');
+
+    var reg = readAll_('ApprovalsRegister');
+    var mine = reg.rows.filter(function (r) { return r.approval_id === approvalId; });
+    var keep = {}; list.forEach(function (n) { keep[n.toLowerCase()] = true; });
+    var have = {}; mine.forEach(function (r) { have[r.voter.toLowerCase()] = true; });
+    var oldNames = mine.map(function (r) { return r.voter; });
+
+    mine.slice().reverse().forEach(function (r) {              // с конца, чтобы не сбивались номера строк
+      if (!keep[r.voter.toLowerCase()]) reg.sh.deleteRow(r._row);
+    });
+    addVoterRows_(f.row, list.filter(function (n) { return !have[n.toLowerCase()]; }));
+    ensureUsers_(list);
+    if (oldNames.join(', ') !== list.join(', ')) {
+      writeLog_(session.user, [['update', 'approval', approvalId, 'voters', oldNames.join(', '), list.join(', ')]]);
+    }
+    syncApproval_(approvalId, session.user);
+    return { voters: list };
+  }, { write: true });
+}
+
+/** Голос участника. Голосовать можно только от своего имени (имя входа = участник). */
+function castVote(token, approvalId, voter, vote, comment) {
+  return api_(token, function (session) {
+    var f = findEntity_(approvalId);
+    if (!f || f.type !== 'approval') throw new Error('Согласование не найдено: ' + approvalId);
+    voter = String(voter || '').trim();
+    if (voter.toLowerCase() !== String(session.user).toLowerCase()) {
+      throw new Error('Голосовать можно только от своего имени. Войдите под именем участника.');
+    }
+    if (enumValues_('vote').indexOf(vote) === -1) throw new Error('Недопустимый вариант голоса');
+    comment = String(comment || '').trim();
+    if (comment.length > 1000) throw new Error('Комментарий: не более 1000 символов');
+
+    var reg = readAll_('ApprovalsRegister');
+    var row = reg.rows.filter(function (r) {
+      return r.approval_id === approvalId && r.voter.toLowerCase() === voter.toLowerCase();
+    })[0];
+    if (!row) throw new Error('Вы не входите в число участников голосования');
+    if (row.vote === vote && row.vote_comment === comment) return { changed: false, status: f.row.status };
+
+    updateRow_(reg.sh, reg.headers, row._row, { vote: vote, vote_comment: comment, vote_date: nowStr_() });
+    var entries = [];
+    if (row.vote !== vote) entries.push(['vote', 'approval', approvalId, 'vote', row.vote, vote]);
+    if (row.vote_comment !== comment) entries.push(['vote', 'approval', approvalId, 'vote_comment', row.vote_comment, comment]);
+    writeLog_(session.user, entries);
+    syncApproval_(approvalId, session.user);
+    return { changed: true, status: findEntity_(approvalId).row.status };
+  }, { write: true });
+}
+
+/** Пункт меню: пересчитать статусы всех согласований по реестру (после ручных правок листа). */
+function syncApprovalsRegister() {
+  setupIfNeeded_();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var n = 0;
+    readAll_('Approvals', 'approval').rows.forEach(function (a) { if (syncApproval_(a.id, 'Меню')) n++; });
+    try { SpreadsheetApp.getUi().alert(APP_TITLE, 'Согласований обновлено: ' + n, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) { /* без UI */ }
+    return n;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ============================================================================
+ * 12b. KANBAN: перенос карточки между колонками
+ * ========================================================================== */
+
+/**
+ * Перенос карточки. column: progress | planned | done.
+ * Колонка «Ожидают решения» (awaiting) формируется автоматически по просрочке, переносить в неё нельзя.
+ */
+function moveTask(token, id, column) {
+  return api_(token, function (session) {
+    var f = findEntity_(id);
+    if (!f || ['stage', 'task', 'subtask'].indexOf(f.type) === -1) {
+      throw new Error('Переносить можно только этапы, задачи и подзадачи');
+    }
+    if (column === 'awaiting') {
+      throw new Error('Колонка «Ожидают решения» заполняется автоматически: в неё попадают просроченные задачи');
+    }
+    var status = KANBAN_STATUS[column];
+    if (!status) throw new Error('Неизвестная колонка: ' + column);
+
+    var changes = { status: status };
+    // Возобновлённая задача не может оставаться на 100 %
+    if (f.row.status === 'Done' && status !== 'Done' && Number(f.row.progress) >= 100) {
+      changes.progress = status === 'Not Started' ? 0 : 99;
+    }
+    var res = doUpdate_(id, changes, session.user);
+    res.overdue = !!f.row.deadline && f.row.deadline < todayStr_() && status !== 'Done';
+    return res;
+  }, { write: true });
+}
+
+/* ============================================================================
+ * 12c. ФАЙЛЫ ПРОЕКТА (лист Info, диапазон A1:K50)
+ * ========================================================================== */
+
+function safeUrl_(u) {
+  u = String(u || '').trim();
+  return /^https?:\/\/[^\s]+$/i.test(u) && u.length <= 1000 ? u : '';
+}
+
+/** Ссылка ячейки: гиперссылка в тексте (в т. ч. частичная) или формула =HYPERLINK("url";"имя"). */
+function cellLink_(rich, formula) {
+  var m = /^=\s*HYPERLINK\(\s*"([^"]+)"\s*(?:[,;]\s*"([^"]*)")?\s*\)\s*$/i.exec(String(formula || ''));
+  if (m) return { url: safeUrl_(m[1]), name: m[2] || '' };
+  var url = '';
+  try {
+    url = rich.getLinkUrl() || '';
+    if (!url) {
+      rich.getRuns().some(function (r) { url = r.getLinkUrl() || ''; return !!url; });
+    }
+  } catch (e) { url = ''; }
+  return { url: safeUrl_(url), name: '' };
+}
+
+/**
+ * Читает Info!A1:K50. Возвращает строки, в каждой — непустые элементы { name, url }.
+ * Ссылка, записанная отдельной ячейкой справа от названия, присоединяется к названию.
+ */
+function getInfo(token) {
+  return api_(token, function () {
+    var ss = ss_();
+    var sh = ensureInfoSheet_(ss);
+    var rng = sh.getRange(1, 1, INFO_ROWS, INFO_COLS);
+    var values = rng.getDisplayValues ? rng.getDisplayValues() : rng.getValues();
+    var rich = rng.getRichTextValues();
+    var formulas = rng.getFormulas();
+    var rows = [], count = 0;
+
+    values.forEach(function (row, i) {
+      var items = [];
+      row.forEach(function (cell, j) {
+        var text = String(cell === null || cell === undefined ? '' : cell).trim();
+        var link = cellLink_(rich[i][j], formulas[i][j]);
+        if (!text && !link.url) return;
+        if (!text || (link.name && text.charAt(0) === '=')) text = link.name;
+        var asUrl = safeUrl_(text);
+        if (!link.url && asUrl) {                       // ячейка с голой ссылкой
+          var prev = items[items.length - 1];
+          if (prev && !prev.url) { prev.url = asUrl; return; }
+          link.url = asUrl;
+        }
+        items.push({ name: text, url: link.url });
+      });
+      if (items.length) { rows.push(items); count += items.length; }
+    });
+    return { rows: rows, count: count, sheet_url: ss.getUrl() + '#gid=' + sh.getSheetId() };
+  });
+}
+
+/* ============================================================================
+ * 12d. ОБМЕН: карточки «кто — кому — что — когда»
+ * ========================================================================== */
+
+function ownerOf_(e) {
+  return e._type === 'approval' ? (e.approver || e.assignee || '') : (e.assignee || '');
+}
+
+function statusLabelOf_(type, value) {
+  var en = fieldDef_(type, 'status').enum;
+  var x = ENUMS[en].filter(function (o) { return o.value === value; })[0];
+  return x ? x.label : value;
+}
+
+function isClosed_(e) {
+  return ['Done', 'Approved', 'Rejected', 'Held', 'Cancelled'].indexOf(e.status) !== -1;
+}
+
+/** Состояние передачи по связи: code ok | wait | bad | none (клиент красит метку по коду). */
+function handoverState_(l, s, t, today) {
+  if (l.link_type === 'parent' || l.link_type === 'related') return { code: 'none', label: '—' };
+  if (l.link_type === 'approval') {
+    if (t.status === 'Approved') return { code: 'ok', label: 'Согласовано' };
+    if (t.status === 'Rejected') return { code: 'bad', label: 'Отклонено' };
+    if (t.deadline && t.deadline < today) return { code: 'bad', label: 'Просрочено' };
+    return { code: 'wait', label: 'Ожидает решения' };
+  }
+  var done = l.link_type === 'blocks' ? 'Блокировка снята' : 'Передано';
+  if (isClosed_(s)) return { code: 'ok', label: done };
+  if (s.blocked === true || s.status === 'Blocked') return { code: 'bad', label: 'Заблокировано' };
+  var due = s.deadline || s.meeting_date;
+  if (due && due < today) return { code: 'bad', label: 'Просрочено' };
+  return { code: 'wait', label: l.link_type === 'blocks' ? 'Блокирует' : 'Ожидается' };
+}
+
+/**
+ * Данные карточек вкладки «Обмен». filter.type: flow (все, кроме иерархии, по умолчанию) | all | значение link_type.
+ * Для каждой связи — источник, получатель (участник, задача, статус, дата), дополнительные сведения и состояние передачи.
+ */
+function getExchangeCards(token, filter) {
+  return api_(token, function () {
+    var ftype = (filter && filter.type) || 'flow';
+    var today = todayStr_(), byId = {}, docsBy = {};
+    TYPE_ORDER.forEach(function (t) {
+      readAll_(TYPES[t].sheet, t).rows.forEach(function (e) { e._type = t; byId[e.id] = e; });
+    });
+    readAll_('Documents').rows.forEach(function (d) {
+      (docsBy[d.entity_id] = docsBy[d.entity_id] || []).push({ name: d.doc_name, url: d.doc_url });
+    });
+    var brief = function (e) {
+      return { id: e.id, type: e._type, type_label: TYPES[e._type].label, name: e.name,
+        status: e.status, status_label: statusLabelOf_(e._type, e.status), owner: ownerOf_(e),
+        date: e.meeting_date || e.deadline || '', comment: e.comment || '', docs: docsBy[e.id] || [] };
+    };
+    var cards = [];
+    readAll_('Links').rows.forEach(function (l) {
+      if (ftype === 'flow' ? l.link_type === 'parent' : (ftype !== 'all' && l.link_type !== ftype)) return;
+      var s = byId[l.source_id], t = byId[l.target_id];
+      if (!s || !t) return;
+      var h = handoverState_(l, s, t, today);
+      h.date = l.link_type === 'approval' ? (t.deadline || '') : (s.meeting_date || s.deadline || '');
+      cards.push({ link_id: l.link_id, link_type: l.link_type, type_label: linkLabel_(l.link_type),
+        note: l.note, source: brief(s), target: brief(t), handover: h });
+    });
+    return { cards: cards };
+  });
+}
+
+/* ============================================================================
  * 13. ДЕМО-ДАННЫЕ (меню «Загрузить демо-данные»)
  * ========================================================================== */
 
@@ -1163,9 +1581,23 @@ function seedDemo() {
 
     var a1 = mk('approval', { name: 'Согласование ассортимента', description: 'Утверждение финального списка товаров.',
       initiator: 'Анна Смирнова', approver: 'Иван Петров', assignee: 'Анна Смирнова', deadline: addDays_(3),
-      status: 'Pending' }, s1);
-    mk('approval', { name: 'Бюджет рекламы', description: 'Утверждение медиаплана и бюджета.',
-      initiator: 'Иван Петров', approver: 'Анна Смирнова', deadline: addDays_(14), status: 'Pending' }, t4);
+      voters: ['Иван Петров', 'Анна Смирнова', 'Мария Кузнецова'] }, s1);
+    var a2 = mk('approval', { name: 'Бюджет рекламы', description: 'Утверждение медиаплана и бюджета.',
+      initiator: 'Иван Петров', approver: 'Анна Смирнова', deadline: addDays_(14),
+      voters: ['Анна Смирнова', 'Дмитрий Орлов'] }, t4);
+    // Несколько голосов для примера: у первого согласования решение ещё не принято
+    var vote = function (id, who, v, c) {
+      var reg = readAll_('ApprovalsRegister');
+      reg.rows.forEach(function (r) {
+        if (r.approval_id === id && r.voter === who) {
+          updateRow_(reg.sh, reg.headers, r._row, { vote: v, vote_comment: c, vote_date: nowStr_() });
+        }
+      });
+      writeLog_(who, [['vote', 'approval', id, 'vote', 'No Decision', v]]);
+      syncApproval_(id, who);
+    };
+    vote(a1, 'Иван Петров', 'Agree', 'Ассортимент устраивает');
+    vote(a1, 'Анна Смирнова', 'Discussed', 'Нужно уточнить маржинальность по трём позициям');
 
     mk('meeting', { name: 'Статус проекта', description: 'Еженедельный созвон по статусам.', assignee: 'Анна Смирнова',
       meeting_date: addDays_(2), meeting_time: '10:00', end_time: '11:00',
@@ -1174,7 +1606,24 @@ function seedDemo() {
       meeting_date: addDays_(9), meeting_time: '15:30', end_time: '16:30',
       participants: 'Иван Петров, Дмитрий Орлов', location: 'https://meet.google.com', status: 'Planned' }, s2);
 
-    hand(t1, t2); hand(t2, t5); hand(t3, t5); hand(t4, t6); hand(t2, a1);
+    var link = function (a, b, type) {
+      addLink_(checkLink_({ source_id: a, target_id: b, link_type: type }, readAll_('Links').rows), me);
+    };
+    hand(t1, t2); hand(t4, t6);
+    link(t3, t5, 'blocks'); link(t2, t5, 'blocks');
+    link(t2, a1, 'approval'); link(t4, a2, 'approval');
+
+    // Пример содержимого листа «Файлы проекта», если он пуст
+    var info = ensureInfoSheet_(ss_());
+    if (info.getLastRow() === 0) {
+      info.getRange(1, 1, 5, 2).setValues([
+        ['Общие материалы', ''],
+        ['Папка проекта', 'https://drive.google.com'],
+        ['Договоры и юридические документы', 'https://drive.google.com'],
+        ['Фото и видео товаров', 'https://drive.google.com'],
+        ['Отчёты и аналитика', 'https://drive.google.com']
+      ]);
+    }
   } finally {
     lock.releaseLock();
   }
