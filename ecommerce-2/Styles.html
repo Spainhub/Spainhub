@@ -58,6 +58,7 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+html { scrollbar-gutter: stable; overflow-y: scroll; }   /* constant width: header never shifts between tabs */
 html, body { margin: 0; padding: 0; width: 100%; }
 body {
   background: var(--bg);
@@ -133,6 +134,17 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); m
 }
 .hint { font-size: var(--fs-xs); color: var(--muted); }
 
+/* ---------- Long URLs: always shown in full and wrapped inside their container ---------- */
+.url, .doc-title, .doc-name, .file-url, .file-name, .doc-ref {
+  display: block; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+}
+.doc-ref { margin-bottom: var(--s-2); }
+.doc-ref:last-child { margin-bottom: 0; }
+.doc-title { font-weight: 500; }
+.url { font-size: var(--fs-xs); color: var(--accent); }
+.hist-item, .xc-extra p, .vote-row .cmt { overflow-wrap: anywhere; word-break: break-word; }
+.tbl td { overflow-wrap: break-word; }
+
 /* ---------- Состояния загрузки и пустые состояния ---------- */
 .busy { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 100; overflow: hidden; }
 .busy::after { content: ''; position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent); animation: busy 1s ease-in-out infinite; border-radius: 3px; }
@@ -151,14 +163,13 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); m
 /* ---------- Каркас на всю ширину ---------- */
 .app { min-height: 100vh; width: 100%; display: flex; flex-direction: column; }
 .topbar {
+  min-height: 68px;
   position: sticky; top: 0; z-index: 20; width: 100%; display: flex; align-items: center; gap: var(--s-5);
   background: rgba(255, 255, 255, .94); backdrop-filter: blur(8px);
   border-bottom: var(--border); padding: var(--s-3) var(--page-pad);
 }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: var(--fs-lg); letter-spacing: -.02em; white-space: nowrap; }
-.brand-lg { font-size: var(--fs-xl); }
-.brand-mark { width: 22px; height: 22px; border-radius: 7px; background: var(--accent); position: relative; display: inline-block; }
-.brand-mark::after { content: ''; position: absolute; inset: 6px; border-radius: 3px; background: #fff; opacity: .9; }
+.brand { flex: none; font-weight: 700; font-size: clamp(22px, .5vw + 16px, 30px); line-height: 1.1; letter-spacing: -.03em; white-space: nowrap; color: var(--ink); }
+.brand-lg { font-size: 30px; }
 
 .tabs { display: flex; gap: var(--s-1); flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: var(--s-1) 0; }
 .tabs::-webkit-scrollbar { display: none; }
@@ -274,29 +285,55 @@ table.tbl { width: 100%; border-collapse: collapse; }
   background: var(--surface); color: var(--ink); min-width: 0; transition: border-color .15s, background .15s, box-shadow .15s;
 }
 a.file-card:hover { border-color: var(--accent-mid); background: var(--accent-soft); text-decoration: none; box-shadow: var(--shadow); }
-.file-ico { width: 20px; height: 16px; flex: none; border-radius: 3px 3px 4px 4px; background: var(--accent); position: relative; }
+.file-ico { align-self: flex-start; margin-top: 3px; width: 20px; height: 16px; flex: none; border-radius: 3px 3px 4px 4px; background: var(--accent); position: relative; }
 .file-ico::before { content: ''; position: absolute; left: 0; top: -3px; width: 9px; height: 4px; border-radius: 3px 3px 0 0; background: var(--accent); }
 .file-card.nolink .file-ico, .file-card.nolink .file-ico::before { background: #c5c9d1; }
-.file-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.file-name { font-weight: 500; }
+.file-url { font-size: var(--fs-xs); color: var(--muted); }
 
-/* ---------- Календарь ---------- */
-.cal { padding: 0; overflow: hidden; }
+/* ---------- Calendar (compact, thin outline) ---------- */
+.cal { padding: 0; overflow: hidden; border: var(--border); box-shadow: none; }
 .cal-head { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: #fafbfc; border-bottom: var(--border); }
-.cal-head div { padding: var(--s-3); font-size: var(--fs-xs); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.cal-head div { padding: 6px var(--s-2); font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
-.cal-day { min-height: clamp(96px, 9vw, 150px); border-right: var(--bw) solid var(--line-2); border-bottom: var(--bw) solid var(--line-2); padding: 6px; cursor: pointer; transition: background .15s; min-width: 0; }
+.cal-day { min-height: clamp(62px, 5vw, 88px); border-right: var(--bw) solid var(--line-2); border-bottom: var(--bw) solid var(--line-2); padding: 3px 4px; cursor: pointer; transition: background .15s; min-width: 0; }
+.cal-day:nth-last-child(-n+7) { border-bottom: 0; }
 .cal-day:nth-child(7n) { border-right: 0; }
 .cal-day:hover { background: #fafbfd; }
 .cal-day.other { background: #fafbfc; color: #a0a6b2; }
-.cal-day .num { font-size: var(--fs-xs); font-weight: 600; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; margin-bottom: var(--s-1); }
+.cal-day .num { font-size: 11px; font-weight: 600; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; margin-bottom: 2px; }
 .cal-day.today .num { background: var(--accent); color: #fff; }
-.cal-week .cal-day { min-height: 340px; }
-.ev { display: block; width: 100%; text-align: left; border: 0; border-radius: var(--r-sm); padding: var(--s-1) var(--s-2); margin-bottom: var(--s-1); background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xs); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: background .15s; }
+.cal-week .cal-day { min-height: 200px; }
+.ev { display: block; width: 100%; text-align: left; border: 0; border-radius: 6px; padding: 2px 6px; margin-bottom: 2px; background: var(--accent-soft); color: var(--accent); font-size: 11px; line-height: 1.35; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: background .15s; }
 .ev:hover { background: var(--accent-mid); }
-.ev .t { font-weight: 700; margin-right: 5px; }
+.ev .t { font-weight: 700; margin-right: 4px; }
 .ev.s-Held { background: var(--ok-soft); color: var(--ok); }
 .ev.s-Cancelled { background: #eceef2; color: #8a909c; text-decoration: line-through; }
-.cal-week .ev { white-space: normal; padding: 7px var(--s-2); }
+.cal-week .ev { white-space: normal; padding: 4px 6px; }
+
+/* ---------- Table tab: hierarchical tree ---------- */
+.tbl-tree { table-layout: fixed; min-width: 1080px; }
+.tbl-tree th, .tbl-tree td { padding-left: var(--s-3); padding-right: var(--s-3); }
+.tbl-tree th { white-space: normal; }
+.tbl-tree { font-size: var(--fs-sm); }
+.tbl-tree td { overflow-wrap: break-word; }   /* break words only when they cannot fit; URLs use .url (anywhere) */
+.tbl-tree tr.lv-stage td { background: #fafbfc; font-weight: 600; }
+.tbl-tree tr.lv-stage:hover td { background: #f3f5f9; }
+.tn { display: flex; align-items: flex-start; gap: var(--s-2); min-width: 0; flex-wrap: wrap; }
+.tn a { color: inherit; font-weight: 500; min-width: 0; flex: 1 1 0; }
+.tn a:hover { color: var(--accent); }
+.tg, .tg-sp { flex: none; width: 22px; height: 22px; border-radius: 6px; }
+.tg { position: relative; border: var(--border); background: var(--surface); transition: background .15s, border-color .15s; padding: 0; }
+.tg:hover { background: var(--accent-soft); border-color: var(--accent-mid); }
+.tg-ico::before, .tg-ico::after { content: ''; position: absolute; left: 50%; top: 50%; background: var(--accent); border-radius: 1px; transform: translate(-50%, -50%); transition: transform .2s var(--ease), opacity .2s; }
+.tg-ico::before { width: 10px; height: 2px; }
+.tg-ico::after { width: 2px; height: 10px; }
+.tg.open .tg-ico::after { transform: translate(-50%, -50%) rotate(90deg); opacity: 0; }   /* plus becomes minus */
+.tp { display: flex; align-items: center; gap: var(--s-2); }
+.tp .bar { flex: 1; min-width: 36px; height: 6px; }
+.tp b { font-size: var(--fs-xs); min-width: 34px; text-align: right; }
+.tm { margin-bottom: var(--s-1); }
 
 /* ---------- Канбан ---------- */
 .kb { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); align-items: start; width: 100%; }
@@ -455,7 +492,10 @@ a.file-card:hover { border-color: var(--accent-mid); background: var(--accent-so
 .section { margin-top: var(--s-5); padding-top: var(--s-4); border-top: var(--border); }
 .section h4 { margin-bottom: var(--s-3); }
 .doc-item, .link-item { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-3); border-radius: 10px; background: var(--bg); margin-bottom: 6px; }
-.doc-item .grow, .link-item .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-item .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-item { align-items: flex-start; }
+.doc-item .grow { flex: 1; min-width: 0; max-width: 100%; }
+.doc-item .link-btn { flex: none; }
 .doc-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: var(--s-2); margin-top: var(--s-2); }
 .hist-item { font-size: var(--fs-xs); padding: 6px 0; color: var(--ink); }
 .hist-item + .hist-item { border-top: var(--bw) solid var(--line-2); }
@@ -496,7 +536,7 @@ a.file-card:hover { border-color: var(--accent-mid); background: var(--accent-so
 @media (max-width: 760px) {
   .user span { display: none; }
   .form-grid { grid-template-columns: 1fr; }
-  .cal-day { min-height: 84px; padding: var(--s-1); }
+  .cal-day { min-height: 60px; padding: 2px 3px; }
   .cal-week { overflow-x: auto; }
   .cal-week .cal-head, .cal-week .cal-grid { min-width: 760px; }
   .doc-add, .vote-row .vote-form { grid-template-columns: 1fr; }

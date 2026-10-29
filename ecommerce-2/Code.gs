@@ -229,7 +229,8 @@ function apiTable_() {
     addDocument: addDocument, updateDocument: updateDocument, deleteDocument: deleteDocument,
     addUser: addUser, saveSetting: saveSetting,
     getInfo: getInfo, getApprovalsRegister: getApprovalsRegister, setApprovalVoters: setApprovalVoters,
-    castVote: castVote, moveTask: moveTask, getExchangeCards: getExchangeCards
+    castVote: castVote, moveTask: moveTask, getExchangeCards: getExchangeCards,
+    getProjectTable: getProjectTable
   };
 }
 
@@ -1443,7 +1444,7 @@ function getInfo(token) {
       });
       if (items.length) { rows.push(items); count += items.length; }
     });
-    return { rows: rows, count: count, sheet_url: ss.getUrl() + '#gid=' + sh.getSheetId() };
+    return { rows: rows, count: count };
   });
 }
 
@@ -1512,6 +1513,83 @@ function getExchangeCards(token, filter) {
         note: l.note, source: brief(s), target: brief(t), handover: h });
     });
     return { cards: cards };
+  });
+}
+
+/* ============================================================================
+ * 12e. PROJECT TABLE: stages -> tasks -> subtasks with documents and linked meetings
+ * ========================================================================== */
+
+/**
+ * Returns the flat, depth-first ordered rows of the hierarchical table.
+ * Each row carries everything the table needs: assignee, dates, comment, derived progress,
+ * full (untruncated) document URLs and meetings linked to the item.
+ * Stage/task progress is the average of its tasks/subtasks when it has any, otherwise its own value.
+ */
+function getProjectTable(token) {
+  return api_(token, function () {
+    var byId = {}, kids = {}, parentOf = {}, docsBy = {}, meetingsBy = {};
+    ['stage', 'task', 'subtask', 'meeting'].forEach(function (t) {
+      readAll_(TYPES[t].sheet, t).rows.forEach(function (e) { e._type = t; byId[e.id] = e; });
+    });
+    var isWork = function (e) { return e && e._type !== 'meeting' && e._type !== 'approval'; };
+
+    readAll_('Links').rows.forEach(function (l) {
+      var a = byId[l.source_id], b = byId[l.target_id];
+      if (!a || !b) return;
+      if (l.link_type === 'parent' && isWork(a) && isWork(b)) {
+        parentOf[a.id] = b.id;
+        (kids[b.id] = kids[b.id] || []).push(a);
+      }
+      // A meeting is shown on every work item it is linked to (in either direction)
+      [[a, b], [b, a]].forEach(function (p) {
+        if (p[0]._type === 'meeting' && isWork(p[1])) {
+          var list = meetingsBy[p[1].id] = meetingsBy[p[1].id] || [];
+          if (!list.some(function (m) { return m.id === p[0].id; })) {
+            list.push({ id: p[0].id, name: p[0].name, date: p[0].meeting_date, time: p[0].meeting_time });
+          }
+        }
+      });
+    });
+    readAll_('Documents').rows.forEach(function (d) {
+      (docsBy[d.entity_id] = docsBy[d.entity_id] || []).push({ name: d.doc_name, url: d.doc_url });
+    });
+
+    var memo = {};
+    var progress = function (e) {
+      if (memo[e.id] !== undefined) return memo[e.id];
+      var ch = (kids[e.id] || []).filter(function (k) { return k._type === 'task' || k._type === 'subtask'; });
+      var v;
+      if (!ch.length) v = e.status === 'Done' ? 100 : Math.round(Number(e.progress) || 0);
+      else v = Math.round(ch.reduce(function (sum, k) { return sum + progress(k); }, 0) / ch.length);
+      memo[e.id] = v;
+      return v;
+    };
+    var startOf = function (e) { return e.start_date || String(e.created_at || '').substring(0, 10); };
+    var sortFn = function (a, b) {
+      var ka = (startOf(a) || a.deadline || '') + a.id, kb = (startOf(b) || b.deadline || '') + b.id;
+      return ka < kb ? -1 : 1;
+    };
+
+    var rows = [];
+    var walk = function (e, parentId) {
+      var ch = (kids[e.id] || []).slice().sort(sortFn);
+      rows.push({
+        id: e.id, type: e._type, parent_id: parentId, name: e.name, assignee: e.assignee || '',
+        start_date: startOf(e), finish_date: e.deadline || '', comment: e.comment || '',
+        progress: progress(e), status: e.status, status_label: statusLabelOf_(e._type, e.status),
+        blocked: e.blocked === true || e.status === 'Blocked',
+        docs: docsBy[e.id] || [], meetings: (meetingsBy[e.id] || []).sort(function (x, y) { return String(x.date).localeCompare(String(y.date)); }),
+        has_children: ch.length > 0
+      });
+      ch.forEach(function (k) { walk(k, e.id); });
+    };
+    var roots = Object.keys(byId).map(function (id) { return byId[id]; }).filter(function (e) {
+      return isWork(e) && !parentOf[e.id];
+    });
+    var order = { stage: 0, task: 1, subtask: 2 };
+    roots.sort(function (a, b) { return order[a._type] - order[b._type] || sortFn(a, b); }).forEach(function (e) { walk(e, ''); });
+    return { rows: rows, total: rows.length };
   });
 }
 

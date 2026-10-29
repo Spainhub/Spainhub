@@ -18,6 +18,7 @@
     exchCards: null, exchErr: '',
     info: null, infoErr: '', infoBusy: false, infoAt: 0,
     regOpen: {},
+    tbl: { rows: null, err: '', q: '', collapsed: {} },
     logFilter: { entity_type: '', date_from: '', date_to: '', entity_id: '' },
     drawer: null,
     modalButtons: []
@@ -221,6 +222,7 @@
     else if (tab === 'exchange') renderExchange();
     else if (tab === 'meetings') renderMeetings();
     else if (tab === 'kanban') renderKanban();
+    else if (tab === 'table') renderTable();
     else if (tab === 'gantt') renderGantt(keepScroll);
     else if (tab === 'log') renderLog();
   }
@@ -255,26 +257,32 @@
     return v;
   }
 
-  /* ---------- Блок «Файлы проекта» (лист Info, диапазон A1:K50) ---------- */
+  /* ---------- URL output helpers: the full URL is always shown, never shortened ---------- */
+  /** Clickable full URL that wraps inside its container. */
+  function urlLink(url) {
+    return '<a class="url" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(url) + '</a>';
+  }
+  /** Document reference: the name (also a link) and, on a separate line, the complete URL. */
+  function docHTML(name, url) {
+    return '<div class="doc-ref"><a class="doc-title" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(name) + '</a>' + urlLink(url) + '</div>';
+  }
+
+  /* ---------- Блок «Файлы проекта» ---------- */
   function infoBlockHTML() {
     var i = S.info;
-    var openLink = i && i.sheet_url
-      ? '<a class="small" href="' + esc(i.sheet_url) + '" target="_blank" rel="noopener noreferrer">Открыть в Google Sheets</a>' : '';
     var head = '<div class="card-head"><h4>Файлы проекта</h4><span class="small muted">' +
-      '<button class="link-btn" data-act="info-refresh">Обновить</button>' + (openLink ? ' · ' + openLink : '') + '</span></div>';
+      '<button class="link-btn" data-act="info-refresh">Обновить</button></span></div>';
     if (S.infoErr) return head + '<div class="form-error">' + esc(S.infoErr) + '</div>';
     if (!i) return head + '<div class="loading"><span class="spinner"></span>Загрузка…</div>';
-    if (!i.count) {
-      return head + '<div class="empty"><b>Файлов пока нет</b>Добавьте на лист Info название папки (столбец A) и ссылку (столбец B), ' +
-        'диапазон A1:K50.' + (openLink ? '<br>' + openLink : '') + '</div>';
-    }
+    if (!i.count) return head + '<div class="empty"><b>Файлов пока нет</b>Данные появятся после добавления.</div>';
     var h = '<div class="files">';
     i.rows.forEach(function (row) {
       if (row.length === 1 && !row[0].url) { h += '<div class="files-group">' + esc(row[0].name) + '</div>'; return; }
       row.forEach(function (it) {
         h += it.url
-          ? '<a class="file-card" href="' + esc(it.url) + '" target="_blank" rel="noopener noreferrer" title="' + esc(it.url) + '"><span class="file-ico"></span><span class="file-name">' + esc(it.name) + '</span></a>'
-          : '<div class="file-card nolink"><span class="file-ico"></span><span class="file-name">' + esc(it.name) + '</span></div>';
+          ? '<a class="file-card" href="' + esc(it.url) + '" target="_blank" rel="noopener noreferrer"><span class="file-ico"></span>' +
+            '<span class="file-text"><span class="file-name">' + esc(it.name) + '</span><span class="file-url">' + esc(it.url) + '</span></span></a>'
+          : '<div class="file-card nolink"><span class="file-ico"></span><span class="file-text"><span class="file-name">' + esc(it.name) + '</span></span></div>';
       });
     });
     return head + h + '</div>';
@@ -293,7 +301,7 @@
       });
   }
 
-  /* ---------- Реестр согласований (лист ApprovalsRegister) ---------- */
+  /* ---------- Реестр согласований ---------- */
   function voteSummary(id) {
     var v = S.idx.votes[id] || [];
     return { total: v.length, agree: v.filter(function (x) { return x.vote === 'Agree'; }).length, rows: v };
@@ -304,7 +312,7 @@
 
   function registerHTML() {
     var list = S.data.entities.approval.slice().sort(function (a, b) { return String(a.deadline).localeCompare(String(b.deadline)); });
-    var head = '<div class="card-head" style="padding:0 var(--card-pad)"><h4>Реестр согласований</h4><span class="small muted">Лист ApprovalsRegister · ' + list.length + '</span></div>';
+    var head = '<div class="card-head" style="padding:0 var(--card-pad)"><h4>Реестр согласований</h4><span class="small muted">Всего: ' + list.length + '</span></div>';
     if (!list.length) {
       return head + '<div class="empty"><b>Согласований пока нет</b>Создайте согласование кнопкой «Создать» и выберите участников голосования.</div>';
     }
@@ -418,9 +426,7 @@
     var extra = '';
     if (c.note) extra += '<p>' + esc(c.note) + '</p>';
     if (c.source.comment) extra += '<p class="muted">Комментарий: ' + esc(c.source.comment) + '</p>';
-    c.source.docs.forEach(function (d) {
-      extra += '<p><a href="' + esc(d.url) + '" target="_blank" rel="noopener noreferrer">' + esc(d.name) + '</a></p>';
-    });
+    c.source.docs.forEach(function (d) { extra += docHTML(d.name, d.url); });
     return '<div class="card xc">' +
       '<div class="xc-top"><span class="xc-type">' + esc(c.type_label) + '</span><span class="nowrap">' +
       '<button class="link-btn small" data-act="link-edit" data-id="' + esc(c.link_id) + '">Изменить</button> ' +
@@ -561,6 +567,95 @@
   }
 
   /* ============================================================================
+   * TABLE: hierarchical list stage -> tasks -> subtasks
+   * ========================================================================== */
+  var TBL_COLS = [
+    ['Этапы', 13], ['Задачи', 13], ['Подзадачи', 13], ['Исполнитель', 8], ['Начало', 7], ['Окончание', 7],
+    ['Комментарий', 8.5], ['Прогресс', 7.5], ['Документ (ссылка)', 12.5], ['Встречи', 10.5]
+  ];
+  var TBL_COL_OF = { stage: 0, task: 1, subtask: 2 };      // which of the first three columns holds the name
+
+  /** Plain-text haystack of a row for the quick filter. */
+  function tblHaystack(r) {
+    return [r.id, r.name, r.assignee, r.comment, r.status_label, ru(r.start_date), ru(r.finish_date)]
+      .concat(r.docs.map(function (d) { return d.name + ' ' + d.url; }))
+      .concat(r.meetings.map(function (m) { return m.name + ' ' + ru(m.date); })).join(' ').toLowerCase();
+  }
+
+  /** Rows to show: applies the quick filter (matches keep their ancestors) and the collapsed state. */
+  function tblVisibleRows() {
+    var rows = S.tbl.rows || [], q = S.tbl.q.trim().toLowerCase(), byId = {};
+    rows.forEach(function (r) { byId[r.id] = r; });
+    var keep = null;
+    if (q) {
+      keep = {};
+      rows.forEach(function (r) {
+        if (tblHaystack(r).indexOf(q) === -1) return;
+        for (var cur = r; cur && !keep[cur.id]; cur = byId[cur.parent_id]) keep[cur.id] = true;
+      });
+    }
+    return rows.filter(function (r) {
+      if (keep && !keep[r.id]) return false;
+      if (keep) return true;                                   // while filtering, everything matching stays expanded
+      for (var p = byId[r.parent_id]; p; p = byId[p.parent_id]) if (S.tbl.collapsed[p.id]) return false;
+      return true;
+    });
+  }
+
+  function tblRowHTML(r) {
+    var col = TBL_COL_OF[r.type], open = !S.tbl.collapsed[r.id] || !!S.tbl.q.trim();
+    var toggle = r.has_children
+      ? '<button class="tg' + (open ? ' open' : '') + '" data-act="tbl-toggle" data-id="' + esc(r.id) + '" aria-expanded="' + open +
+        '" aria-label="' + (open ? 'Свернуть' : 'Развернуть') + '" title="' + (open ? 'Свернуть' : 'Развернуть') + '"><span class="tg-ico"></span></button>'
+      : '<span class="tg-sp"></span>';
+    var nameCell = '<div class="tn">' + toggle + '<a href="#" data-act="open" data-id="' + esc(r.id) + '" title="' + esc(r.id) + '">' + esc(r.name) + '</a>' +
+      (r.blocked ? ' <span class="pill s-Blocked">Блок</span>' : '') + '</div>';
+    var tds = '';
+    for (var i = 0; i < 3; i++) tds += '<td>' + (i === col ? nameCell : '') + '</td>';
+    var docs = r.docs.length ? r.docs.map(function (d) { return docHTML(d.name, d.url); }).join('') : '<span class="muted">—</span>';
+    var mt = r.meetings.length ? r.meetings.map(function (m) {
+      return '<div class="tm"><a href="#" data-act="open" data-id="' + esc(m.id) + '">' + esc(m.name) + '</a><span class="muted"> · ' + ru(m.date) + (m.time ? ' ' + esc(m.time) : '') + '</span></div>';
+    }).join('') : '<span class="muted">—</span>';
+    return '<tr class="lv-' + r.type + '" data-id="' + esc(r.id) + '">' + tds +
+      '<td>' + (r.assignee ? esc(r.assignee) : '<span class="muted">—</span>') + '</td>' +
+      '<td class="nowrap">' + (r.start_date ? ru(r.start_date) : '<span class="muted">—</span>') + '</td>' +
+      '<td class="nowrap">' + (r.finish_date ? ru(r.finish_date) : '<span class="muted">—</span>') + '</td>' +
+      '<td>' + (r.comment ? esc(r.comment) : '<span class="muted">—</span>') + '</td>' +
+      '<td><div class="tp"><div class="bar"><i style="width:' + r.progress + '%"></i></div><b>' + r.progress + '%</b></div></td>' +
+      '<td>' + docs + '</td><td>' + mt + '</td></tr>';
+  }
+
+  /** Redraws only the table body (search and expand/collapse never lose input focus). */
+  function drawTable() {
+    var body = $('#tblBody'); if (!body) return;
+    if (S.tbl.err) { body.innerHTML = '<div class="form-error">' + esc(S.tbl.err) + '</div>'; return; }
+    if (!S.tbl.rows) { body.innerHTML = '<div class="loading"><span class="spinner"></span>Загрузка…</div>'; return; }
+    if (!S.tbl.rows.length) {
+      body.innerHTML = '<div class="empty"><b>Нет данных</b>Создайте этап или задачу кнопкой «Создать» — они появятся здесь.</div>'; return;
+    }
+    var rows = tblVisibleRows();
+    if (!rows.length) { body.innerHTML = '<div class="empty"><b>Ничего не найдено</b>Измените запрос.</div>'; return; }
+    body.innerHTML = '<div class="table-wrap"><table class="tbl tbl-tree"><colgroup>' +
+      TBL_COLS.map(function (c) { return '<col style="width:' + c[1] + '%">'; }).join('') + '</colgroup><thead><tr>' +
+      TBL_COLS.map(function (c) { return '<th>' + c[0] + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(tblRowHTML).join('') + '</tbody></table></div>';
+  }
+
+  function renderTable() {
+    $('#v-table').innerHTML =
+      '<div class="view-head"><h2>Таблица</h2><div class="toolbar">' +
+      '<input type="text" id="tblQ" placeholder="Поиск по названию, исполнителю, ссылке" value="' + esc(S.tbl.q) + '">' +
+      '<button class="btn" data-act="tbl-expand">Развернуть всё</button>' +
+      '<button class="btn" data-act="tbl-collapse">Свернуть всё</button></div></div>' +
+      '<p class="view-lead">Структура проекта: этап, его задачи и подзадачи. Нажмите на кнопку слева от названия, чтобы свернуть или развернуть вложенные строки.</p>' +
+      '<div class="card table-card" id="tblBody"></div>';
+    drawTable();
+    authCall('getProjectTable').then(function (r) { S.tbl.rows = r.rows; S.tbl.err = ''; })
+      .catch(function (e) { S.tbl.err = e.message; })
+      .then(drawTable);
+  }
+
+  /* ============================================================================
    * КАНБАН
    * Колонки: В процессе / Планируются / Готово / Ожидают решения (просроченные).
    * Перетаскивание на pointer-событиях (мышь и касание), статус сохраняется на сервере (moveTask).
@@ -604,7 +699,7 @@
     var byDeadline = function (a, b) { return String(a.deadline || '9999').localeCompare(String(b.deadline || '9999')); };
     $('#v-kanban').innerHTML =
       '<div class="view-head"><h2>Канбан</h2><div class="toolbar"><button class="btn primary" data-act="new" data-type="task">Новая задача</button></div></div>' +
-      '<p class="view-lead">Перетаскивайте карточки между колонками — статус сохранится в таблице. ' +
+      '<p class="view-lead">Перетаскивайте карточки между колонками — статус сохранится автоматически. ' +
       'В «Ожидают решения» задачи попадают автоматически, когда срок прошёл, а задача не завершена.</p>' +
       '<div class="kb" id="kb">' + KB_COLS.map(function (c) {
         var list = cols[c.id].sort(byDeadline);
@@ -1110,7 +1205,7 @@
           return true;
         }).map(function (o) { return '<option value="' + o.value + '">' + esc(o.label) + '</option>'; }).join('') + '</select></div>' +
         '<div class="field"><label for="cLinkTarget">Объект</label><select id="cLinkTarget"></select></div></div>' +
-        '<div class="hint">Связь записывается в лист Links. Её можно добавить и позже.</div></div>';
+        '<div class="hint">Связь можно добавить и позже.</div></div>';
     }
 
     $('#drawer').innerHTML =
@@ -1177,7 +1272,7 @@
 
     var docs = S.idx.docs[e.id] || [];
     $('#docList').innerHTML = docs.length ? docs.map(function (x) {
-      return '<div class="doc-item"><div class="grow"><a href="' + esc(x.doc_url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.doc_name) + '</a></div>' +
+      return '<div class="doc-item"><div class="grow">' + docHTML(x.doc_name, x.doc_url) + '</div>' +
         '<button class="link-btn" data-act="doc-edit" data-id="' + esc(x.doc_id) + '">Изменить</button>' +
         '<button class="link-btn danger" data-act="doc-del" data-id="' + esc(x.doc_id) + '">Удалить</button></div>';
     }).join('') : '<div class="muted small">Документов нет</div>';
@@ -1484,6 +1579,16 @@
       $('#regBlock').innerHTML = registerHTML();
     },
     'info-refresh': function () { S.info = null; S.infoErr = ''; var b = $('#infoBlock'); if (b) b.innerHTML = infoBlockHTML(); loadInfo(true); },
+    'tbl-toggle': function (a, ev) {
+      ev.preventDefault();
+      var id = a.getAttribute('data-id'); S.tbl.collapsed[id] = !S.tbl.collapsed[id]; drawTable();
+    },
+    'tbl-expand': function () { S.tbl.collapsed = {}; drawTable(); },
+    'tbl-collapse': function () {
+      S.tbl.collapsed = {};
+      (S.tbl.rows || []).forEach(function (r) { if (r.has_children) S.tbl.collapsed[r.id] = true; });
+      drawTable();
+    },
     'voter-add': addVoterFromInput,
     'vote-cast': castVote,
     'log-apply': function () {
@@ -1525,6 +1630,7 @@
     if (id === 'f_progress_r') { $('#f_progress').value = ev.target.value; syncProgress(); }
     else if (id === 'f_progress') { $('#f_progress_r').value = ev.target.value; syncProgress(); }
     else if (id === 'exQ') { S.exch.q = ev.target.value; drawExchangeCards(); }
+    else if (id === 'tblQ') { S.tbl.q = ev.target.value; drawTable(); }
     else if (id === 'gZoom') onZoomInput(ev.target.value);
   });
 

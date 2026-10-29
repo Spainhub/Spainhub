@@ -18,7 +18,7 @@
 <!-- Экран входа: показывается до проверки пароля -->
 <div id="login" class="login" hidden>
   <form id="loginForm" class="login-card" autocomplete="off">
-    <div class="brand brand-lg"><span class="brand-mark"></span><span>E-commerce 2.0</span></div>
+    <div class="brand brand-lg">E-commerce 2.0</div>
     <p class="muted">Система управления проектом. Для входа введите пароль.</p>
     <label class="field">
       <span>Ваше имя</span>
@@ -36,13 +36,14 @@
 <!-- Основное приложение -->
 <div id="app" class="app" hidden>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark"></span><span>E-commerce 2.0</span></div>
+    <div class="brand">E-commerce 2.0</div>
 
     <nav class="tabs" id="tabs">
       <button class="tab active" data-act="tab" data-tab="home">Главная</button>
       <button class="tab" data-act="tab" data-tab="exchange">Обмен</button>
       <button class="tab" data-act="tab" data-tab="meetings">Встречи</button>
       <button class="tab" data-act="tab" data-tab="kanban">Канбан</button>
+      <button class="tab" data-act="tab" data-tab="table">Таблица</button>
       <button class="tab" data-act="tab" data-tab="gantt">Диаграмма Ганта</button>
       <button class="tab" data-act="tab" data-tab="log">Журнал</button>
     </nav>
@@ -67,6 +68,7 @@
     <section class="view" id="v-exchange"></section>
     <section class="view" id="v-meetings"></section>
     <section class="view" id="v-kanban"></section>
+    <section class="view" id="v-table"></section>
     <section class="view" id="v-gantt"></section>
     <section class="view" id="v-log"></section>
   </main>
