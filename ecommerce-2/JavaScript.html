@@ -306,15 +306,23 @@
     if (S.infoErr) return head + '<div class="form-error">' + esc(S.infoErr) + '</div>';
     if (!i) return head + '<div class="loading"><span class="spinner"></span>Загрузка…</div>';
     if (!i.count) return head + '<div class="empty"><b>Файлов пока нет</b>Данные появятся после добавления.</div>';
-    return head + '<div class="info-list">' + i.rows.map(function (r) {
-      return '<div class="info-row" style="--lvl:' + r.level + '">' + r.cells.map(function (c) {
-        return c.segments.map(function (g) {
-          return g.url
-            ? '<a class="info-link" href="' + esc(g.url) + '" target="_blank" rel="noopener noreferrer">' + esc(g.text) + '</a>'
-            : '<span class="info-text">' + esc(g.text) + '</span>';
-        }).join('');
-      }).join('<span class="info-gap"></span>') + '</div>';
-    }).join('') + '</div>';
+    // One CSS grid for the whole block: a cell sits in the same column as in the source range, so links
+    // that live in different columns stay in different columns. Empty source rows keep their height.
+    var cols = 1, first = i.rows[0].row;
+    i.rows.forEach(function (r) { r.cells.forEach(function (c) { cols = Math.max(cols, c.col + 1); }); });
+    var cells = '';
+    i.rows.forEach(function (r) {
+      r.cells.forEach(function (c, idx) {
+        var pad = idx === 0 && r.indent ? ' padding-left:' + (r.indent * 16) + 'px;' : '';
+        cells += '<div class="info-cell" style="grid-row:' + (r.row - first + 1) + ';grid-column:' + (c.col + 1) + ';' + pad + '">' +
+          c.segments.map(function (g) {
+            return g.url
+              ? '<a class="info-link" href="' + esc(g.url) + '" target="_blank" rel="noopener noreferrer">' + esc(g.text) + '</a>'
+              : '<span class="info-text">' + esc(g.text) + '</span>';
+          }).join('') + '</div>';
+      });
+    });
+    return head + '<div class="info-wrap"><div class="info-grid" style="grid-template-columns:repeat(' + cols + ',fit-content(320px))">' + cells + '</div></div>';
   }
 
   /** Загружает Info в фоне и обновляет только блок (повторный запрос не чаще, чем раз в 20 секунд). */
@@ -596,59 +604,62 @@
    * TABLE: hierarchical list stage -> tasks -> subtasks
    * ========================================================================== */
   var TBL_COLS = [
-    ['Этапы', 13], ['Задачи', 13], ['Подзадачи', 13], ['Исполнитель', 8], ['Начало', 7], ['Окончание', 7],
-    ['Комментарий', 8.5], ['Прогресс', 7.5], ['Документ (ссылка)', 12.5], ['Встречи', 10.5]
+    ['Этапы', 12.5], ['Задачи', 12.5], ['Подзадачи', 12.5], ['Встречи', 12.5], ['Исполнитель', 7.5], ['Начало', 6],
+    ['Окончание', 6.5], ['Комментарий / протокол', 13], ['Прогресс', 9], ['Документ (ссылка)', 8]
   ];
-  var TBL_COL_OF = { stage: 0, task: 1, subtask: 2 };      // which of the first three columns holds the name
+  var TBL_COL_OF = { stage: 0, task: 1, subtask: 2, meeting: 3 };   // which of the first four columns holds the name
 
   /** Plain-text haystack of a row for the quick filter. */
   function tblHaystack(r) {
-    return [r.id, r.name, r.assignee, r.comment, r.status_label, ru(r.start_date), ru(r.finish_date)]
-      .concat(r.docs.map(function (d) { return docLabel(d.name); }))
-      .concat(r.meetings.map(function (m) { return m.name + ' ' + ru(m.date); })).join(' ').toLowerCase();
+    return [r.number, r.id, r.name, r.assignee, r.comment, r.status_label, ru(r.start_date), ru(r.finish_date)]
+      .concat(r.docs.map(function (d) { return docLabel(d.name); })).join(' ').toLowerCase();
   }
 
-  /** Rows to show: applies the quick filter (matches keep their ancestors) and the collapsed state. */
+  /**
+   * Rows to show. A row is hidden when any of its ancestors is collapsed (all levels work the same:
+   * stage -> task -> subtask -> meeting). While a filter is active, matches and their ancestors are shown expanded.
+   */
   function tblVisibleRows() {
-    var rows = S.tbl.rows || [], q = S.tbl.q.trim().toLowerCase(), byId = {};
-    rows.forEach(function (r) { byId[r.id] = r; });
+    var rows = S.tbl.rows || [], q = S.tbl.q.trim().toLowerCase(), byKey = {};
+    rows.forEach(function (r) { byKey[r.key] = r; });
     var keep = null;
     if (q) {
       keep = {};
       rows.forEach(function (r) {
         if (tblHaystack(r).indexOf(q) === -1) return;
-        for (var cur = r; cur && !keep[cur.id]; cur = byId[cur.parent_id]) keep[cur.id] = true;
+        for (var cur = r; cur && !keep[cur.key]; cur = byKey[cur.parent_id]) keep[cur.key] = true;
       });
     }
     return rows.filter(function (r) {
-      if (keep && !keep[r.id]) return false;
-      if (keep) return true;                                   // while filtering, everything matching stays expanded
-      for (var p = byId[r.parent_id]; p; p = byId[p.parent_id]) if (S.tbl.collapsed[p.id]) return false;
+      if (keep) return !!keep[r.key];
+      for (var p = byKey[r.parent_id]; p; p = byKey[p.parent_id]) if (S.tbl.collapsed[p.key]) return false;
       return true;
     });
   }
 
   function tblRowHTML(r) {
-    var col = TBL_COL_OF[r.type], open = !S.tbl.collapsed[r.id] || !!S.tbl.q.trim();
+    var col = TBL_COL_OF[r.type], open = !S.tbl.collapsed[r.key] || !!S.tbl.q.trim();
     var toggle = r.has_children
-      ? '<button class="tg' + (open ? ' open' : '') + '" data-act="tbl-toggle" data-id="' + esc(r.id) + '" aria-expanded="' + open +
+      ? '<button class="tg' + (open ? ' open' : '') + '" data-act="tbl-toggle" data-id="' + esc(r.key) + '" aria-expanded="' + open +
         '" aria-label="' + (open ? 'Свернуть' : 'Развернуть') + '" title="' + (open ? 'Свернуть' : 'Развернуть') + '"><span class="tg-ico"></span></button>'
       : '<span class="tg-sp"></span>';
-    var nameCell = '<div class="tn">' + toggle + '<a href="#" data-act="open" data-id="' + esc(r.id) + '" title="' + esc(r.id) + '">' + esc(r.name) + '</a>' +
+    var nameCell = '<div class="tn">' + toggle + (r.number ? '<span class="no">' + esc(r.number) + '</span>' : '') +
+      '<a href="#" data-act="open" data-id="' + esc(r.id) + '" title="' + esc(r.id) + '">' + esc(r.name) + '</a>' +
       (r.blocked ? ' <span class="pill s-Blocked">Блок</span>' : '') + '</div>';
     var tds = '';
-    for (var i = 0; i < 3; i++) tds += '<td>' + (i === col ? nameCell : '') + '</td>';
-    var docs = r.docs.length ? r.docs.map(function (d) { return docHTML(d.name, d.url); }).join('') : '<span class="muted">—</span>';
-    var mt = r.meetings.length ? r.meetings.map(function (m) {
-      return '<div class="tm"><a href="#" data-act="open" data-id="' + esc(m.id) + '">' + esc(m.name) + '</a><span class="muted"> · ' + ru(m.date) + (m.time ? ' ' + esc(m.time) : '') + '</span></div>';
-    }).join('') : '<span class="muted">—</span>';
-    return '<tr class="lv-' + r.type + '" data-id="' + esc(r.id) + '">' + tds +
-      '<td>' + (r.assignee ? esc(r.assignee) : '<span class="muted">—</span>') + '</td>' +
-      '<td class="nowrap">' + (r.start_date ? ru(r.start_date) : '<span class="muted">—</span>') + '</td>' +
-      '<td class="nowrap">' + (r.finish_date ? ru(r.finish_date) : '<span class="muted">—</span>') + '</td>' +
-      '<td>' + (r.comment ? esc(r.comment) : '<span class="muted">—</span>') + '</td>' +
-      '<td><div class="tp"><div class="bar"><i style="width:' + r.progress + '%"></i></div><b>' + r.progress + '%</b></div></td>' +
-      '<td>' + docs + '</td><td>' + mt + '</td></tr>';
+    for (var i = 0; i < 4; i++) tds += '<td>' + (i === col ? nameCell : '') + '</td>';
+    var dash = '<span class="muted">—</span>';
+    var docs = r.docs.length ? r.docs.map(function (d) { return docHTML(d.name, d.url); }).join('') : dash;
+    var dates = r.type === 'meeting'
+      ? '<td class="nowrap">' + (r.start_date ? ru(r.start_date) + (r.time ? '<div class="muted small">' + esc(r.time) + '</div>' : '') : dash) + '</td><td class="nowrap">' + dash + '</td>'
+      : '<td class="nowrap">' + (r.start_date ? ru(r.start_date) : dash) + '</td><td class="nowrap">' + (r.finish_date ? ru(r.finish_date) : dash) + '</td>';
+    var progress = r.type === 'meeting'
+      ? '<span class="pill pill-wrap s-' + esc(String(r.status).replace(/\s/g, '')) + '">' + esc(r.status_label) + '</span>'
+      : '<div class="tp"><div class="bar"><i style="width:' + r.progress + '%"></i></div><b>' + r.progress + '%</b></div>';
+    return '<tr class="lv-' + r.type + '" data-key="' + esc(r.key) + '">' + tds +
+      '<td>' + (r.assignee ? esc(r.assignee) : dash) + '</td>' + dates +
+      '<td class="cm">' + (r.comment ? esc(r.comment) : dash) + '</td>' +
+      '<td>' + progress + '</td><td>' + docs + '</td></tr>';
   }
 
   /** Redraws only the table body (search and expand/collapse never lose input focus). */
@@ -673,7 +684,7 @@
       '<input type="text" id="tblQ" placeholder="Поиск по названию, исполнителю, ссылке" value="' + esc(S.tbl.q) + '">' +
       '<button class="btn" data-act="tbl-expand">Развернуть всё</button>' +
       '<button class="btn" data-act="tbl-collapse">Свернуть всё</button></div></div>' +
-      '<p class="view-lead">Структура проекта: этап, его задачи и подзадачи. Нажмите на кнопку слева от названия, чтобы свернуть или развернуть вложенные строки.</p>' +
+      '<p class="view-lead">Структура проекта: этап → задачи → подзадачи → встречи. Нажмите «+» слева от названия, чтобы развернуть вложенные строки, «−» — чтобы свернуть.</p>' +
       '<div class="card table-card" id="tblBody"></div>';
     drawTable();
     authCall('getProjectTable').then(function (r) { S.tbl.rows = r.rows; S.tbl.err = ''; })
@@ -838,9 +849,9 @@
 
   /** Стили коннекторов: блокировка — сплошная, передача информации — штрих, согласование — точки. */
   var LINK_STYLE = {
-    blocks: { color: '#3b4256', dash: '', width: 1.8, arrow: true },
-    handoff: { color: '#4d6fd0', dash: '7 4', width: 1.7, arrow: true },
-    approval: { color: '#a8690c', dash: '0.1 5', width: 2.6, arrow: true, cap: 'round' },
+    blocks: { color: '#475569', dash: '', width: 1.8, arrow: true },
+    handoff: { color: '#f97316', dash: '7 4', width: 1.8, arrow: true },
+    approval: { color: '#9a3412', dash: '0.1 5', width: 2.6, arrow: true, cap: 'round' },
     related: { color: '#9aa1ad', dash: '3 5', width: 1.2, arrow: false }
   };
   var DIRECTED = { blocks: true, handoff: true, approval: true };    // связи, образующие цепочку зависимостей
@@ -1013,7 +1024,9 @@
       '</div>' +
       '<div class="legend">' +
       '<span class="it"><span class="lg-bar stage"></span>Этап</span>' +
-      '<span class="it"><span class="lg-bar"></span>Задача (заливка — прогресс)</span>' +
+      '<span class="it"><span class="lg-bar planned"></span>Запланировано</span>' +
+      '<span class="it"><span class="lg-bar"></span>В процессе (заливка — прогресс)</span>' +
+      '<span class="it"><span class="lg-bar done"></span>Готово</span>' +
       '<span class="it"><span class="lg-bar overdue"></span>Просрочено</span>' +
       '<span class="it"><span class="lg-bar blocked"></span>Заблокировано</span>' +
       '<span class="it"><span class="lg-dia"></span>Требуется решение</span>' +
@@ -1097,7 +1110,7 @@
         pos[e.id] = { l: cx - 12, r: cx + 12, y: yc };
       } else if (sp) {
         var left = X(sp.s), width = Math.max(((sp.e - sp.s) / DAY + 1) * dayW, 3);
-        var c2 = 'g-bar g-node t-' + e._type + (blk ? ' blocked' : '') + (late ? ' overdue' : '') + (isDoneLike(e) ? ' done' : '');
+        var c2 = 'g-bar g-node t-' + e._type + (blk ? ' blocked' : '') + (late ? ' overdue' : '') + (isDoneLike(e) ? ' done' : '') + (e.status === 'Not Started' && !late ? ' planned' : '');
         bar = '<div class="' + c2 + '" data-act="open" data-id="' + id + '" style="left:' + left + 'px;width:' + width + 'px" title="' + esc(tip) + '">' +
           '<i class="g-fill" style="width:' + pct + '%"></i>' + (width > 46 ? '<span class="g-pct">' + pct + '%</span>' : '') + '</div>';
         pos[e.id] = { l: left, r: left + width, y: yc };
@@ -1105,8 +1118,8 @@
       var flags = (blk ? ' <span class="pill s-Blocked">Блок</span>' : '') + (late ? ' <span class="pill s-late">Просрочено</span>' : '');
       var sub = e.id + ' · ' + (ownerOf(e) || 'Не назначен') + (sp ? '' : ' · нет срока');
       rowsHtml += '<div class="g-row' + (r.ctx ? ' ctx' : '') + '"><div class="g-label g-node d-' + e._type + '" data-act="open" data-id="' + id + '" style="padding-left:' + (12 + r.depth * 18) + 'px" title="' + esc(tip) + '">' +
-        '<div class="nm">' + (nums[e.id] ? '<span class="g-num">' + nums[e.id] + '</span>' : '') + typeTag(e._type) + '<span class="nm-t">' + esc(e.name) + '</span>' + flags + '</div>' +
-        '<div class="sub">' + esc(sub) + '</div></div>' +
+        '<div class="nm">' + (nums[e.id] ? '<span class="g-num">' + nums[e.id] + '</span>' : '') + typeTag(e._type) + '<span class="nm-t">' + esc(e.name) + '</span></div>' +
+        '<div class="sub">' + esc(sub) + flags + '</div></div>' +   // status flags sit on the second line so they never squeeze the name
         '<div class="g-track" style="' + gridStyle + '">' + bar + '</div></div>';
       y += ROW_H;
     });
@@ -1122,7 +1135,7 @@
       var s = S.idx.byId[l.source_id];
       var st = LINK_STYLE[l.link_type] || LINK_STYLE.related;
       var conflict = (l.link_type === 'blocks' || l.link_type === 'handoff') && b.l < a.r && !isDoneLike(s);
-      var col = conflict ? '#c0392b' : st.color;
+      var col = conflict ? '#dc2626' : st.color;
       var d = elbow(a.r, a.y, b.l, b.y);
       paths += '<g class="g-conn" data-lid="' + esc(l.link_id) + '">' +
         '<path class="hit" d="' + d + '" fill="none" stroke="transparent" stroke-width="12" pointer-events="stroke"/>' +
@@ -1137,7 +1150,7 @@
     if (!g.deps) paths = '';                                    // dependencies off: no connectors
     var svg = '<svg class="g-arrows" style="left:var(--lw);width:' + W + 'px;height:' + H + 'px"><defs>' +
       marker('blocks', LINK_STYLE.blocks.color) + marker('handoff', LINK_STYLE.handoff.color) +
-      marker('approval', LINK_STYLE.approval.color) + marker('conflict', '#c0392b') + '</defs>' + paths + '</svg>';
+      marker('approval', LINK_STYLE.approval.color) + marker('conflict', '#dc2626') + '</defs>' + paths + '</svg>';
     var todayLine = '<div class="g-today" style="left:calc(var(--lw) + ' + (X(t0) + dayW / 2) + 'px)"></div>';
 
     var empty = !rows.some(function (r) { return !r.group; });
@@ -1700,12 +1713,12 @@
     'info-refresh': function () { S.info = null; S.infoErr = ''; var b = $('#infoBlock'); if (b) b.innerHTML = infoBlockHTML(); loadInfo(true); },
     'tbl-toggle': function (a, ev) {
       ev.preventDefault();
-      var id = a.getAttribute('data-id'); S.tbl.collapsed[id] = !S.tbl.collapsed[id]; drawTable();
+      var key = a.getAttribute('data-id'); S.tbl.collapsed[key] = !S.tbl.collapsed[key]; drawTable();
     },
     'tbl-expand': function () { S.tbl.collapsed = {}; drawTable(); },
     'tbl-collapse': function () {
       S.tbl.collapsed = {};
-      (S.tbl.rows || []).forEach(function (r) { if (r.has_children) S.tbl.collapsed[r.id] = true; });
+      (S.tbl.rows || []).forEach(function (r) { if (r.has_children) S.tbl.collapsed[r.key] = true; });
       drawTable();
     },
     'voter-add': addVoterFromInput,

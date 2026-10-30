@@ -134,6 +134,7 @@ var TYPES = {
       'location', 'status', 'comment'],
     overrides: {
       assignee: { label: 'Организатор' },
+      comment: { label: 'Протокол / комментарии' },
       status: { enum: 'meeting_status', dflt: 'Planned' }
     }
   },
@@ -1478,14 +1479,14 @@ function getInfoData(token) {
     var rows = [], count = 0;
 
     values.forEach(function (row, i) {
-      var cells = [], level = 0;
+      var cells = [], level = 0, rowIndent = 0;
       row.forEach(function (cell, j) {
         var raw = String(cell === null || cell === undefined ? '' : cell);
         var segs = cellSegments_(rich[i][j], raw.trim(), formulas[i][j]);
         var text = segs.map(function (g) { return g.text; }).join('');
         if (!text.trim()) return;
         var indent = 0;
-        if (!cells.length) indent = Math.min(3, Math.floor((raw.match(/^[\s ]*/)[0].length) / 3));
+        if (!cells.length) { indent = Math.min(3, Math.floor((raw.match(/^[\s ]*/)[0].length) / 3)); rowIndent = indent; }
         var asUrl = safeUrl_(text.trim());
         var hasLink = segs.some(function (g) { return g.url; });
         if (asUrl && !hasLink) {                       // bare URL cell
@@ -1502,7 +1503,7 @@ function getInfoData(token) {
       });
       if (cells.length) {
         cells[0].segments[0].text = cells[0].segments[0].text.replace(/^[\s ]+/, '');
-        rows.push({ row: i + 1, level: level, cells: cells });
+        rows.push({ row: i + 1, level: level, indent: rowIndent, cells: cells });
         count += cells.length;
       }
     });
@@ -1586,14 +1587,16 @@ function getExchangeCards(token, filter) {
  * ========================================================================== */
 
 /**
- * Returns the flat, depth-first ordered rows of the hierarchical table.
- * Each row carries everything the table needs: assignee, dates, comment, derived progress,
- * full (untruncated) document URLs and meetings linked to the item.
+ * Returns the flat, depth-first ordered rows of the hierarchical table:
+ * stage -> task -> subtask -> meeting (a meeting hangs under every stage/task/subtask it is linked to).
+ * Every row has a unique `key`, its `parent_id` (the parent's key), a hierarchical `number`
+ * (1. / 1.1 / 1.1.1 / 1.1.1.1; meetings continue the numbering after the work items of their parent)
+ * and everything the table shows: assignee, dates, comment/protocol, derived progress, documents.
  * Stage/task progress is the average of its tasks/subtasks when it has any, otherwise its own value.
  */
 function getProjectTable(token) {
   return api_(token, function () {
-    var byId = {}, kids = {}, parentOf = {}, docsBy = {}, meetingsBy = {};
+    var byId = {}, kids = {}, parentOf = {}, docsBy = {}, meetingsOf = {};
     ['stage', 'task', 'subtask', 'meeting'].forEach(function (t) {
       readAll_(TYPES[t].sheet, t).rows.forEach(function (e) { e._type = t; byId[e.id] = e; });
     });
@@ -1606,13 +1609,11 @@ function getProjectTable(token) {
         parentOf[a.id] = b.id;
         (kids[b.id] = kids[b.id] || []).push(a);
       }
-      // A meeting is shown on every work item it is linked to (in either direction)
+      // A meeting belongs to every work item it is linked to (either direction, any link type)
       [[a, b], [b, a]].forEach(function (p) {
         if (p[0]._type === 'meeting' && isWork(p[1])) {
-          var list = meetingsBy[p[1].id] = meetingsBy[p[1].id] || [];
-          if (!list.some(function (m) { return m.id === p[0].id; })) {
-            list.push({ id: p[0].id, name: p[0].name, date: p[0].meeting_date, time: p[0].meeting_time });
-          }
+          var list = meetingsOf[p[1].id] = meetingsOf[p[1].id] || [];
+          if (list.indexOf(p[0]) === -1) list.push(p[0]);
         }
       });
     });
@@ -1630,30 +1631,50 @@ function getProjectTable(token) {
       memo[e.id] = v;
       return v;
     };
-    var startOf = function (e) { return e.start_date || String(e.created_at || '').substring(0, 10); };
+    // Same ordering key as the Gantt chart, so numbers agree between the two views
     var sortFn = function (a, b) {
-      var ka = (startOf(a) || a.deadline || '') + a.id, kb = (startOf(b) || b.deadline || '') + b.id;
+      var ka = (a.start_date || a.deadline || '') + a.id, kb = (b.start_date || b.deadline || '') + b.id;
       return ka < kb ? -1 : 1;
     };
+    var meetingSort = function (a, b) {
+      return (String(a.meeting_date) + String(a.meeting_time) + a.id) < (String(b.meeting_date) + String(b.meeting_time) + b.id) ? -1 : 1;
+    };
+    var startOf = function (e) { return e.start_date || String(e.created_at || '').substring(0, 10); };
 
     var rows = [];
-    var walk = function (e, parentId) {
+    // base: the number without the trailing dot ('' for items outside the numbered tree)
+    var walk = function (e, parentKey, number, base) {
       var ch = (kids[e.id] || []).slice().sort(sortFn);
+      var ms = (meetingsOf[e.id] || []).slice().sort(meetingSort);
       rows.push({
-        id: e.id, type: e._type, parent_id: parentId, name: e.name, assignee: e.assignee || '',
+        key: e.id, id: e.id, type: e._type, parent_id: parentKey, number: number, name: e.name, assignee: e.assignee || '',
         start_date: startOf(e), finish_date: e.deadline || '', comment: e.comment || '',
         progress: progress(e), status: e.status, status_label: statusLabelOf_(e._type, e.status),
         blocked: e.blocked === true || e.status === 'Blocked',
-        docs: docsBy[e.id] || [], meetings: (meetingsBy[e.id] || []).sort(function (x, y) { return String(x.date).localeCompare(String(y.date)); }),
-        has_children: ch.length > 0
+        docs: docsBy[e.id] || [], has_children: ch.length + ms.length > 0
       });
-      ch.forEach(function (k) { walk(k, e.id); });
+      var n = 0;
+      ch.forEach(function (k) { n++; var num = base ? base + '.' + n : ''; walk(k, e.id, num, num); });
+      ms.forEach(function (m) {
+        n++;
+        rows.push({
+          key: e.id + '/' + m.id, id: m.id, type: 'meeting', parent_id: e.id, number: base ? base + '.' + n : '',
+          name: m.name, assignee: m.assignee || '', start_date: m.meeting_date, finish_date: m.meeting_date,
+          time: m.meeting_time || '', comment: m.comment || '', progress: m.status === 'Held' ? 100 : 0,
+          status: m.status, status_label: statusLabelOf_('meeting', m.status), blocked: false,
+          docs: docsBy[m.id] || [], has_children: false
+        });
+      });
     };
     var roots = Object.keys(byId).map(function (id) { return byId[id]; }).filter(function (e) {
       return isWork(e) && !parentOf[e.id];
     });
     var order = { stage: 0, task: 1, subtask: 2 };
-    roots.sort(function (a, b) { return order[a._type] - order[b._type] || sortFn(a, b); }).forEach(function (e) { walk(e, ''); });
+    roots.sort(function (a, b) { return order[a._type] - order[b._type] || sortFn(a, b); });
+    var si = 0;
+    roots.forEach(function (e) {
+      if (e._type === 'stage') { si++; walk(e, '', si + '.', String(si)); } else walk(e, '', '', '');
+    });
     return { rows: rows, total: rows.length };
   });
 }
