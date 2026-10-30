@@ -302,7 +302,7 @@
   function infoBlockHTML() {
     var i = S.info;
     var head = '<div class="card-head"><h4>Файлы проекта</h4><span class="small muted">' +
-      '<button class="link-btn" data-act="info-refresh">Обновить</button></span></div>';
+      '<button class="link-btn pbtn" data-act="info-refresh">Обновить</button></span></div>';
     if (S.infoErr) return head + '<div class="form-error">' + esc(S.infoErr) + '</div>';
     if (!i) return head + '<div class="loading"><span class="spinner"></span>Загрузка…</div>';
     if (!i.count) return head + '<div class="empty"><b>Файлов пока нет</b>Данные появятся после добавления.</div>';
@@ -362,7 +362,7 @@
         '<td class="nowrap' + (late ? ' log-late' : '') + '" style="' + (late ? 'color:var(--danger)' : '') + '">' + ru(a.deadline) + '</td>' +
         '<td>' + pill(a) + '</td>' +
         '<td class="nowrap">' + (vs.total ? vs.agree + ' из ' + vs.total + ' согласны' : '<span class="muted">без голосования</span>') + '</td>' +
-        '<td class="right"><button class="link-btn" data-act="open" data-id="' + esc(a.id) + '">Открыть</button></td></tr>';
+        '<td class="right"><button class="link-btn pbtn" data-act="open" data-id="' + esc(a.id) + '">Открыть</button></td></tr>';
       if (open) {
         r += '<tr class="reg-sub"><td colspan="8">' + (vs.total
           ? '<table class="tbl"><thead><tr><th>Участник</th><th>Голос</th><th>Комментарий</th><th>Дата голоса</th></tr></thead><tbody>' +
@@ -437,7 +437,7 @@
       '<div class="card span-4"><div class="card-head"><h4>Задачи по статусам</h4><span class="muted small">всего ' + d.task.length + '</span></div>' + statRows + '</div>' +
       '<div class="card span-4"><div class="card-head"><h4>Заблокировано</h4></div><div class="list">' + blHtml + '</div></div>' +
       '<div class="card span-6"><div class="card-head"><h4>Ближайшие сроки</h4><span class="muted small">14 дней и просрочка</span></div><div class="list">' + upHtml + '</div></div>' +
-      '<div class="card span-6"><div class="card-head"><h4>Последние события</h4><button class="link-btn small" data-act="tab" data-tab="log">Весь журнал</button></div>' + evHtml + '</div>' +
+      '<div class="card span-6"><div class="card-head"><h4>Последние события</h4><button class="link-btn pbtn small" data-act="tab" data-tab="log">Весь журнал</button></div>' + evHtml + '</div>' +
       '<div class="card span-12" id="infoBlock">' + infoBlockHTML() + '</div>' +
       '<div class="card span-12 table-card" id="regBlock" style="padding:var(--card-pad) 0 0">' + registerHTML() + '</div>' +
       '</div>';
@@ -603,11 +603,12 @@
   /* ============================================================================
    * TABLE: hierarchical list stage -> tasks -> subtasks
    * ========================================================================== */
+  // The first column holds every "+/-" button, so they all sit on one vertical line.
   var TBL_COLS = [
-    ['Этапы', 12.5], ['Задачи', 12.5], ['Подзадачи', 12.5], ['Встречи', 12.5], ['Исполнитель', 7.5], ['Начало', 6],
-    ['Окончание', 6.5], ['Комментарий / протокол', 13], ['Прогресс', 9], ['Документ (ссылка)', 8]
+    ['', 3.5], ['Этапы', 11.5], ['Задачи', 11.5], ['Подзадачи', 11.5], ['Встречи', 11.5], ['Исполнитель', 7.5], ['Начало', 6],
+    ['Окончание', 6.5], ['Комментарий / протокол', 13], ['Прогресс', 8.5], ['Документ (ссылка)', 9]
   ];
-  var TBL_COL_OF = { stage: 0, task: 1, subtask: 2, meeting: 3 };   // which of the first four columns holds the name
+  var TBL_COL_OF = { stage: 0, task: 1, subtask: 2, meeting: 3 };   // which of the four name columns holds the name
 
   /** Plain-text haystack of a row for the quick filter. */
   function tblHaystack(r) {
@@ -642,11 +643,12 @@
     var toggle = r.has_children
       ? '<button class="tg' + (open ? ' open' : '') + '" data-act="tbl-toggle" data-id="' + esc(r.key) + '" aria-expanded="' + open +
         '" aria-label="' + (open ? 'Свернуть' : 'Развернуть') + '" title="' + (open ? 'Свернуть' : 'Развернуть') + '"><span class="tg-ico"></span></button>'
-      : '<span class="tg-sp"></span>';
-    var nameCell = '<div class="tn">' + toggle + (r.number ? '<span class="no">' + esc(r.number) + '</span>' : '') +
+      : '';
+    var nameCell = '<div class="tn">' + (r.number ? '<span class="no">' + esc(r.number) + '</span>' : '') +
       '<a href="#" data-act="open" data-id="' + esc(r.id) + '" title="' + esc(r.id) + '">' + esc(r.name) + '</a>' +
       (r.blocked ? ' <span class="pill s-Blocked">Блок</span>' : '') + '</div>';
     var tds = '';
+    tds += '<td class="tg-cell">' + toggle + '</td>';              // column 0: the +/- button
     for (var i = 0; i < 4; i++) tds += '<td>' + (i === col ? nameCell : '') + '</td>';
     var dash = '<span class="muted">—</span>';
     var docs = r.docs.length ? r.docs.map(function (d) { return docHTML(d.name, d.url); }).join('') : dash;
@@ -674,7 +676,7 @@
     if (!rows.length) { body.innerHTML = '<div class="empty"><b>Ничего не найдено</b>Измените запрос.</div>'; return; }
     body.innerHTML = '<div class="table-wrap"><table class="tbl tbl-tree"><colgroup>' +
       TBL_COLS.map(function (c) { return '<col style="width:' + c[1] + '%">'; }).join('') + '</colgroup><thead><tr>' +
-      TBL_COLS.map(function (c) { return '<th>' + c[0] + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      TBL_COLS.map(function (c) { return '<th' + (c[0] ? '' : ' aria-label="Развернуть / свернуть"') + '>' + c[0] + '</th>'; }).join('') + '</tr></thead><tbody>' +
       rows.map(tblRowHTML).join('') + '</tbody></table></div>';
   }
 
@@ -850,8 +852,8 @@
   /** Стили коннекторов: блокировка — сплошная, передача информации — штрих, согласование — точки. */
   var LINK_STYLE = {
     blocks: { color: '#475569', dash: '', width: 1.8, arrow: true },
-    handoff: { color: '#f97316', dash: '7 4', width: 1.8, arrow: true },
-    approval: { color: '#9a3412', dash: '0.1 5', width: 2.6, arrow: true, cap: 'round' },
+    handoff: { color: '#ff7f57', dash: '7 4', width: 1.8, arrow: true },
+    approval: { color: '#7b61a5', dash: '0.1 5', width: 2.6, arrow: true, cap: 'round' },
     related: { color: '#9aa1ad', dash: '3 5', width: 1.2, arrow: false }
   };
   var DIRECTED = { blocks: true, handoff: true, approval: true };    // связи, образующие цепочку зависимостей
@@ -1119,7 +1121,7 @@
       var sub = e.id + ' · ' + (ownerOf(e) || 'Не назначен') + (sp ? '' : ' · нет срока');
       rowsHtml += '<div class="g-row' + (r.ctx ? ' ctx' : '') + '"><div class="g-label g-node d-' + e._type + '" data-act="open" data-id="' + id + '" style="padding-left:' + (12 + r.depth * 18) + 'px" title="' + esc(tip) + '">' +
         '<div class="nm">' + (nums[e.id] ? '<span class="g-num">' + nums[e.id] + '</span>' : '') + typeTag(e._type) + '<span class="nm-t">' + esc(e.name) + '</span></div>' +
-        '<div class="sub">' + esc(sub) + flags + '</div></div>' +   // status flags sit on the second line so they never squeeze the name
+        '<div class="sub">' + flags.trim() + (flags ? ' ' : '') + esc(sub) + '</div></div>' +   // status flags sit on the second line so they never squeeze the name
         '<div class="g-track" style="' + gridStyle + '">' + bar + '</div></div>';
       y += ROW_H;
     });
@@ -1135,7 +1137,7 @@
       var s = S.idx.byId[l.source_id];
       var st = LINK_STYLE[l.link_type] || LINK_STYLE.related;
       var conflict = (l.link_type === 'blocks' || l.link_type === 'handoff') && b.l < a.r && !isDoneLike(s);
-      var col = conflict ? '#dc2626' : st.color;
+      var col = conflict ? '#f55143' : st.color;
       var d = elbow(a.r, a.y, b.l, b.y);
       paths += '<g class="g-conn" data-lid="' + esc(l.link_id) + '">' +
         '<path class="hit" d="' + d + '" fill="none" stroke="transparent" stroke-width="12" pointer-events="stroke"/>' +
@@ -1150,7 +1152,7 @@
     if (!g.deps) paths = '';                                    // dependencies off: no connectors
     var svg = '<svg class="g-arrows" style="left:var(--lw);width:' + W + 'px;height:' + H + 'px"><defs>' +
       marker('blocks', LINK_STYLE.blocks.color) + marker('handoff', LINK_STYLE.handoff.color) +
-      marker('approval', LINK_STYLE.approval.color) + marker('conflict', '#dc2626') + '</defs>' + paths + '</svg>';
+      marker('approval', LINK_STYLE.approval.color) + marker('conflict', '#f55143') + '</defs>' + paths + '</svg>';
     var todayLine = '<div class="g-today" style="left:calc(var(--lw) + ' + (X(t0) + dayW / 2) + 'px)"></div>';
 
     var empty = !rows.some(function (r) { return !r.group; });
@@ -1393,7 +1395,7 @@
         ? '<h4>Родитель</h4><select id="parentSel">' + entityOptions(S.idx.parent[e.id], function (x) { return cfg.parents.indexOf(x._type) !== -1; }, 'Без родителя') + '</select>'
         : '') +
         (kids.length ? '<h4 style="margin-top:14px">Входит в состав</h4>' + kids.map(function (k) {
-          return '<div class="link-item"><div class="grow">' + typeTag(k._type) + ' ' + esc(k.name) + '</div><button class="link-btn" data-act="open" data-id="' + esc(k.id) + '">Открыть</button></div>';
+          return '<div class="link-item"><div class="grow">' + typeTag(k._type) + ' ' + esc(k.name) + '</div><button class="link-btn pbtn" data-act="open" data-id="' + esc(k.id) + '">Открыть</button></div>';
         }).join('') : '');
       if (!cfg.parents.length && !kids.length) sp.hidden = true; else sp.hidden = false;
     }

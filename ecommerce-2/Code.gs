@@ -14,7 +14,6 @@
  * ========================================================================== */
 
 var APP_TITLE = 'E-commerce 2.0';
-var DEFAULT_PASSWORD = '2026';          // значение по умолчанию, хранится в Script Properties (APP_PASSWORD)
 var SESSION_TTL_SEC = 21600;            // время жизни сессии (максимум для CacheService — 6 часов)
 var MAX_FAILS = 5;                      // число неудачных попыток входа до временной блокировки
 var LOCK_SEC = 300;                     // длительность блокировки входа, сек
@@ -164,7 +163,8 @@ var PARENT_RULES = {
 var AUX = {
   Links: ['link_id', 'source_id', 'source_type', 'target_id', 'target_type', 'link_type', 'note', 'created_by', 'created_at'],
   Documents: ['doc_id', 'entity_id', 'entity_type', 'doc_name', 'doc_url', 'added_by', 'created_at'],
-  Users: ['name', 'email', 'role'],
+  // password (column D): each participant's own login password
+  Users: ['name', 'email', 'role', 'password'],
   Log: ['timestamp', 'user', 'action', 'entity_type', 'entity_id', 'field', 'old_value', 'new_value'],
   Settings: ['key', 'value'],
   // Реестр согласований: одна строка = один участник голосования по одному согласованию
@@ -251,7 +251,7 @@ function onOpen() {
       .addItem('Инициализировать листы', 'setup')
       .addItem('Загрузить демо-данные', 'seedDemo')
       .addItem('Пересчитать реестр согласований', 'syncApprovalsRegister')
-      .addItem('Сменить пароль входа', 'changePasswordDialog')
+      .addItem('Завершить все сессии', 'endAllSessions')
       .addToUi();
   } catch (e) { /* автономный скрипт — меню не нужно */ }
   setupIfNeeded_();
@@ -309,7 +309,6 @@ function setup() {
   ensureInfoSheet_(ss);
 
   var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('APP_PASSWORD') === null) props.setProperty('APP_PASSWORD', DEFAULT_PASSWORD);
   if (props.getProperty('SESSION_EPOCH') === null) props.setProperty('SESSION_EPOCH', '0');
   if (!getSettings_().project_description) {
     setSetting_('project_description', 'Запуск и развитие интернет-магазина: этапы, задачи, согласования и встречи команды.');
@@ -691,58 +690,77 @@ function api_(token, fn, opts) {
   }
 }
 
-/** Names from the Users directory, in sheet order, without blanks and duplicates. */
-function readUserNames_() {
+/** Users directory rows without the password column (safe to send to the client). */
+function publicUsers_() {
+  return readAll_('Users').rows.map(function (r) { return { name: r.name, email: r.email, role: r.role }; });
+}
+
+/** Names of participants who can log in: present in Users with a password in the `password` column (D). */
+function loginNames_() {
   var seen = {}, out = [];
   readAll_('Users').rows.forEach(function (r) {
     var n = String(r.name || '').trim();
-    if (n && !seen[n.toLowerCase()]) { seen[n.toLowerCase()] = true; out.push(n); }
+    if (n && String(r.password || '') !== '' && !seen[n.toLowerCase()]) { seen[n.toLowerCase()] = true; out.push(n); }
   });
   return out;
 }
 
+/** Sets a participant's password (creates the participant if needed). Internal helper, also used by the demo. */
+function setUserPassword_(name, password) {
+  ensureUsers_([name]);
+  var tbl = readAll_('Users');
+  tbl.rows.forEach(function (r) {
+    if (String(r.name).toLowerCase() === String(name).toLowerCase()) {
+      updateRow_(tbl.sh, tbl.headers, r._row, { password: String(password) });
+    }
+  });
+}
+
 /**
  * Participant names for the login dropdown. Public by design (the login screen has no session yet);
- * only names are returned, never e-mails or roles.
+ * only names of participants who have a password are returned, never e-mails, roles or passwords.
  */
 function getUsers() {
   try {
     setupIfNeeded_();
-    return { ok: true, data: readUserNames_() };
+    return { ok: true, data: loginNames_() };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
   }
 }
 
-/** Вход по паролю. Возвращает токен сессии. */
+/**
+ * Login: a participant signs in only under their own name with their own password (Users, column D).
+ * Failed attempts are counted per name: after MAX_FAILS the name is locked for LOCK_SEC seconds.
+ * The error text never reveals whether the name or the password was wrong.
+ */
 function login(password, userName) {
   var lock = null;
   try {
     setupIfNeeded_();
     var cache = CacheService.getScriptCache();
-    var fails = Number(cache.get('login_fails') || 0);
+    var wanted = String(userName || '').trim().toLowerCase();
+    if (!wanted) return { ok: false, error: 'Выберите имя из списка' };
+    var failKey = 'login_fails:' + wanted;
+    var fails = Number(cache.get(failKey) || 0);
     if (fails >= MAX_FAILS) {
       return { ok: false, error: 'Слишком много неудачных попыток. Повторите через несколько минут.' };
     }
-    var stored = PropertiesService.getScriptProperties().getProperty('APP_PASSWORD');
-    if (!safeEq_(password || '', stored === null ? DEFAULT_PASSWORD : stored)) {
-      cache.put('login_fails', String(fails + 1), LOCK_SEC);
-      return { ok: false, error: 'Неверный пароль' };
+    var row = readAll_('Users').rows.filter(function (r) { return String(r.name).trim().toLowerCase() === wanted; })[0];
+    var stored = row ? String(row.password || '') : '';
+    if (!loginNames_().length) return { ok: false, error: 'Список участников пуст' };
+    if (!row || !stored || !safeEq_(String(password || ''), stored)) {
+      cache.put(failKey, String(fails + 1), LOCK_SEC);
+      return { ok: false, error: 'Неверное имя или пароль' };
     }
-    cache.remove('login_fails');
+    cache.remove(failKey);
 
-    // The name must be one of the project participants (canonical spelling is taken from the directory)
-    var participants = readUserNames_();
-    if (!participants.length) return { ok: false, error: 'Список участников пуст' };
-    var wanted = String(userName || '').trim().toLowerCase();
-    var user = participants.filter(function (n) { return n.toLowerCase() === wanted; })[0];
-    if (!user) return { ok: false, error: 'Выберите участника из списка' };
+    var user = String(row.name).trim();             // canonical spelling from the directory
     var token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
     cache.put('sess:' + token, JSON.stringify({ user: user, epoch: getEpoch_() }), SESSION_TTL_SEC);
 
     lock = LockService.getScriptLock();
     lock.waitLock(20000);
-    ensureUsers_([user]);
     writeLog_(user, [['login', 'system', '', '', '', '']]);
     return { ok: true, data: { token: token, user: user } };
   } catch (err) {
@@ -765,17 +783,11 @@ function checkSession(token) {
   return api_(token, function (s) { return { user: s.user }; });
 }
 
-/** Диалог смены пароля из меню таблицы. Все действующие сессии сбрасываются. */
-function changePasswordDialog() {
-  var ui = SpreadsheetApp.getUi();
-  var r = ui.prompt(APP_TITLE, 'Новый пароль входа (минимум 4 символа):', ui.ButtonSet.OK_CANCEL);
-  if (r.getSelectedButton() !== ui.Button.OK) return;
-  var pwd = r.getResponseText();
-  if (pwd.length < 4) { ui.alert('Пароль слишком короткий.'); return; }
+/** Menu item: ends every active session (everyone has to sign in again). */
+function endAllSessions() {
   var props = PropertiesService.getScriptProperties();
-  props.setProperty('APP_PASSWORD', pwd);
   props.setProperty('SESSION_EPOCH', String(Number(getEpoch_()) + 1));
-  ui.alert('Пароль изменён, все активные сессии завершены.');
+  try { SpreadsheetApp.getUi().alert(APP_TITLE, 'Все активные сессии завершены.', SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) { /* no UI */ }
 }
 
 /* ============================================================================
@@ -859,7 +871,7 @@ function getAllData(token) {
       entities: entities,
       links: readAll_('Links').rows.map(pub_),
       documents: readAll_('Documents').rows.map(pub_),
-      users: readAll_('Users').rows.map(pub_),
+      users: publicUsers_(),      // never includes passwords
       settings: getSettings_(),
       recentLog: recent
     };
@@ -1701,7 +1713,8 @@ function seedDemo() {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    ensureUsers_(['Анна Смирнова', 'Иван Петров', 'Мария Кузнецова', 'Дмитрий Орлов']);
+    // Demo participants get the password 2026 (set real passwords in Users, column D)
+    ['Анна Смирнова', 'Иван Петров', 'Мария Кузнецова', 'Дмитрий Орлов'].forEach(function (n) { setUserPassword_(n, '2026'); });
     var mk = function (type, data, parent) {
       return doCreate_(type, data, parent ? { other_id: parent, link_type: 'parent' } : null, me).entity.id;
     };
