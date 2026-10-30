@@ -13,7 +13,7 @@
     tab: 'home',
     idx: { byId: {}, parent: {}, children: {}, docs: {}, votes: {} },
     cal: { mode: 'month', cursor: null },
-    gantt: { dw: 24, blockOnly: false, deps: lsGet('ec2_gantt_deps') !== '0', lw: Number(lsGet('ec2_gantt_lw')) || 0, sel: null },   // dw — пикселей на день
+    gantt: { collapsed: {}, dw: 24, blockOnly: false, deps: lsGet('ec2_gantt_deps') !== '0', lw: Number(lsGet('ec2_gantt_lw')) || 0, sel: null },   // dw — пикселей на день
     exch: { filter: 'flow', q: '' },
     exchCards: null, exchErr: '',
     info: null, infoErr: '', infoBusy: false, infoAt: 0,
@@ -436,10 +436,10 @@
       '</div></div>' +
       '<div class="card span-4"><div class="card-head"><h4>Задачи по статусам</h4><span class="muted small">всего ' + d.task.length + '</span></div>' + statRows + '</div>' +
       '<div class="card span-4"><div class="card-head"><h4>Заблокировано</h4></div><div class="list">' + blHtml + '</div></div>' +
+      '<div class="card span-12 table-card" id="regBlock" style="padding:var(--card-pad) 0 0">' + registerHTML() + '</div>' +
+      '<div class="card span-12" id="infoBlock">' + infoBlockHTML() + '</div>' +
       '<div class="card span-6"><div class="card-head"><h4>Ближайшие сроки</h4><span class="muted small">14 дней и просрочка</span></div><div class="list">' + upHtml + '</div></div>' +
       '<div class="card span-6"><div class="card-head"><h4>Последние события</h4><button class="link-btn pbtn small" data-act="tab" data-tab="log">Весь журнал</button></div>' + evHtml + '</div>' +
-      '<div class="card span-12" id="infoBlock">' + infoBlockHTML() + '</div>' +
-      '<div class="card span-12 table-card" id="regBlock" style="padding:var(--card-pad) 0 0">' + registerHTML() + '</div>' +
       '</div>';
     loadInfo(false);
   }
@@ -876,25 +876,44 @@
   function ganttSort(a, b) { return ganttKey(a) < ganttKey(b) ? -1 : 1; }
 
   /**
-   * Hierarchical numbers: stages 1., 2., ...; tasks 2.1; subtasks 2.1.1.
-   * Computed on the FULL hierarchy, so filters (blocking, dependencies) and zoom never renumber rows.
-   * Numbers change only when the structure changes (items added, removed, or reordered by start date).
-   * Approvals and items without a parent stage/task are not numbered.
+   * Only stages are numbered (1., 2., 3., ...). Tasks and subtasks are shown through the "+" expander instead.
+   * Computed on the FULL list of stages, so filters and zoom never renumber them.
    */
   function ganttNumbers() {
-    var nums = {}, ent = S.data.entities;
-    var kids = function (id, type) {
-      return (S.idx.children[id] || []).map(function (i) { return S.idx.byId[i]; })
-        .filter(function (e) { return e && e._type === type; }).sort(ganttSort);
-    };
-    ent.stage.slice().sort(ganttSort).forEach(function (st, i) {
-      nums[st.id] = (i + 1) + '.';
-      kids(st.id, 'task').forEach(function (t, j) {
-        nums[t.id] = (i + 1) + '.' + (j + 1);
-        kids(t.id, 'subtask').forEach(function (u, k) { nums[u.id] = (i + 1) + '.' + (j + 1) + '.' + (k + 1); });
-      });
-    });
+    var nums = {};
+    S.data.entities.stage.slice().sort(ganttSort).forEach(function (st, i) { nums[st.id] = (i + 1) + '.'; });
     return nums;
+  }
+
+  /** "+" / "−" button, always at the left edge of the label column. */
+  function gTg(e) {
+    if (!ganttHasKids(e)) return '';
+    var open = !S.gantt.collapsed[e.id];
+    return '<button class="tg g-tg' + (open ? ' open' : '') + '" data-act="g-toggle" data-id="' + esc(e.id) + '" aria-expanded="' + open +
+      '" aria-label="' + (open ? 'Свернуть' : 'Развернуть') + '" title="' + (open ? 'Свернуть' : 'Развернуть') + '"><span class="tg-ico"></span></button>';
+  }
+
+  /** Range sliders: the filled part is orange, the rest of the line stays white (the --fill variable drives the gradient). */
+  function rangeFill(el) {
+    var min = Number(el.min) || 0, max = Number(el.max) || 100, v = Number(el.value) || 0;
+    el.style.setProperty('--fill', Math.max(0, Math.min(100, (v - min) / (max - min) * 100)) + '%');
+  }
+  function syncRanges() { $$('input[type=range]').forEach(rangeFill); }
+
+  /** Does the item have nested rows (tasks, subtasks, approvals)? Meetings are not part of the Gantt. */
+  function ganttHasKids(e) {
+    return (S.idx.children[e.id] || []).some(function (id) { var k = S.idx.byId[id]; return k && k._type !== 'meeting'; });
+  }
+
+  /** Drops rows whose ancestor is collapsed with the "+" button. */
+  function visibleGanttRows(rows) {
+    var out = rows.filter(function (r) {
+      if (r.group) return true;
+      for (var p = S.idx.parent[r.e.id]; p; p = S.idx.parent[p]) if (S.gantt.collapsed[p]) return false;
+      return true;
+    });
+    out.blocked = rows.blocked;
+    return out;
   }
 
   /** Строки диаграммы: этапы -> задачи -> подзадачи/согласования. В режиме «Блокирующие» остаются заблокированные и (приглушённо) соседи. */
@@ -1022,6 +1041,8 @@
       '<button class="btn sm" data-act="g-reset" title="Вернуть масштаб по умолчанию">Сбросить</button></div>' +
       '<label class="toggle"><input type="checkbox" id="gBlock"' + (g.blockOnly ? ' checked' : '') + '><span class="sw"></span>Блокирующие</label>' +
       '<label class="toggle"><input type="checkbox" id="gDeps"' + (g.deps ? ' checked' : '') + '><span class="sw"></span>С зависимостями</label>' +
+      '<button class="btn sm" data-act="g-all" data-open="1" title="Развернуть все строки">Развернуть всё</button>' +
+      '<button class="btn sm" data-act="g-all" data-open="0" title="Свернуть все строки">Свернуть всё</button>' +
       '<button class="btn sm" data-act="g-col-expand" id="gColBtn" title="Ширина колонки «Структура проекта»">' + (g.lw ? 'Сбросить ширину колонки' : 'Развернуть колонку') + '</button>' +
       '</div>' +
       '<div class="legend">' +
@@ -1051,7 +1072,7 @@
     var anchor = null;
     if (opts.recenter && sc0 && g.drawnDw) anchor = (sc0.scrollLeft + sc0.clientWidth / 2 - g.LW) / g.drawnDw;
 
-    var rows = ganttRows(), bl = rows.blocked;
+    var rows = visibleGanttRows(ganttRows()), bl = rows.blocked;
     var LW = curLW();
     var t0 = pd(today()), min = Infinity, max = -Infinity;
     rows.forEach(function (r) {
@@ -1119,7 +1140,7 @@
       }
       var flags = (blk ? ' <span class="pill s-Blocked">Блок</span>' : '') + (late ? ' <span class="pill s-late">Просрочено</span>' : '');
       var sub = e.id + ' · ' + (ownerOf(e) || 'Не назначен') + (sp ? '' : ' · нет срока');
-      rowsHtml += '<div class="g-row' + (r.ctx ? ' ctx' : '') + '"><div class="g-label g-node d-' + e._type + '" data-act="open" data-id="' + id + '" style="padding-left:' + (12 + r.depth * 18) + 'px" title="' + esc(tip) + '">' +
+      rowsHtml += '<div class="g-row' + (r.ctx ? ' ctx' : '') + '"><div class="g-label g-node d-' + e._type + '" data-act="open" data-id="' + id + '" style="padding-left:' + (40 + r.depth * 16) + 'px" title="' + esc(tip) + '">' + gTg(e) +
         '<div class="nm">' + (nums[e.id] ? '<span class="g-num">' + nums[e.id] + '</span>' : '') + typeTag(e._type) + '<span class="nm-t">' + esc(e.name) + '</span></div>' +
         '<div class="sub">' + flags.trim() + (flags ? ' ' : '') + esc(sub) + '</div></div>' +   // status flags sit on the second line so they never squeeze the name
         '<div class="g-track" style="' + gridStyle + '">' + bar + '</div></div>';
@@ -1170,6 +1191,7 @@
     else if (opts.scroll) { sc.scrollLeft = opts.scroll.l; sc.scrollTop = opts.scroll.t; }
     else sc.scrollLeft = Math.max(0, X(t0) - 120);
     applyChain(g.sel ? [g.sel] : null);
+    syncRanges();
   }
 
   /* Подсказка к коннектору: источник, получатель, тип и даты */
@@ -1215,7 +1237,7 @@
     ctx.font = '500 13px Inter, -apple-system, "Segoe UI", sans-serif';
     ganttRows().forEach(function (r) {
       if (r.group) return;
-      var e = r.e, w = 12 + r.depth * 18 + 12 + ctx.measureText(e.name).width + 78;      // indent + tag + paddings
+      var e = r.e, w = 40 + r.depth * 16 + 12 + ctx.measureText(e.name).width + 78;      // indent + tag + paddings
       if (nums[e.id]) w += ctx.measureText(nums[e.id]).width + 8;
       if (isBlocked(e) && !isDoneLike(e)) w += 52;
       if (isOverdue(e)) w += 92;
@@ -1505,6 +1527,7 @@
     var n = $('#f_progress'); if (!n) return;
     var v = Math.max(0, Math.min(100, Number(n.value) || 0));
     var bar = $('#progBar'); if (bar) bar.style.width = v + '%';
+    syncRanges();
     var d = S.drawer && S.drawer.id ? S.idx.byId[S.drawer.id] : null;
     var hint = $('#progHint');
     if (hint && d) {
@@ -1696,15 +1719,27 @@
     'g-fit': function () {            // уместить весь проект по ширине окна
       var sc = $('#gScroll'); if (!sc || !S.gantt.days) return;
       S.gantt.dw = Math.max(DW_MIN, Math.min(DW_MAX, (sc.clientWidth - S.gantt.LW - 12) / S.gantt.days));
-      $('#gZoom').value = sliderFromDw(S.gantt.dw);
+      $('#gZoom').value = sliderFromDw(S.gantt.dw); syncRanges();
       drawGantt({}); sc = $('#gScroll'); sc.scrollLeft = 0;
     },
     'g-col-expand': function () {
       if (S.gantt.lw) { setLW(lwDefault(), true); }        // already custom: back to the default width
       else { setLW(fitLW(), true); }                       // expand to fit the longest name
     },
+    'g-toggle': function (a, ev) {
+      ev.preventDefault();
+      var id = a.getAttribute('data-id'), sc = $('#gScroll');
+      S.gantt.collapsed[id] = !S.gantt.collapsed[id];
+      drawGantt({ scroll: sc ? { l: sc.scrollLeft, t: sc.scrollTop } : null });
+    },
+    'g-all': function (a) {
+      var open = a.getAttribute('data-open') === '1', sc = $('#gScroll');
+      S.gantt.collapsed = {};
+      if (!open) [].concat(S.data.entities.stage, S.data.entities.task, S.data.entities.subtask).forEach(function (e) { if (ganttHasKids(e)) S.gantt.collapsed[e.id] = true; });
+      drawGantt({ scroll: sc ? { l: sc.scrollLeft, t: sc.scrollTop } : null });
+    },
     'g-reset': function () {
-      S.gantt.dw = DW_DEFAULT; $('#gZoom').value = sliderFromDw(DW_DEFAULT);
+      S.gantt.dw = DW_DEFAULT; $('#gZoom').value = sliderFromDw(DW_DEFAULT); syncRanges();
       drawGantt({});
     },
     'kb-filter': function (a) { S.kb.type = a.getAttribute('data-t'); renderKanban(); },
@@ -1764,6 +1799,7 @@
 
   document.addEventListener('input', function (ev) {
     var id = ev.target.id;
+    if (ev.target.type === 'range') rangeFill(ev.target);
     if (id === 'f_progress_r') { $('#f_progress').value = ev.target.value; syncProgress(); }
     else if (id === 'f_progress') { $('#f_progress_r').value = ev.target.value; syncProgress(); }
     else if (id === 'exQ') { S.exch.q = ev.target.value; drawExchangeCards(); }
