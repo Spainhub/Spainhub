@@ -851,10 +851,10 @@
 
   /** Стили коннекторов: блокировка — сплошная, передача информации — штрих, согласование — точки. */
   var LINK_STYLE = {
-    blocks: { color: '#475569', dash: '', width: 1.8, arrow: true },
+    blocks: { color: '#3e424f', dash: '', width: 1.8, arrow: true },
     handoff: { color: '#ff7f57', dash: '7 4', width: 1.8, arrow: true },
     approval: { color: '#7b61a5', dash: '0.1 5', width: 2.6, arrow: true, cap: 'round' },
-    related: { color: '#9aa1ad', dash: '3 5', width: 1.2, arrow: false }
+    related: { color: '#a0b2c0', dash: '3 5', width: 1.2, arrow: false }
   };
   var DIRECTED = { blocks: true, handoff: true, approval: true };    // связи, образующие цепочку зависимостей
 
@@ -1137,7 +1137,7 @@
       var s = S.idx.byId[l.source_id];
       var st = LINK_STYLE[l.link_type] || LINK_STYLE.related;
       var conflict = (l.link_type === 'blocks' || l.link_type === 'handoff') && b.l < a.r && !isDoneLike(s);
-      var col = conflict ? '#e06666' : st.color;
+      var col = conflict ? '#b75947' : st.color;
       var d = elbow(a.r, a.y, b.l, b.y);
       paths += '<g class="g-conn" data-lid="' + esc(l.link_id) + '">' +
         '<path class="hit" d="' + d + '" fill="none" stroke="transparent" stroke-width="12" pointer-events="stroke"/>' +
@@ -1152,7 +1152,7 @@
     if (!g.deps) paths = '';                                    // dependencies off: no connectors
     var svg = '<svg class="g-arrows" style="left:var(--lw);width:' + W + 'px;height:' + H + 'px"><defs>' +
       marker('blocks', LINK_STYLE.blocks.color) + marker('handoff', LINK_STYLE.handoff.color) +
-      marker('approval', LINK_STYLE.approval.color) + marker('conflict', '#e06666') + '</defs>' + paths + '</svg>';
+      marker('approval', LINK_STYLE.approval.color) + marker('conflict', '#b75947') + '</defs>' + paths + '</svg>';
     var todayLine = '<div class="g-today" style="left:calc(var(--lw) + ' + (X(t0) + dayW / 2) + 'px)"></div>';
 
     var empty = !rows.some(function (r) { return !r.group; });
