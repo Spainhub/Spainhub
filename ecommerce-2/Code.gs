@@ -251,6 +251,7 @@ function onOpen() {
       .addItem('Инициализировать листы', 'setup')
       .addItem('Загрузить демо-данные', 'seedDemo')
       .addItem('Пересчитать реестр согласований', 'syncApprovalsRegister')
+      .addItem('Проверить список участников', 'checkUsersDirectory')
       .addItem('Завершить все сессии', 'endAllSessions')
       .addToUi();
   } catch (e) { /* автономный скрипт — меню не нужно */ }
@@ -334,8 +335,34 @@ function ensureInfoSheet_(ss) {
 }
 
 /** Создаёт лист, дописывает недостающие заголовки, оформляет шапку и текстовый формат столбцов. */
+/** Case-insensitive, trimmed sheet lookup: a sheet called "users" is still the Users directory. */
+function findSheet_(ss, name) {
+  var exact = ss.getSheetByName(name);
+  if (exact) return exact;
+  var want = name.toLowerCase();
+  return ss.getSheets().filter(function (x) { return x.getName().trim().toLowerCase() === want; })[0] || null;
+}
+
+/** Header words that identify row 1 of the participants sheet as a header row (any language/case). */
+var USERS_HEADER_WORDS = ['name', 'имя', 'имя и фамилия', 'фио', 'фамилия имя', 'участник', 'участники', 'участник проекта',
+  'сотрудник', 'пользователь', 'user', 'users', 'login', 'логин'];
+
+/**
+ * Makes A1:D1 of the participants sheet the canonical header (name, email, role, password).
+ * The directory is read by position (A:D), so the header text never decides where the data is.
+ * If row 1 holds a participant instead of a header, a header row is inserted above it.
+ */
+function normalizeUsersHeader_(sh) {
+  if (sh.getLastRow() >= 1) {
+    var a1 = String(sh.getRange(1, 1).getValue()).trim().toLowerCase();
+    if (a1 !== '' && USERS_HEADER_WORDS.indexOf(a1) === -1) sh.insertRowBefore(1);
+  }
+  sh.getRange(1, 1, 1, 4).setValues([AUX.Users.slice(0, 4)]);
+}
+
 function ensureSheet_(ss, name, headers) {
-  var sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  var sh = findSheet_(ss, name) || ss.insertSheet(name);
+  if (name === 'Users') normalizeUsersHeader_(sh);
   var lastCol = sh.getLastColumn();
   var existing = lastCol > 0 ? sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String) : [];
   var changed = false;
@@ -356,7 +383,7 @@ function ensureSheet_(ss, name, headers) {
 /** Лист по имени; при отсутствии создаётся заново. */
 function sheet_(name) {
   var ss = ss_();
-  var sh = ss.getSheetByName(name);
+  var sh = findSheet_(ss, name);
   if (!sh) sh = ensureSheet_(ss, name, sheetDefs_()[name]);
   return sh;
 }
@@ -690,17 +717,34 @@ function api_(token, fn, opts) {
   }
 }
 
-/** Users directory rows without the password column (safe to send to the client). */
-function publicUsers_() {
-  return readAll_('Users').rows.map(function (r) { return { name: r.name, email: r.email, role: r.role }; });
+/**
+ * Participants directory, read BY POSITION from columns A:D of the Users sheet
+ * (A name, B email, C role, D password), starting at row 2. Values are taken as displayed in the
+ * cells, so a numeric password such as 2026 stays "2026". Blank names are skipped.
+ */
+function readUsersAD_() {
+  var sh = sheet_('Users');
+  var last = sh.getLastRow(), rows = [];
+  if (last > 1) {
+    sh.getRange(2, 1, last - 1, 4).getDisplayValues().forEach(function (r, i) {
+      var name = String(r[0]).trim();
+      if (!name) return;
+      rows.push({ name: name, email: String(r[1]).trim(), role: String(r[2]).trim(), password: String(r[3]).trim(), _row: i + 2 });
+    });
+  }
+  return { sh: sh, rows: rows };
 }
 
-/** Names of participants who can log in: present in Users with a password in the `password` column (D). */
+/** Participants without the password column (safe to send to the client). */
+function publicUsers_() {
+  return readUsersAD_().rows.map(function (r) { return { name: r.name, email: r.email, role: r.role }; });
+}
+
+/** Names of participants who can log in: present in the directory with a password in column D. */
 function loginNames_() {
   var seen = {}, out = [];
-  readAll_('Users').rows.forEach(function (r) {
-    var n = String(r.name || '').trim();
-    if (n && String(r.password || '') !== '' && !seen[n.toLowerCase()]) { seen[n.toLowerCase()] = true; out.push(n); }
+  readUsersAD_().rows.forEach(function (r) {
+    if (r.password !== '' && !seen[r.name.toLowerCase()]) { seen[r.name.toLowerCase()] = true; out.push(r.name); }
   });
   return out;
 }
@@ -708,11 +752,9 @@ function loginNames_() {
 /** Sets a participant's password (creates the participant if needed). Internal helper, also used by the demo. */
 function setUserPassword_(name, password) {
   ensureUsers_([name]);
-  var tbl = readAll_('Users');
+  var tbl = readUsersAD_();
   tbl.rows.forEach(function (r) {
-    if (String(r.name).toLowerCase() === String(name).toLowerCase()) {
-      updateRow_(tbl.sh, tbl.headers, r._row, { password: String(password) });
-    }
+    if (r.name.toLowerCase() === String(name).toLowerCase()) tbl.sh.getRange(r._row, 4).setValue(String(password));
   });
 }
 
@@ -723,7 +765,11 @@ function setUserPassword_(name, password) {
 function getUsers() {
   try {
     setupIfNeeded_();
-    return { ok: true, data: loginNames_() };
+    var names = loginNames_();
+    if (!names.length && readUsersAD_().rows.length) {
+      return { ok: false, error: 'Пароли участников ещё не заданы' };      // participants exist, nobody can log in yet
+    }
+    return { ok: true, data: names };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
   }
@@ -746,10 +792,10 @@ function login(password, userName) {
     if (fails >= MAX_FAILS) {
       return { ok: false, error: 'Слишком много неудачных попыток. Повторите через несколько минут.' };
     }
-    var row = readAll_('Users').rows.filter(function (r) { return String(r.name).trim().toLowerCase() === wanted; })[0];
-    var stored = row ? String(row.password || '') : '';
+    var row = readUsersAD_().rows.filter(function (r) { return r.name.toLowerCase() === wanted; })[0];
+    var stored = row ? row.password : '';
     if (!loginNames_().length) return { ok: false, error: 'Список участников пуст' };
-    if (!row || !stored || !safeEq_(String(password || ''), stored)) {
+    if (!row || !stored || !safeEq_(String(password || '').trim(), stored)) {
       cache.put(failKey, String(fails + 1), LOCK_SEC);
       return { ok: false, error: 'Неверное имя или пароль' };
     }
@@ -781,6 +827,16 @@ function logout(token) {
 
 function checkSession(token) {
   return api_(token, function (s) { return { user: s.user }; });
+}
+
+/** Menu item: reports what the login screen will see (participants found, how many can log in). */
+function checkUsersDirectory() {
+  setupIfNeeded_();
+  var all = readUsersAD_().rows, withPwd = loginNames_();
+  var msg = 'Участников в списке: ' + all.length + '\nМогут войти (пароль задан): ' + withPwd.length +
+    (all.length - withPwd.length ? '\nБез пароля: ' + all.filter(function (r) { return !r.password; }).map(function (r) { return r.name; }).join(', ') : '');
+  try { SpreadsheetApp.getUi().alert(APP_TITLE, msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) { /* no UI */ }
+  return msg;
 }
 
 /** Menu item: ends every active session (everyone has to sign in again). */
@@ -884,13 +940,13 @@ function getAllData(token) {
 
 /** Добавляет в Users имена, которых там ещё нет (без учёта регистра). */
 function ensureUsers_(names) {
-  var tbl = readAll_('Users');
+  var tbl = readUsersAD_();
   var known = {};
   tbl.rows.forEach(function (r) { known[r.name.toLowerCase()] = true; });
   names.forEach(function (n) {
     n = String(n || '').trim();
     if (n && !known[n.toLowerCase()]) {
-      appendObj_(tbl.sh, tbl.headers, { name: n, email: '', role: '' });
+      tbl.sh.getRange(tbl.sh.getLastRow() + 1, 1, 1, 4).setValues([[n, '', '', '']]);   // no password: cannot log in until one is set
       known[n.toLowerCase()] = true;
     }
   });
@@ -901,11 +957,11 @@ function addUser(token, user) {
     user = user || {};
     var name = String(user.name || '').trim();
     if (!name) throw new Error('Укажите имя');
-    var tbl = readAll_('Users');
+    var tbl = readUsersAD_();
     if (tbl.rows.some(function (r) { return r.name.toLowerCase() === name.toLowerCase(); })) {
       throw new Error('Такой пользователь уже есть');
     }
-    appendObj_(tbl.sh, tbl.headers, { name: name, email: String(user.email || '').trim(), role: String(user.role || '').trim() });
+    tbl.sh.getRange(tbl.sh.getLastRow() + 1, 1, 1, 4).setValues([[name, String(user.email || '').trim(), String(user.role || '').trim(), '']]);
     return { name: name };
   }, { write: true });
 }
