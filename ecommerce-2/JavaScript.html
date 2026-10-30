@@ -359,7 +359,7 @@
         '<td class="nowrap"><span class="reg-caret">&#9656;</span> ' + esc(a.id) + '</td>' +
         '<td>' + esc(a.name) + '</td><td>' + esc(a.initiator) + '</td>' +
         '<td class="nowrap">' + ru(String(a.created_at).slice(0, 10)) + '</td>' +
-        '<td class="nowrap' + (late ? ' log-late' : '') + '" style="' + (late ? 'color:var(--danger)' : '') + '">' + ru(a.deadline) + '</td>' +
+        '<td class="nowrap' + (late ? ' log-late' : '') + '" style="' + (late ? 'color:var(--danger-ink)' : '') + '">' + ru(a.deadline) + '</td>' +
         '<td>' + pill(a) + '</td>' +
         '<td class="nowrap">' + (vs.total ? vs.agree + ' из ' + vs.total + ' согласны' : '<span class="muted">без голосования</span>') + '</td>' +
         '<td class="right"><button class="link-btn pbtn" data-act="open" data-id="' + esc(a.id) + '">Открыть</button></td></tr>';
@@ -1114,7 +1114,7 @@
         var left = X(sp.s), width = Math.max(((sp.e - sp.s) / DAY + 1) * dayW, 3);
         var c2 = 'g-bar g-node t-' + e._type + (blk ? ' blocked' : '') + (late ? ' overdue' : '') + (isDoneLike(e) ? ' done' : '') + (e.status === 'Not Started' && !late ? ' planned' : '');
         bar = '<div class="' + c2 + '" data-act="open" data-id="' + id + '" style="left:' + left + 'px;width:' + width + 'px" title="' + esc(tip) + '">' +
-          '<i class="g-fill" style="width:' + pct + '%"></i>' + (width > 46 ? '<span class="g-pct">' + pct + '%</span>' : '') + '</div>';
+          '<i class="g-fill" style="width:' + pct + '%"></i>' + (width > 46 ? '<span class="g-pct ' + (width * pct / 100 >= 44 ? 'on-fill' : '') + '">' + pct + '%</span>' : '') + '</div>';
         pos[e.id] = { l: left, r: left + width, y: yc };
       }
       var flags = (blk ? ' <span class="pill s-Blocked">Блок</span>' : '') + (late ? ' <span class="pill s-late">Просрочено</span>' : '');
@@ -1137,7 +1137,7 @@
       var s = S.idx.byId[l.source_id];
       var st = LINK_STYLE[l.link_type] || LINK_STYLE.related;
       var conflict = (l.link_type === 'blocks' || l.link_type === 'handoff') && b.l < a.r && !isDoneLike(s);
-      var col = conflict ? '#f55143' : st.color;
+      var col = conflict ? '#e06666' : st.color;
       var d = elbow(a.r, a.y, b.l, b.y);
       paths += '<g class="g-conn" data-lid="' + esc(l.link_id) + '">' +
         '<path class="hit" d="' + d + '" fill="none" stroke="transparent" stroke-width="12" pointer-events="stroke"/>' +
@@ -1152,7 +1152,7 @@
     if (!g.deps) paths = '';                                    // dependencies off: no connectors
     var svg = '<svg class="g-arrows" style="left:var(--lw);width:' + W + 'px;height:' + H + 'px"><defs>' +
       marker('blocks', LINK_STYLE.blocks.color) + marker('handoff', LINK_STYLE.handoff.color) +
-      marker('approval', LINK_STYLE.approval.color) + marker('conflict', '#f55143') + '</defs>' + paths + '</svg>';
+      marker('approval', LINK_STYLE.approval.color) + marker('conflict', '#e06666') + '</defs>' + paths + '</svg>';
     var todayLine = '<div class="g-today" style="left:calc(var(--lw) + ' + (X(t0) + dayW / 2) + 'px)"></div>';
 
     var empty = !rows.some(function (r) { return !r.group; });
