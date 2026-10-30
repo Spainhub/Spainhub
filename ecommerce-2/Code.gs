@@ -228,7 +228,7 @@ function apiTable_() {
     createLink: createLink, updateLink: updateLink, deleteLink: deleteLink, setParent: setParent,
     addDocument: addDocument, updateDocument: updateDocument, deleteDocument: deleteDocument,
     addUser: addUser, saveSetting: saveSetting,
-    getInfo: getInfo, getApprovalsRegister: getApprovalsRegister, setApprovalVoters: setApprovalVoters,
+    getInfo: getInfo, getInfoData: getInfoData, getUsers: getUsers, getApprovalsRegister: getApprovalsRegister, setApprovalVoters: setApprovalVoters,
     castVote: castVote, moveTask: moveTask, getExchangeCards: getExchangeCards,
     getProjectTable: getProjectTable
   };
@@ -690,6 +690,29 @@ function api_(token, fn, opts) {
   }
 }
 
+/** Names from the Users directory, in sheet order, without blanks and duplicates. */
+function readUserNames_() {
+  var seen = {}, out = [];
+  readAll_('Users').rows.forEach(function (r) {
+    var n = String(r.name || '').trim();
+    if (n && !seen[n.toLowerCase()]) { seen[n.toLowerCase()] = true; out.push(n); }
+  });
+  return out;
+}
+
+/**
+ * Participant names for the login dropdown. Public by design (the login screen has no session yet);
+ * only names are returned, never e-mails or roles.
+ */
+function getUsers() {
+  try {
+    setupIfNeeded_();
+    return { ok: true, data: readUserNames_() };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+}
+
 /** Вход по паролю. Возвращает токен сессии. */
 function login(password, userName) {
   var lock = null;
@@ -707,7 +730,12 @@ function login(password, userName) {
     }
     cache.remove('login_fails');
 
-    var user = String(userName || '').trim().substring(0, 100) || 'Пользователь';
+    // The name must be one of the project participants (canonical spelling is taken from the directory)
+    var participants = readUserNames_();
+    if (!participants.length) return { ok: false, error: 'Список участников пуст' };
+    var wanted = String(userName || '').trim().toLowerCase();
+    var user = participants.filter(function (n) { return n.toLowerCase() === wanted; })[0];
+    if (!user) return { ok: false, error: 'Выберите участника из списка' };
     var token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
     cache.put('sess:' + token, JSON.stringify({ user: user, epoch: getEpoch_() }), SESSION_TTL_SEC);
 
@@ -976,7 +1004,7 @@ function deleteEntity(token, id) {
     docs.rows.slice().reverse().forEach(function (d) {
       if (d.entity_id === id) {
         docs.sh.deleteRow(d._row);
-        entries.push(['doc_delete', f.type, id, 'document', d.doc_name + ' — ' + d.doc_url, '']);
+        entries.push(['doc_delete', f.type, id, 'document', d.doc_name, '']);
       }
     });
     if (f.type === 'approval') {
@@ -1121,12 +1149,15 @@ function setParent(token, id, parentId) {
  * 11. ДОКУМЕНТЫ (лист Documents)
  * ========================================================================== */
 
+/** Neutral label for a document without its own name. */
+var DOC_DEFAULT_NAME = 'Документ';
+
 function checkDoc_(name, url) {
   url = String(url || '').trim();
   if (!/^https?:\/\/[^\s]+$/i.test(url)) throw new Error('Ссылка должна начинаться с http:// или https://');
   if (url.length > 2000) throw new Error('Ссылка слишком длинная');
   name = String(name || '').trim();
-  if (!name) name = url.replace(/^https?:\/\//i, '').split(/[?#]/)[0].split('/').filter(Boolean).pop() || url;
+  if (!name || /^https?:\/\//i.test(name)) name = DOC_DEFAULT_NAME;   // never use the URL itself as a label
   if (name.length > 200) throw new Error('Название документа: не более 200 символов');
   return { doc_name: name, doc_url: url };
 }
@@ -1140,7 +1171,7 @@ function addDocument(token, entityId, name, url) {
     var doc = { doc_id: nextId_('Documents', 'DOC'), entity_id: entityId, entity_type: f.type,
       doc_name: d.doc_name, doc_url: d.doc_url, added_by: session.user, created_at: nowStr_() };
     appendObj_(tbl.sh, tbl.headers, doc);
-    writeLog_(session.user, [['doc_add', f.type, entityId, 'document', '', d.doc_name + ' — ' + d.doc_url]]);
+    writeLog_(session.user, [['doc_add', f.type, entityId, 'document', '', d.doc_name]]);
     return doc;
   }, { write: true });
 }
@@ -1154,9 +1185,12 @@ function updateDocument(token, docId, changes) {
     var d = checkDoc_(
       Object.prototype.hasOwnProperty.call(changes, 'doc_name') ? changes.doc_name : cur.doc_name,
       Object.prototype.hasOwnProperty.call(changes, 'doc_url') ? changes.doc_url : cur.doc_url);
+    if (d.doc_name === cur.doc_name && d.doc_url === cur.doc_url) return pub_(cur);
     updateRow_(tbl.sh, tbl.headers, cur._row, d);
+    // The log keeps names only (no raw URLs); a changed address is noted in words
+    var changedOnlyUrl = d.doc_name === cur.doc_name;
     writeLog_(session.user, [['doc_update', cur.entity_type, cur.entity_id, 'document',
-      cur.doc_name + ' — ' + cur.doc_url, d.doc_name + ' — ' + d.doc_url]]);
+      cur.doc_name, changedOnlyUrl ? d.doc_name + ' (ссылка изменена)' : d.doc_name]]);
     var out = pub_(cur);
     out.doc_name = d.doc_name; out.doc_url = d.doc_url;
     return out;
@@ -1169,7 +1203,7 @@ function deleteDocument(token, docId) {
     var cur = tbl.rows.filter(function (r) { return r.doc_id === docId; })[0];
     if (!cur) throw new Error('Документ не найден: ' + docId);
     tbl.sh.deleteRow(cur._row);
-    writeLog_(session.user, [['doc_delete', cur.entity_type, cur.entity_id, 'document', cur.doc_name + ' — ' + cur.doc_url, '']]);
+    writeLog_(session.user, [['doc_delete', cur.entity_type, cur.entity_id, 'document', cur.doc_name, '']]);
     return { doc_id: docId };
   }, { write: true });
 }
@@ -1399,28 +1433,44 @@ function safeUrl_(u) {
   return /^https?:\/\/[^\s]+$/i.test(u) && u.length <= 1000 ? u : '';
 }
 
-/** Ссылка ячейки: гиперссылка в тексте (в т. ч. частичная) или формула =HYPERLINK("url";"имя"). */
-function cellLink_(rich, formula) {
+/** Neutral label used instead of a bare URL: raw addresses are never shown in the UI. */
+var LINK_LABEL = 'Ссылка';
+
+/**
+ * Splits one cell into text segments, each optionally carrying a hyperlink.
+ * Supports whole-cell links, partial (rich text) links and =HYPERLINK("url";"name") formulas.
+ */
+function cellSegments_(rich, display, formula) {
   var m = /^=\s*HYPERLINK\(\s*"([^"]+)"\s*(?:[,;]\s*"([^"]*)")?\s*\)\s*$/i.exec(String(formula || ''));
-  if (m) return { url: safeUrl_(m[1]), name: m[2] || '' };
-  var url = '';
+  if (m) return [{ text: m[2] || display, url: safeUrl_(m[1]) }];
+  var segs = [];
   try {
-    url = rich.getLinkUrl() || '';
-    if (!url) {
-      rich.getRuns().some(function (r) { url = r.getLinkUrl() || ''; return !!url; });
-    }
-  } catch (e) { url = ''; }
-  return { url: safeUrl_(url), name: '' };
+    rich.getRuns().forEach(function (r) {
+      var t = r.getText();
+      if (!t) return;
+      var url = safeUrl_(r.getLinkUrl());
+      var last = segs[segs.length - 1];
+      if (last && last.url === url) last.text += t; else segs.push({ text: t, url: url });
+    });
+  } catch (e) { segs = []; }
+  if (!segs.length) {
+    var u = '';
+    try { u = safeUrl_(rich.getLinkUrl()); } catch (e2) { u = ''; }
+    segs = [{ text: display, url: u }];
+  }
+  return segs;
 }
 
 /**
- * Читает Info!A1:K50. Возвращает строки, в каждой — непустые элементы { name, url }.
- * Ссылка, записанная отдельной ячейкой справа от названия, присоединяется к названию.
+ * Reads Info!A1:K50 and returns it exactly as laid out: rows in sheet order, cells left to right.
+ * Each row has a nesting level (index of its first non-empty column plus leading spaces / 3).
+ * A cell is { col, segments: [{ text, url }] }: plain text has url '', a hyperlink carries its url
+ * on the text itself. A bare URL typed next to a name is attached to that name; a bare URL on its own
+ * gets the neutral label, so a raw address never reaches the client as visible text.
  */
-function getInfo(token) {
+function getInfoData(token) {
   return api_(token, function () {
-    var ss = ss_();
-    var sh = ensureInfoSheet_(ss);
+    var sh = ensureInfoSheet_(ss_());
     var rng = sh.getRange(1, 1, INFO_ROWS, INFO_COLS);
     var values = rng.getDisplayValues ? rng.getDisplayValues() : rng.getValues();
     var rich = rng.getRichTextValues();
@@ -1428,25 +1478,40 @@ function getInfo(token) {
     var rows = [], count = 0;
 
     values.forEach(function (row, i) {
-      var items = [];
+      var cells = [], level = 0;
       row.forEach(function (cell, j) {
-        var text = String(cell === null || cell === undefined ? '' : cell).trim();
-        var link = cellLink_(rich[i][j], formulas[i][j]);
-        if (!text && !link.url) return;
-        if (!text || (link.name && text.charAt(0) === '=')) text = link.name;
-        var asUrl = safeUrl_(text);
-        if (!link.url && asUrl) {                       // ячейка с голой ссылкой
-          var prev = items[items.length - 1];
-          if (prev && !prev.url) { prev.url = asUrl; return; }
-          link.url = asUrl;
+        var raw = String(cell === null || cell === undefined ? '' : cell);
+        var segs = cellSegments_(rich[i][j], raw.trim(), formulas[i][j]);
+        var text = segs.map(function (g) { return g.text; }).join('');
+        if (!text.trim()) return;
+        var indent = 0;
+        if (!cells.length) indent = Math.min(3, Math.floor((raw.match(/^[\s ]*/)[0].length) / 3));
+        var asUrl = safeUrl_(text.trim());
+        var hasLink = segs.some(function (g) { return g.url; });
+        if (asUrl && !hasLink) {                       // bare URL cell
+          var prev = cells[cells.length - 1];
+          if (prev && !prev.segments.some(function (g) { return g.url; })) {
+            prev.segments.forEach(function (g) { g.url = asUrl; });
+            return;
+          }
+          segs = [{ text: LINK_LABEL, url: asUrl }];
         }
-        items.push({ name: text, url: link.url });
+        segs.forEach(function (g) { if (/^https?:\/\/\S+$/i.test(g.text.trim())) g.text = LINK_LABEL; });
+        if (!cells.length) level = j + indent;
+        cells.push({ col: j, segments: segs });
       });
-      if (items.length) { rows.push(items); count += items.length; }
+      if (cells.length) {
+        cells[0].segments[0].text = cells[0].segments[0].text.replace(/^[\s ]+/, '');
+        rows.push({ row: i + 1, level: level, cells: cells });
+        count += cells.length;
+      }
     });
     return { rows: rows, count: count };
   });
 }
+
+/** Backward-compatible alias. */
+function getInfo(token) { return getInfoData(token); }
 
 /* ============================================================================
  * 12d. ОБМЕН: карточки «кто — кому — что — когда»
@@ -1682,7 +1747,7 @@ function seedDemo() {
       participants: 'Анна Смирнова, Иван Петров, Мария Кузнецова', location: 'Переговорная 2', status: 'Planned' }, s1);
     mk('meeting', { name: 'Планирование запуска', description: 'Подготовка к старту продаж.', assignee: 'Иван Петров',
       meeting_date: addDays_(9), meeting_time: '15:30', end_time: '16:30',
-      participants: 'Иван Петров, Дмитрий Орлов', location: 'https://meet.google.com', status: 'Planned' }, s2);
+      participants: 'Иван Петров, Дмитрий Орлов', location: 'Онлайн', status: 'Planned' }, s2);
 
     var link = function (a, b, type) {
       addLink_(checkLink_({ source_id: a, target_id: b, link_type: type }, readAll_('Links').rows), me);

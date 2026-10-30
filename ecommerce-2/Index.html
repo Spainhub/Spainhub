@@ -21,13 +21,14 @@
     <div class="brand brand-lg">E-commerce 2.0</div>
     <p class="muted">Система управления проектом. Для входа введите пароль.</p>
     <label class="field">
-      <span>Ваше имя</span>
-      <input id="loginName" type="text" maxlength="100" placeholder="Например, Анна Смирнова">
+      <span>Участник проекта</span>
+      <select id="loginName" required disabled><option value="">Загрузка…</option></select>
     </label>
     <label class="field">
       <span>Пароль</span>
       <input id="loginPass" type="password" required autofocus>
     </label>
+    <div id="loginEmpty" class="form-error" hidden></div>
     <div id="loginError" class="form-error" hidden></div>
     <button type="submit" class="btn primary block">Войти</button>
   </form>
