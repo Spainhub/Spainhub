@@ -13,13 +13,13 @@
 <body>
 
 <!-- Индикатор загрузки -->
-<div id="busy" class="busy" hidden></div>
+<div id="busy" class="busy-overlay" hidden role="status" aria-live="polite"><div class="busy-box"><span class="spinner"></span><span>Пожалуйста, подождите, идёт обновление…</span></div></div>
 
 <!-- Экран входа: показывается до проверки пароля -->
 <div id="login" class="login" hidden>
   <form id="loginForm" class="login-card" autocomplete="off">
     <div class="brand brand-lg">E-commerce 2.0</div>
-    <p class="muted">Система управления проектом. Для входа введите пароль.</p>
+    <p class="muted">Система управления проектом.<br>Для входа введите пароль.</p>
     <label class="field">
       <span>Участник проекта</span>
       <select id="loginName" required disabled><option value="">Загрузка…</option></select>

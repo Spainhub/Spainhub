@@ -19,7 +19,7 @@
     info: null, infoErr: '', infoBusy: false, infoAt: 0,
     regOpen: {},
     kb: { type: 'all' },
-    tbl: { rows: null, err: '', q: '', collapsed: {} },
+    tbl: { rows: null, err: '', q: '', collapsed: {}, cmOpen: {} },
     logFilter: { entity_type: '', date_from: '', date_to: '', entity_id: '' },
     drawer: null,
     modalButtons: []
@@ -61,8 +61,23 @@
   function store(k, v) { try { if (v === null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch (e) { /* хранилище недоступно */ } }
   function load(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
 
-  var busyCount = 0;
-  function busy(d) { busyCount = Math.max(0, busyCount + d); $('#busy').hidden = busyCount === 0; }
+  // Blocking "please wait" message in the centre of the screen. It appears only if the request lasts longer than
+  // SHOW_MS (no flashing on quick calls) and stays through back-to-back requests (HIDE_MS), so a save followed by
+  // a refresh reads as one operation and the buttons cannot be clicked twice.
+  var busyCount = 0, busyShowTimer = 0, busyHideTimer = 0, SHOW_MS = 120, HIDE_MS = 180;
+  function busy(d) {
+    busyCount = Math.max(0, busyCount + d);
+    var box = $('#busy');
+    if (busyCount > 0) {
+      clearTimeout(busyHideTimer); busyHideTimer = 0;
+      if (box.hidden && !busyShowTimer) busyShowTimer = setTimeout(function () { busyShowTimer = 0; if (busyCount > 0) box.hidden = false; }, SHOW_MS);
+    } else {
+      clearTimeout(busyShowTimer); busyShowTimer = 0;
+      if (!box.hidden && !busyHideTimer) busyHideTimer = setTimeout(function () { busyHideTimer = 0; if (busyCount === 0) box.hidden = true; }, HIDE_MS);
+    }
+  }
+  // Reads that already show their own inline loader do not block the screen
+  var SILENT = { getInfoData: 1, getUsers: 1, getLog: 1, getExchangeCards: 1, getProjectTable: 1 };
 
   var toastTimer;
   function toast(msg, isErr) {
@@ -75,15 +90,16 @@
   /** Вызов серверного метода через google.script.run -> Promise<data>. */
   function call(method) {
     var args = Array.prototype.slice.call(arguments, 1);
-    busy(1);
+    var track = !SILENT[method];
+    if (track) busy(1);
     return new Promise(function (resolve, reject) {
       var run = google.script.run
         .withSuccessHandler(function (r) {
-          busy(-1);
+          if (track) busy(-1);
           if (r && r.ok) resolve(r.data);
           else { var err = new Error((r && r.error) || 'Ошибка сервера'); err.code = r && r.code; reject(err); }
         })
-        .withFailureHandler(function (e) { busy(-1); reject(new Error((e && e.message) || String(e))); });
+        .withFailureHandler(function (e) { if (track) busy(-1); reject(new Error((e && e.message) || String(e))); });
       run[method].apply(run, args);
     });
   }
@@ -236,6 +252,7 @@
     S.tab = tab;
     $$('.tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === tab); });
     $$('.view').forEach(function (v) { v.classList.toggle('active', v.id === 'v-' + tab); });
+    $('#app').classList.toggle('tab-gantt', tab === 'gantt');   // the chart fills the page down to the footer
     renderTab(tab);
   }
 
@@ -301,7 +318,7 @@
    */
   function infoBlockHTML() {
     var i = S.info;
-    var head = '<div class="card-head"><h4>Файлы проекта</h4><span class="small muted">' +
+    var head = '<div class="card-head"><h4 class="h-purple">Файлы проекта</h4><span class="small muted">' +
       '<button class="link-btn pbtn" data-act="info-refresh">Обновить</button></span></div>';
     if (S.infoErr) return head + '<div class="form-error">' + esc(S.infoErr) + '</div>';
     if (!i) return head + '<div class="loading"><span class="spinner"></span>Загрузка…</div>';
@@ -349,7 +366,7 @@
 
   function registerHTML() {
     var list = S.data.entities.approval.slice().sort(function (a, b) { return String(a.deadline).localeCompare(String(b.deadline)); });
-    var head = '<div class="card-head" style="padding:0 var(--card-pad)"><h4>Реестр согласований</h4><span class="small muted">Всего: ' + list.length + '</span></div>';
+    var head = '<div class="card-head" style="padding:0 var(--card-pad)"><h4 class="h-purple">Реестр согласований</h4><span class="small muted">Всего: ' + list.length + '</span></div>';
     if (!list.length) {
       return head + '<div class="empty"><b>Согласований пока нет</b>Создайте согласование кнопкой «Создать» и выберите участников голосования.</div>';
     }
@@ -439,7 +456,7 @@
       '<div class="card span-12 table-card" id="regBlock" style="padding:var(--card-pad) 0 0">' + registerHTML() + '</div>' +
       '<div class="card span-12" id="infoBlock">' + infoBlockHTML() + '</div>' +
       '<div class="card span-6"><div class="card-head"><h4>Ближайшие сроки</h4><span class="muted small">14 дней и просрочка</span></div><div class="list">' + upHtml + '</div></div>' +
-      '<div class="card span-6"><div class="card-head"><h4>Последние события</h4><button class="link-btn pbtn small" data-act="tab" data-tab="log">Весь журнал</button></div>' + evHtml + '</div>' +
+      '<div class="card span-6"><div class="card-head"><h4 class="h-purple">Последние события</h4><button class="link-btn pbtn small" data-act="tab" data-tab="log">Весь журнал</button></div>' + evHtml + '</div>' +
       '</div>';
     loadInfo(false);
   }
@@ -660,7 +677,11 @@
       : '<div class="tp"><div class="bar"><i style="width:' + r.progress + '%"></i></div><b>' + r.progress + '%</b></div>';
     return '<tr class="lv-' + r.type + '" data-key="' + esc(r.key) + '">' + tds +
       '<td>' + (r.assignee ? esc(r.assignee) : dash) + '</td>' + dates +
-      '<td class="cm">' + (r.comment ? esc(r.comment) : dash) + '</td>' +
+      '<td class="cm">' + (r.comment
+        ? '<div class="cm-box' + (S.tbl.cmOpen[r.key] ? ' open' : '') + '"><span class="cm-t">' + esc(r.comment) + '</span>' +
+          '<button class="cm-btn" hidden data-act="tbl-cm" data-id="' + esc(r.key) + '" aria-expanded="' + !!S.tbl.cmOpen[r.key] + '">' +
+          (S.tbl.cmOpen[r.key] ? 'Свернуть' : 'Ещё') + '</button></div>'
+        : dash) + '</td>' +
       '<td>' + progress + '</td><td>' + docs + '</td></tr>';
   }
 
@@ -678,6 +699,11 @@
       TBL_COLS.map(function (c) { return '<col style="width:' + c[1] + '%">'; }).join('') + '</colgroup><thead><tr>' +
       TBL_COLS.map(function (c) { return '<th' + (c[0] ? '' : ' aria-label="Развернуть / свернуть"') + '>' + c[0] + '</th>'; }).join('') + '</tr></thead><tbody>' +
       rows.map(tblRowHTML).join('') + '</tbody></table></div>';
+    // the "more" button is shown only for comments that are actually cut off (or already expanded / multi-line)
+    $$('.cm-box', body).forEach(function (box) {
+      var t = $('.cm-t', box), btn = $('.cm-btn', box);
+      btn.hidden = !(box.classList.contains('open') || t.scrollWidth > t.clientWidth + 1 || t.textContent.indexOf('\n') !== -1);
+    });
   }
 
   function renderTable() {
@@ -879,11 +905,7 @@
    * Only stages are numbered (1., 2., 3., ...). Tasks and subtasks are shown through the "+" expander instead.
    * Computed on the FULL list of stages, so filters and zoom never renumber them.
    */
-  function ganttNumbers() {
-    var nums = {};
-    S.data.entities.stage.slice().sort(ganttSort).forEach(function (st, i) { nums[st.id] = (i + 1) + '.'; });
-    return nums;
-  }
+  function ganttNumbers() { return {}; }   // stage numbering was removed; kept so callers need no changes
 
   /** "+" / "−" button, always at the left edge of the label column. */
   function gTg(e) {
@@ -1138,11 +1160,15 @@
           '<i class="g-fill" style="width:' + pct + '%"></i>' + (width > 46 ? '<span class="g-pct ' + (width * pct / 100 >= 44 ? 'on-fill' : '') + '">' + pct + '%</span>' : '') + '</div>';
         pos[e.id] = { l: left, r: left + width, y: yc };
       }
-      var flags = (blk ? ' <span class="pill s-Blocked">Блок</span>' : '') + (late ? ' <span class="pill s-late">Просрочено</span>' : '');
-      var sub = e.id + ' · ' + (ownerOf(e) || 'Не назначен') + (sp ? '' : ' · нет срока');
+      // "STG-0001 Анна Смирнова (Просрочено)": the status is coloured text after the assignee, not a filled badge
+      var marks = [];
+      if (blk) marks.push('<span class="st-txt st-block">Заблокировано</span>');
+      if (late) marks.push('<span class="st-txt st-over">Просрочено</span>');
+      if (!sp) marks.push('<span class="st-txt st-none">нет срока</span>');
+      var sub = esc(e.id + ' ' + (ownerOf(e) || 'Не назначен')) + (marks.length ? ' (' + marks.join(', ') + ')' : '');
       rowsHtml += '<div class="g-row' + (r.ctx ? ' ctx' : '') + '"><div class="g-label g-node d-' + e._type + '" data-act="open" data-id="' + id + '" style="padding-left:' + (40 + r.depth * 16) + 'px" title="' + esc(tip) + '">' + gTg(e) +
-        '<div class="nm">' + (nums[e.id] ? '<span class="g-num">' + nums[e.id] + '</span>' : '') + typeTag(e._type) + '<span class="nm-t">' + esc(e.name) + '</span></div>' +
-        '<div class="sub">' + flags.trim() + (flags ? ' ' : '') + esc(sub) + '</div></div>' +   // status flags sit on the second line so they never squeeze the name
+        '<div class="nm">' + typeTag(e._type) + '<span class="nm-t">' + esc(e.name) + '</span></div>' +
+        '<div class="sub">' + sub + '</div></div>' +
         '<div class="g-track" style="' + gridStyle + '">' + bar + '</div></div>';
       y += ROW_H;
     });
@@ -1751,6 +1777,9 @@
     'tbl-toggle': function (a, ev) {
       ev.preventDefault();
       var key = a.getAttribute('data-id'); S.tbl.collapsed[key] = !S.tbl.collapsed[key]; drawTable();
+    },
+    'tbl-cm': function (a) {
+      var key = a.getAttribute('data-id'); S.tbl.cmOpen[key] = !S.tbl.cmOpen[key]; drawTable();
     },
     'tbl-expand': function () { S.tbl.collapsed = {}; drawTable(); },
     'tbl-collapse': function () {
