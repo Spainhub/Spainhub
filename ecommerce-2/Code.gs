@@ -231,7 +231,7 @@ function apiTable_() {
     addUser: addUser, saveSetting: saveSetting,
     getInfo: getInfo, getInfoData: getInfoData, getUsers: getUsers, getApprovalsRegister: getApprovalsRegister, setApprovalVoters: setApprovalVoters,
     castVote: castVote, moveTask: moveTask, getExchangeCards: getExchangeCards,
-    getProjectTable: getProjectTable
+    getProjectTable: getProjectTable, getTickerText: getTickerText
   };
 }
 
@@ -308,6 +308,7 @@ function setup() {
   });
 
   ensureInfoSheet_(ss);
+  ensureTextSheet_(ss);
 
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('SESSION_EPOCH') === null) props.setProperty('SESSION_EPOCH', '0');
@@ -330,6 +331,17 @@ function ensureInfoSheet_(ss) {
     sh.getRange(1, 1).setNote('Столбец A — название папки, столбец B — ссылка (http/https). ' +
       'Читается диапазон A1:K50; ячейку можно оформить и как гиперссылку. ' +
       'Строка с одним названием без ссылки показывается как заголовок группы.');
+  }
+  return sh;
+}
+
+/** Sheet "Text": the text in cell A1 runs as a ticker on the Home tab. Created empty if it is missing. */
+var TEXT_SHEET = 'Text';
+function ensureTextSheet_(ss) {
+  var sh = findSheet_(ss, TEXT_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(TEXT_SHEET);
+    sh.getRange(1, 1).setNote('Текст из ячейки A1 отображается бегущей строкой на вкладке «Главная». Пустая ячейка — строки нет.');
   }
   return sh;
 }
@@ -1583,6 +1595,24 @@ function getInfoData(token) {
 function getInfo(token) { return getInfoData(token); }
 
 /* ============================================================================
+ * 12c2. TICKER: text of the "Text" sheet, cell A1
+ * ========================================================================== */
+
+/**
+ * Returns { text } from Text!A1 as displayed in the cell. Line breaks become a bullet separator so the
+ * text stays on one line; the client shows it as plain text only (never as HTML).
+ */
+function getTickerText(token) {
+  return api_(token, function () {
+    var sh = ensureTextSheet_(ss_());
+    var raw = String(sh.getRange(1, 1, 1, 1).getDisplayValues()[0][0] || '');
+    // each line is cleaned on its own, then the lines are joined with a bullet
+    var text = raw.split(/[\r\n]+/).map(function (l) { return l.replace(/\s+/g, ' ').trim(); }).filter(Boolean).join('   •   ');
+    return { text: text.length > 1500 ? text.substring(0, 1500) + '…' : text };
+  });
+}
+
+/* ============================================================================
  * 12d. ОБМЕН: карточки «кто — кому — что — когда»
  * ========================================================================== */
 
@@ -1845,6 +1875,12 @@ function seedDemo() {
     hand(t1, t2); hand(t4, t6);
     link(t3, t5, 'blocks'); link(t2, t5, 'blocks');
     link(t2, a1, 'approval'); link(t4, a2, 'approval');
+
+    // Demo ticker text (only if the cell is empty)
+    var tsh = ensureTextSheet_(ss_());
+    if (!String(tsh.getRange(1, 1, 1, 1).getDisplayValues()[0][0] || '').trim()) {
+      tsh.getRange(1, 1).setValue('Важно: согласование ассортимента до пятницы. Плановая встреча по запуску — в понедельник в 10:00.');
+    }
 
     // Пример содержимого листа «Файлы проекта», если он пуст
     var info = ensureInfoSheet_(ss_());

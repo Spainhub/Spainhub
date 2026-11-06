@@ -17,6 +17,7 @@
     exch: { filter: 'flow', q: '' },
     exchCards: null, exchErr: '',
     info: null, infoErr: '', infoBusy: false, infoAt: 0,
+    ticker: { text: '', at: 0, busy: false },
     regOpen: {},
     kb: { type: 'all' },
     tbl: { rows: null, err: '', q: '', collapsed: {}, cmOpen: {} },
@@ -77,7 +78,7 @@
     }
   }
   // Reads that already show their own inline loader do not block the screen
-  var SILENT = { getInfoData: 1, getUsers: 1, getLog: 1, getExchangeCards: 1, getProjectTable: 1 };
+  var SILENT = { getTickerText: 1, getInfoData: 1, getUsers: 1, getLog: 1, getExchangeCards: 1, getProjectTable: 1 };
 
   var toastTimer;
   function toast(msg, isErr) {
@@ -311,6 +312,35 @@
     return String(v === null || v === undefined ? '' : v).replace(/\s*[—-]\s*https?:\/\/\S+/g, '').replace(/https?:\/\/\S+/g, 'ссылка');
   }
 
+  /* ---------- Ticker: scrolling text from the "Text" sheet, shown next to the Home heading ---------- */
+  var TICKER_SPEED = 70;                          // pixels per second
+
+  /** Paints the cached text into the ticker (plain text only). Hides the ticker when the text is empty. */
+  function renderTicker() {
+    var box = $('#ticker'); if (!box) return;
+    var text = S.ticker.text;
+    box.hidden = !text;
+    if (!text) { box.innerHTML = ''; return; }
+    if ($('.ticker-track', box) && $('.ticker-track', box).textContent === text) return;   // unchanged: keep the animation running
+    box.innerHTML = '<span class="ticker-track"></span>';
+    var track = $('.ticker-track', box);
+    track.textContent = text;
+    // the scroll time follows the text length, so the speed is the same for short and long messages
+    track.style.setProperty('--dur', Math.max(8, track.offsetWidth / TICKER_SPEED) + 's');   // the track (text + leading gap) travels its own width
+    box.setAttribute('title', text);
+  }
+
+  /** Reads the text from the server (not more often than every 15 s unless forced). */
+  function loadTicker(force) {
+    var t = S.ticker;
+    if (t.busy || (!force && t.at && Date.now() - t.at < 15000)) return;
+    t.busy = true;
+    authCall('getTickerText').then(function (r) { t.text = (r && r.text) || ''; })
+      .catch(function () { /* keep the previous text */ })
+      .then(function () { t.busy = false; t.at = Date.now(); if (S.tab === 'home') renderTicker(); });
+  }
+  setInterval(function () { if (S.token && S.tab === 'home' && !document.hidden) loadTicker(true); }, 60000);
+
   /* ---------- Блок «Файлы проекта» ---------- */
   /**
    * Renders the project files exactly as laid out in the source: same order, same nesting.
@@ -438,7 +468,7 @@
     }).join('') : '<div class="empty"><b>Событий пока нет</b>Здесь появятся последние изменения.</div>';
 
     $('#v-home').innerHTML =
-      '<div class="view-head"><h2>Главная</h2></div>' +
+      '<div class="view-head home-head"><h2>Главная</h2><div class="ticker" id="ticker" hidden></div></div>' +
       '<div class="grid">' +
       '<div class="card span-4"><div class="card-head"><h4>Общий прогресс проекта</h4></div>' +
       '<div class="big-num">' + total + '<small>%</small></div>' +
@@ -458,6 +488,7 @@
       '<div class="card span-6"><div class="card-head"><h4>Ближайшие сроки</h4><span class="muted small">14 дней и просрочка</span></div><div class="list">' + upHtml + '</div></div>' +
       '<div class="card span-6"><div class="card-head"><h4 class="h-purple">Последние события</h4><button class="link-btn pbtn small" data-act="tab" data-tab="log">Весь журнал</button></div>' + evHtml + '</div>' +
       '</div>';
+    renderTicker(); loadTicker(false);
     loadInfo(false);
   }
 
