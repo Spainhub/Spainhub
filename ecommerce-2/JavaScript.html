@@ -33,10 +33,12 @@
     create: 'Создание', update: 'Изменение', 'delete': 'Удаление',
     link_add: 'Связь добавлена', link_update: 'Связь изменена', link_delete: 'Связь удалена',
     doc_add: 'Документ добавлен', doc_update: 'Документ изменён', doc_delete: 'Документ удалён',
-    login: 'Вход', setting: 'Настройки проекта', vote: 'Голосование'
+    login: 'Вход', setting: 'Настройки проекта', vote: 'Голосование',
+    check_add: 'Пункт чек-листа добавлен', check_update: 'Пункт чек-листа изменён', check_delete: 'Пункт чек-листа удалён',
+    check_confirm: 'Пункт подтверждён', check_unconfirm: 'Подтверждение снято'
   };
   // Подписи полей, которых нет в схеме сущностей
-  var FIELD_EXTRA = { vote: 'Голос', vote_comment: 'Комментарий к голосу', voters: 'Участники голосования' };
+  var FIELD_EXTRA = { vote: 'Голос', vote_comment: 'Комментарий к голосу', voters: 'Участники голосования', checklist: 'Чек-лист' };
 
   /* ---------- Утилиты ---------- */
   function $(s, r) { return (r || document).querySelector(s); }
@@ -142,7 +144,7 @@
   }
 
   function buildIndex() {
-    var d = S.data, idx = { byId: {}, parent: {}, children: {}, docs: {}, votes: {} };
+    var d = S.data, idx = { byId: {}, parent: {}, children: {}, docs: {}, votes: {}, chk: {} };
     S.meta.typeOrder.forEach(function (t) {
       d.entities[t].forEach(function (e) { e._type = t; idx.byId[e.id] = e; });
     });
@@ -153,6 +155,7 @@
       }
     });
     d.documents.forEach(function (x) { (idx.docs[x.entity_id] = idx.docs[x.entity_id] || []).push(x); });
+    (d.checklist || []).forEach(function (c) { (idx.chk[c.entity_id] = idx.chk[c.entity_id] || []).push(c); });
     (d.register || []).forEach(function (r) { (idx.votes[r.approval_id] = idx.votes[r.approval_id] || []).push(r); });
     S.idx = idx;
   }
@@ -273,6 +276,9 @@
    * ========================================================================== */
   function describeLog(r) {
     var base = (ACTIONS[r.action] || r.action);
+    if (/^check_/.test(r.action)) {                  // checklist: object id + the item text
+      return base + ': ' + r.entity_id + ' — ' + stripUrls(r.new_value || r.old_value);
+    }
     if (/^(link|doc)_/.test(r.action)) {          // в тексте связи/документа идентификаторы уже есть
       return base + ': ' + stripUrls(r.new_value || r.old_value);
     }
@@ -694,7 +700,7 @@
       : '';
     var nameCell = '<div class="tn">' + (r.number ? '<span class="no">' + esc(r.number) + '</span>' : '') +
       '<a href="#" data-act="open" data-id="' + esc(r.id) + '" title="' + esc(r.id) + '">' + esc(r.name) + '</a>' +
-      (r.blocked ? ' <span class="pill s-Blocked">Блок</span>' : '') + '</div>';
+      (r.blocked ? ' <span class="pill s-Blocked">Блок</span>' : '') + clBadge(r.id, 'cl-badge') + '</div>';
     var tds = '';
     tds += '<td class="tg-cell">' + toggle + '</td>';              // column 0: the +/- button
     for (var i = 0; i < 4; i++) tds += '<td>' + (i === col ? nameCell : '') + '</td>';
@@ -791,7 +797,7 @@
       '<div class="k-title">' + esc(t.name) + '</div>' +
       '<div class="k-meta"><span>' + esc(t.assignee || 'Не назначен') + '</span>' +
       '<span class="' + (late ? 'late' : '') + '">' + (t.deadline ? ru(t.deadline) : 'без срока') + (late ? ' · +' + days + ' дн.' : '') + '</span></div>' +
-      '<div class="k-prog"><div class="bar"><i style="width:' + pct + '%"></i></div><b>' + pct + '%</b></div>' +
+      '<div class="k-prog"><div class="bar"><i style="width:' + pct + '%"></i></div><b>' + pct + '%</b></div>' + clBadge(t.id, 'k-chk') +
       ((blk || t.status === 'Under Review')
         ? '<div class="k-flags">' + (blk ? '<span class="pill s-Blocked">Блок</span>' : '') +
           (t.status === 'Under Review' ? '<span class="pill s-UnderReview">На проверке</span>' : '') + '</div>' : '') +
@@ -1388,10 +1394,88 @@
     }
   }
 
+  /* ============================================================================
+   * CHECKLIST (tasks, subtasks, meetings)
+   * ========================================================================== */
+  var CL_TYPES = ['task', 'subtask', 'meeting'];
+  function sameName(a, b) { return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(); }
+  function clItems(id) { return S.idx.chk[id] || []; }
+  function clStats(id) {
+    var it = clItems(id);
+    return { total: it.length, done: it.filter(function (i) { return i.confirmed === '1'; }).length };
+  }
+  /** The creator sets up the checklist; objects without a recorded creator fall back to their assignee (as on the server). */
+  function clCanSetup(e) {
+    if (e.created_by) return sameName(e.created_by, S.user);
+    return !e.assignee || sameName(e.assignee, S.user);
+  }
+
+  /** Small "2/3" counter next to an object that has a checklist. */
+  function clBadge(id, cls) {
+    var st = clStats(id);
+    return st.total ? '<span class="' + cls + (st.done === st.total ? ' is-done' : '') + '" title="Подтверждено пунктов чек-листа">Чек-лист ' + st.done + '/' + st.total + '</span>' : '';
+  }
+
+  /** The checklist block of the entity card. data-mode: creator | assignee | viewer. */
+  function checklistHTML(e) {
+    var items = clItems(e.id), st = clStats(e.id), creator = clCanSetup(e);
+    var mine = items.some(function (i) { return sameName(i.assignee, S.user); });
+    var mode = creator ? 'creator' : (mine ? 'assignee' : 'viewer');
+    var pct = st.total ? Math.round(st.done / st.total * 100) : 0;
+    var h = '<header class="cl-head"><h4>Чек-лист</h4><span class="cl-count">' + (st.total ? st.done + ' из ' + st.total + ' подтверждено' : 'пунктов нет') + '</span></header>';
+    if (st.total) {
+      h += '<div class="bar cl-bar" role="progressbar" aria-valuemin="0" aria-valuemax="' + st.total + '" aria-valuenow="' + st.done +
+        '" aria-label="Подтверждено пунктов"><i style="width:' + pct + '%"></i></div>';
+    }
+    h += st.total ? '<ul class="cl-list">' + items.map(function (i) {
+      var done = i.confirmed === '1', own = sameName(i.assignee, S.user);
+      return '<li class="cl-item' + (done ? ' is-done' : '') + '" data-item="' + esc(i.item_id) + '">' +
+        '<label class="cl-check"' + (own ? '' : ' title="Подтвердить может только ' + esc(i.assignee) + '"') + '>' +
+        '<input type="checkbox" data-act="cl-toggle" data-id="' + esc(i.item_id) + '"' + (done ? ' checked' : '') + (own ? '' : ' disabled') + '>' +
+        '<span class="cl-text">' + esc(i.text) + '</span></label>' +
+        '<span class="cl-who">' + esc(i.assignee) + '</span>' +
+        '<span class="cl-state' + (done ? ' is-done' : '') + '">' + (done ? 'Подтверждено ' + ru(String(i.confirmed_at).slice(0, 10)) : 'Не подтверждено') + '</span>' +
+        (creator ? '<span class="cl-actions"><button class="link-btn" data-act="cl-edit" data-id="' + esc(i.item_id) + '">Изменить</button>' +
+          '<button class="link-btn danger" data-act="cl-del" data-id="' + esc(i.item_id) + '">Удалить</button></span>' : '') +
+        '</li>';
+    }).join('') + '</ul>'
+      : '<div class="empty cl-empty"><b>Чек-лист пуст</b>' + (creator ? 'Добавьте пункты и назначьте ответственных.' : 'Автор может добавить пункты и назначить ответственных.') + '</div>';
+    if (creator) {
+      h += '<div class="cl-add"><input type="text" id="clText" maxlength="300" placeholder="Новый пункт чек-листа">' +
+        '<input type="text" id="clWho" list="usersList" placeholder="Ответственный" autocomplete="off" value="' + esc(e.assignee || '') + '">' +
+        '<button type="button" class="btn sm" data-act="cl-add">Добавить</button></div>';
+    }
+    return '<div data-mode="' + mode + '" data-entity="' + esc(e.id) + '">' + h +
+      '<p class="hint">Пункты задаёт автор. Подтверждает пункт только его ответственный. ' +
+      (e._type === 'meeting' ? 'Встреча считается проведённой' : 'Объект считается завершённым') + ', когда подтверждены все пункты.</p></div>';
+  }
+
+  /** Checklist builder in the creation form: items are collected locally and sent together with the new object. */
+  function newChecklistHTML() {
+    var list = S.drawer.newChecklist || [];
+    return '<h4>Чек-лист</h4>' + (list.length ? '<ul class="cl-list">' + list.map(function (i, n) {
+      return '<li class="cl-item"><span class="cl-text">' + esc(i.text) + '</span><span class="cl-who">' + esc(i.assignee) + '</span>' +
+        '<span class="cl-actions"><button type="button" class="link-btn danger" data-act="cln-del" data-n="' + n + '">Убрать</button></span></li>';
+    }).join('') + '</ul>' : '<div class="hint">Пунктов нет. Вы — автор, поэтому можете задать их сейчас или позже в карточке.</div>') +
+      '<div class="cl-add"><input type="text" id="clnText" maxlength="300" placeholder="Новый пункт чек-листа">' +
+      '<input type="text" id="clnWho" list="usersList" placeholder="Ответственный" autocomplete="off">' +
+      '<button type="button" class="btn sm" data-act="cln-add">Добавить</button></div>';
+  }
+
+  /** A status that completes the object (Done / Held) cannot be picked while items are unconfirmed. */
+  function lockCompletionStatus(e) {
+    var sel = $('#f_status'); if (!sel || !e || CL_TYPES.indexOf(e._type) === -1) return;
+    var st = clStats(e.id), doneVal = e._type === 'meeting' ? 'Held' : 'Done';
+    $$('option', sel).forEach(function (o) {
+      if (o.value === doneVal && st.total && st.done < st.total && e.status !== doneVal) { o.disabled = true; o.title = 'Сначала подтвердите все пункты чек-листа'; }
+      else o.disabled = false;
+    });
+  }
+
   function openEntity(type, id, preset) {
     var cfg = S.meta.types[type], e = id ? S.idx.byId[id] : null;
     if (id && !e) { toast('Объект не найден', true); return; }
-    S.drawer = { type: type, id: id || null };
+    S.drawer = { type: type, id: id || null, newChecklist: [], base: e ? { status: e.status, progress: e.progress } : null };
     preset = preset || {};
     var vals = {};
     cfg.fields.forEach(function (f) {
@@ -1427,6 +1511,8 @@
       (type === 'approval' ? '<div class="hint">Статус согласования определяется голосованием: любой «Не согласен» — отклонено, все «Согласен» — согласовано.</div>' : '') +
       '<div id="formErr" class="form-error" hidden></div></form>' + linkBlock +
       (e && type === 'approval' ? '<div class="section" id="secVotes"></div>' : '') +
+      (e && CL_TYPES.indexOf(type) !== -1 ? '<div class="section checklist" id="secChecklist"></div>' : '') +
+      (!e && CL_TYPES.indexOf(type) !== -1 ? '<div class="section checklist" id="secChecklistNew">' + newChecklistHTML() + '</div>' : '') +
       (e ? '<div class="section" id="secParent"></div><div class="section"><h4>Документы</h4><div id="docList"></div>' +
         '<div class="doc-add"><input type="text" id="docName" placeholder="Название документа" maxlength="200">' +
         '<input type="url" id="docUrl" placeholder="Ссылка на документ"><button class="btn sm" data-act="doc-add">Добавить</button></div></div>' +
@@ -1439,6 +1525,7 @@
     $('#scrim').hidden = false;
     $('#drawer').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false');
     syncShowIf(); syncProgress();
+    if (e) lockCompletionStatus(e);
     S.gantt.sel = id || null;
     if (S.tab === 'gantt') applyChain(id ? [id] : null);          // цепочка зависимостей выбранного объекта
     if (!e) { fillLinkTargets(type); } else {
@@ -1481,6 +1568,22 @@
 
     var vsec = $('#secVotes');
     if (vsec) vsec.innerHTML = votesSectionHTML(e);
+
+    var csec = $('#secChecklist');
+    if (csec) {
+      var keepText = $('#clText') ? $('#clText').value : '', keepWho = $('#clWho') ? $('#clWho').value : '';
+      csec.innerHTML = checklistHTML(e);
+      if ($('#clText') && keepText) $('#clText').value = keepText;
+      if ($('#clWho') && keepWho) $('#clWho').value = keepWho;
+      lockCompletionStatus(e);
+      // The checklist can change the status / progress. Refresh those controls unless the user already edited them.
+      var base = S.drawer.base || {};
+      var st = $('#f_status'), pr = $('#f_progress');
+      if (st && st.value === base.status) st.value = e.status;
+      if (pr && String(pr.value) === String(base.progress)) { pr.value = e.progress; var rr = $('#f_progress_r'); if (rr) rr.value = e.progress; syncProgress(); }
+      S.drawer.base = { status: e.status, progress: e.progress };
+      var pl = $('.drawer-head .pill'); if (pl) pl.outerHTML = pill(e);
+    }
 
     var docs = S.idx.docs[e.id] || [];
     $('#docList').innerHTML = docs.length ? docs.map(function (x) {
@@ -1635,6 +1738,7 @@
       var target = $('#cLinkTarget').value;
       var link = target ? { other_id: target, link_type: $('#cLinkType').value } : null;
       if (d.type === 'approval') data.voters = collectVoters();
+      if (CL_TYPES.indexOf(d.type) !== -1) data.checklist = d.newChecklist || [];
       p = authCall('createEntity', d.type, data, link).then(function (res) {
         toast('Создано: ' + res.entity.id);
         return reload().then(function () { openEntity(d.type, res.entity.id); });
@@ -1809,6 +1913,40 @@
       ev.preventDefault();
       var key = a.getAttribute('data-id'); S.tbl.collapsed[key] = !S.tbl.collapsed[key]; drawTable();
     },
+    'cl-add': function () {
+      var d = S.drawer, text = $('#clText').value, who = $('#clWho').value;
+      authCall('addChecklistItem', d.id, text, who).then(function () { toast('Пункт добавлен'); $('#clText').value = ''; return reload(); })
+        .catch(function (er) { toast(er.message, true); });
+    },
+    'cl-edit': function (a) {
+      var id = a.getAttribute('data-id'), it = S.data.checklist.filter(function (x) { return x.item_id === id; })[0]; if (!it) return;
+      openModal('Пункт чек-листа',
+        '<label class="field"><span>Текст пункта</span><input type="text" id="clmText" maxlength="300" value="' + esc(it.text) + '"></label>' +
+        '<label class="field"><span>Ответственный</span><input type="text" id="clmWho" list="usersList" autocomplete="off" value="' + esc(it.assignee) + '"></label>' +
+        '<div class="hint">При смене ответственного подтверждение сбрасывается.</div><div id="modalErr" class="form-error" hidden></div>', [
+          { text: 'Отмена', fn: function () { } },
+          { text: 'Сохранить', cls: 'primary', fn: function () {
+            return authCall('updateChecklistItem', id, { text: $('#clmText').value, assignee: $('#clmWho').value })
+              .then(function () { toast('Пункт обновлён'); return reload(); });
+          } }]);
+    },
+    'cl-del': function (a) {
+      var id = a.getAttribute('data-id');
+      confirmBox('Удалить пункт чек-листа?', 'Удалить').then(function (ok) {
+        if (ok) authCall('deleteChecklistItem', id).then(function () { toast('Пункт удалён'); return reload(); }).catch(function (er) { toast(er.message, true); });
+      });
+    },
+    'cln-add': function () {
+      var text = $('#clnText').value.trim(), who = $('#clnWho').value.trim();
+      if (!text || !who) { formError('Для пункта чек-листа укажите текст и ответственного'); return; }
+      formError('');
+      S.drawer.newChecklist.push({ text: text, assignee: who });
+      $('#secChecklistNew').innerHTML = newChecklistHTML();
+    },
+    'cln-del': function (a) {
+      S.drawer.newChecklist.splice(Number(a.getAttribute('data-n')), 1);
+      $('#secChecklistNew').innerHTML = newChecklistHTML();
+    },
     'tbl-cm': function (a) {
       var key = a.getAttribute('data-id'); S.tbl.cmOpen[key] = !S.tbl.cmOpen[key]; drawTable();
     },
@@ -1843,6 +1981,12 @@
     var t = ev.target, id = t.id;
     if (id === 'f_blocked') syncShowIf();
     else if (id === 'f_status' && t.value === 'Done' && $('#f_progress')) { $('#f_progress').value = 100; $('#f_progress_r').value = 100; syncProgress(); }
+    else if (t.getAttribute && t.getAttribute('data-act') === 'cl-toggle') {
+      var want = t.checked;
+      authCall('setChecklistConfirmed', t.getAttribute('data-id'), want)
+        .then(function () { toast(want ? 'Пункт подтверждён' : 'Подтверждение снято'); return reload(); })
+        .catch(function (er) { t.checked = !want; toast(er.message, true); });
+    }
     else if (id === 'cLinkType') fillLinkTargets(S.drawer.type);
     else if (id === 'parentSel') {
       authCall('setParent', S.drawer.id, t.value).then(function () { toast('Родитель изменён'); return reload(); })
@@ -1868,6 +2012,8 @@
   });
 
   document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter' && (ev.target.id === 'clText' || ev.target.id === 'clWho')) { ev.preventDefault(); ACT['cl-add'](); return; }
+    if (ev.key === 'Enter' && (ev.target.id === 'clnText' || ev.target.id === 'clnWho')) { ev.preventDefault(); ACT['cln-add'](); return; }
     if (ev.key === 'Escape') {
       if (!$('#modalWrap').hidden) closeModal();
       else if (S.drawer) closeDrawer();

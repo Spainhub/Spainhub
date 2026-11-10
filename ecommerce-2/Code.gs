@@ -167,6 +167,9 @@ var AUX = {
   Users: ['name', 'email', 'role', 'password'],
   Log: ['timestamp', 'user', 'action', 'entity_type', 'entity_id', 'field', 'old_value', 'new_value'],
   Settings: ['key', 'value'],
+  // Checklist items of tasks, subtasks and meetings. confirmed: '1' or ''
+  Checklist: ['item_id', 'entity_id', 'entity_type', 'text', 'assignee', 'confirmed', 'confirmed_at', 'confirmed_by',
+    'created_by', 'created_at'],
   // Реестр согласований: одна строка = один участник голосования по одному согласованию
   ApprovalsRegister: ['approval_id', 'title', 'initiator', 'created_at', 'deadline', 'status',
     'voter', 'vote', 'vote_comment', 'vote_date']
@@ -182,6 +185,9 @@ var KANBAN_STATUS = { progress: 'In Progress', planned: 'Not Started', done: 'Do
 
 /** Столбцы, которые НЕ переводятся в текстовый формат (остальные хранятся как текст, чтобы Sheets не «портил» даты). */
 var NON_TEXT_COLS = { progress: true, blocked: true };
+
+/** Bump when columns/sheets are added: setupIfNeeded_ then runs setup() once for already deployed spreadsheets. */
+var SCHEMA_VERSION = '3';
 
 /** Ключи настроек, разрешённые к изменению из интерфейса. */
 var SETTING_KEYS = ['project_description'];
@@ -231,7 +237,9 @@ function apiTable_() {
     addUser: addUser, saveSetting: saveSetting,
     getInfo: getInfo, getInfoData: getInfoData, getUsers: getUsers, getApprovalsRegister: getApprovalsRegister, setApprovalVoters: setApprovalVoters,
     castVote: castVote, moveTask: moveTask, getExchangeCards: getExchangeCards,
-    getProjectTable: getProjectTable, getTickerText: getTickerText
+    getProjectTable: getProjectTable, getTickerText: getTickerText,
+    addChecklistItem: addChecklistItem, updateChecklistItem: updateChecklistItem,
+    deleteChecklistItem: deleteChecklistItem, setChecklistConfirmed: setChecklistConfirmed
   };
 }
 
@@ -289,7 +297,7 @@ function sheetDefs_() {
 }
 
 function headersForType_(type) {
-  return ['id'].concat(TYPES[type].fields).concat(['created_at', 'updated_at']);
+  return ['id'].concat(TYPES[type].fields).concat(['created_at', 'updated_at', 'created_by']);
 }
 
 /**
@@ -316,11 +324,13 @@ function setup() {
     setSetting_('project_description', 'Запуск и развитие интернет-магазина: этапы, задачи, согласования и встречи команды.');
   }
   props.setProperty('SETUP_DONE', '1');
+  props.setProperty('SCHEMA_VERSION', SCHEMA_VERSION);
   return { ok: true, data: 'Листы подготовлены' };
 }
 
 function setupIfNeeded_() {
-  if (PropertiesService.getScriptProperties().getProperty('SETUP_DONE') !== '1') setup();
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('SETUP_DONE') !== '1' || props.getProperty('SCHEMA_VERSION') !== SCHEMA_VERSION) setup();
 }
 
 /** Лист Info создаётся пустым (структуру задаёт пользователь), в A1 — подсказка-примечание. */
@@ -936,6 +946,7 @@ function getAllData(token) {
       meta: buildMeta_(),
       user: session.user,
       register: register.map(pub_),
+      checklist: readAll_('Checklist').rows.map(pub_),
       entities: entities,
       links: readAll_('Links').rows.map(pub_),
       documents: readAll_('Documents').rows.map(pub_),
@@ -992,6 +1003,10 @@ function doCreate_(type, data, linkSpec, user) {
   if (!TYPES[type]) throw new Error('Неизвестный тип: ' + type);
   var cfg = TYPES[type];
   var clean = validate_(type, data, null);
+  var checklist = CHECKLIST_TYPES.indexOf(type) !== -1 ? normalizeChecklist_(data && data.checklist) : [];
+  if (checklist.length && clean.status === DONE_STATUS[type]) {
+    throw new Error('Проверка данных: объект с чек-листом нельзя создать завершённым');
+  }
   var voters = [];
   if (type === 'approval') {
     // Участники голосования обязательны; статус согласования выводится из голосов (до первого голоса — «Ожидает решения»)
@@ -1012,7 +1027,7 @@ function doCreate_(type, data, linkSpec, user) {
   }
 
   var now = nowStr_();
-  var obj = { id: id, created_at: now, updated_at: now };
+  var obj = { id: id, created_at: now, updated_at: now, created_by: user };
   Object.keys(clean).forEach(function (k) { obj[k] = clean[k]; });
 
   var sh = sheet_(cfg.sheet);
@@ -1021,6 +1036,7 @@ function doCreate_(type, data, linkSpec, user) {
   ensureUsers_(collectUsers_(type, clean));
 
   var linkOut = link ? addLink_(link, user) : null;
+  checklist.forEach(function (it) { addChecklistRow_(obj, it, user); });
   if (type === 'approval') {
     addVoterRows_(obj, voters);
     ensureUsers_(voters);
@@ -1032,6 +1048,8 @@ function doCreate_(type, data, linkSpec, user) {
 /** Частичное обновление. Каждое реально изменившееся поле пишется в Log отдельной строкой. */
 function updateEntity(token, id, changes) {
   return api_(token, function (session) {
+    var f0 = findEntity_(id);
+    if (f0 && changes && Object.prototype.hasOwnProperty.call(changes, 'status')) assertCanComplete_(f0, String(changes.status));
     return doUpdate_(id, changes, session.user);
   }, { write: true });
 }
@@ -1087,6 +1105,10 @@ function deleteEntity(token, id) {
         docs.sh.deleteRow(d._row);
         entries.push(['doc_delete', f.type, id, 'document', d.doc_name, '']);
       }
+    });
+    var cl = readAll_('Checklist');
+    cl.rows.slice().reverse().forEach(function (c) {
+      if (c.entity_id === id) { cl.sh.deleteRow(c._row); entries.push(['check_delete', f.type, id, 'checklist', c.text + ' — ' + c.assignee, '']); }
     });
     if (f.type === 'approval') {
       var reg = readAll_('ApprovalsRegister'), removed = [];
@@ -1494,6 +1516,7 @@ function moveTask(token, id, column) {
     var status = KANBAN_STATUS[column];
     if (!status) throw new Error('Неизвестная колонка: ' + column);
 
+    assertCanComplete_(f, status);
     var changes = { status: status };
     // Возобновлённая задача не может оставаться на 100 %
     if (f.row.status === 'Done' && status !== 'Done' && Number(f.row.progress) >= 100) {
@@ -1610,6 +1633,168 @@ function getTickerText(token) {
     var text = raw.split(/[\r\n]+/).map(function (l) { return l.replace(/\s+/g, ' ').trim(); }).filter(Boolean).join('   •   ');
     return { text: text.length > 1500 ? text.substring(0, 1500) + '…' : text };
   });
+}
+
+/* ============================================================================
+ * 12c3. CHECKLISTS (tasks, subtasks, meetings)
+ * Rules: only the creator of the object sets up its checklist; only the person assigned to an item
+ * confirms / unconfirms it; the object is complete (task, subtask: Done; meeting: Held) once every
+ * item is confirmed, and it is reopened when a confirmation is withdrawn.
+ * ========================================================================== */
+
+var CHECKLIST_TYPES = ['task', 'subtask', 'meeting'];
+var DONE_STATUS = { task: 'Done', subtask: 'Done', meeting: 'Held' };
+var REOPEN_STATUS = { task: 'In Progress', subtask: 'In Progress', meeting: 'Planned' };
+
+function sameName_(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
+/**
+ * The creator sets up the checklist. Objects created before `created_by` existed have no creator:
+ * for them the assignee (or anyone, when there is no assignee) may do it.
+ */
+function canSetupChecklist_(entity, user) {
+  if (entity.created_by) return sameName_(entity.created_by, user);
+  return !entity.assignee || sameName_(entity.assignee, user);
+}
+
+function checklistRows_(entityId) {
+  return readAll_('Checklist').rows.filter(function (r) { return r.entity_id === entityId; });
+}
+
+/** Validated list of { text, assignee } (text 1..300, assignee 1..100). */
+function normalizeChecklist_(list) {
+  if (Object.prototype.toString.call(list) !== '[object Array]') return [];
+  if (list.length > 100) throw new Error('В чек-листе не более 100 пунктов');
+  return list.map(function (it) { return normalizeChecklistItem_(it); });
+}
+
+function normalizeChecklistItem_(it) {
+  it = it || {};
+  var text = String(it.text === undefined || it.text === null ? '' : it.text).trim();
+  var who = String(it.assignee === undefined || it.assignee === null ? '' : it.assignee).trim();
+  if (!text) throw new Error('Проверка данных: текст пункта обязателен');
+  if (text.length > 300) throw new Error('Проверка данных: текст пункта — не более 300 символов');
+  if (!who) throw new Error('Проверка данных: укажите ответственного за пункт');
+  if (who.length > 100) throw new Error('Проверка данных: имя ответственного — не более 100 символов');
+  return { text: text, assignee: who };
+}
+
+/** Writes one item (the entity is the row object of an existing or just created object). */
+function addChecklistRow_(entity, it, user) {
+  var tbl = readAll_('Checklist');
+  var type = typeOfId_(entity.id);
+  var row = { item_id: nextId_('Checklist', 'CHK'), entity_id: entity.id, entity_type: type, text: it.text,
+    assignee: it.assignee, confirmed: '', confirmed_at: '', confirmed_by: '', created_by: user, created_at: nowStr_() };
+  appendObj_(tbl.sh, tbl.headers, row);
+  ensureUsers_([it.assignee]);
+  writeLog_(user, [['check_add', type, entity.id, 'checklist', '', it.text + ' — ' + it.assignee]]);
+  return row;
+}
+
+/** Completion follows the checklist: all confirmed -> done; a confirmation withdrawn -> reopened. */
+function syncChecklistStatus_(entityId, user) {
+  var f = findEntity_(entityId);
+  if (!f || CHECKLIST_TYPES.indexOf(f.type) === -1) return;
+  var items = checklistRows_(entityId);
+  if (!items.length) return;
+  var allDone = items.every(function (i) { return i.confirmed === '1'; });
+  var done = DONE_STATUS[f.type], changes = null;
+  if (allDone && f.row.status !== done) changes = { status: done };                // progress becomes 100 automatically
+  else if (!allDone && f.row.status === done) {
+    changes = { status: REOPEN_STATUS[f.type] };
+    if (f.type !== 'meeting' && Number(f.row.progress) >= 100) changes.progress = 99;
+  }
+  if (changes) doUpdate_(entityId, changes, user);
+}
+
+/** An object with unconfirmed checklist items cannot be set to its "done" status by hand. */
+function assertCanComplete_(f, newStatus) {
+  if (CHECKLIST_TYPES.indexOf(f.type) === -1 || newStatus !== DONE_STATUS[f.type] || f.row.status === newStatus) return;
+  if (checklistRows_(f.row.id).some(function (i) { return i.confirmed !== '1'; })) {
+    throw new Error('Завершить можно только после подтверждения всех пунктов чек-листа');
+  }
+}
+
+function checklistEntity_(entityId) {
+  var f = findEntity_(entityId);
+  if (!f) throw new Error('Объект не найден: ' + entityId);
+  if (CHECKLIST_TYPES.indexOf(f.type) === -1) throw new Error('Чек-лист есть только у задач, подзадач и встреч');
+  return f;
+}
+
+function checklistItem_(itemId) {
+  var tbl = readAll_('Checklist');
+  var row = tbl.rows.filter(function (r) { return r.item_id === itemId; })[0];
+  if (!row) throw new Error('Пункт не найден: ' + itemId);
+  return { tbl: tbl, row: row };
+}
+
+/** Adds an item. Only the creator of the object may do it. */
+function addChecklistItem(token, entityId, text, assignee) {
+  return api_(token, function (session) {
+    var f = checklistEntity_(entityId);
+    if (!canSetupChecklist_(f.row, session.user)) throw new Error('Чек-лист настраивает только автор объекта');
+    var row = addChecklistRow_(f.row, normalizeChecklistItem_({ text: text, assignee: assignee }), session.user);
+    syncChecklistStatus_(entityId, session.user);          // a new unconfirmed item reopens a completed object
+    return pub_(row);
+  }, { write: true });
+}
+
+/** Changes the text and/or the assignee. A new assignee has not confirmed anything yet, so the item is unconfirmed. */
+function updateChecklistItem(token, itemId, changes) {
+  return api_(token, function (session) {
+    var it = checklistItem_(itemId), f = checklistEntity_(it.row.entity_id);
+    if (!canSetupChecklist_(f.row, session.user)) throw new Error('Чек-лист настраивает только автор объекта');
+    changes = changes || {};
+    var next = normalizeChecklistItem_({
+      text: Object.prototype.hasOwnProperty.call(changes, 'text') ? changes.text : it.row.text,
+      assignee: Object.prototype.hasOwnProperty.call(changes, 'assignee') ? changes.assignee : it.row.assignee });
+    if (next.text === it.row.text && next.assignee === it.row.assignee) return pub_(it.row);
+    var patch = { text: next.text, assignee: next.assignee };
+    if (!sameName_(next.assignee, it.row.assignee)) { patch.confirmed = ''; patch.confirmed_at = ''; patch.confirmed_by = ''; }
+    updateRow_(it.tbl.sh, it.tbl.headers, it.row._row, patch);
+    ensureUsers_([next.assignee]);
+    writeLog_(session.user, [['check_update', f.type, f.row.id, 'checklist',
+      it.row.text + ' — ' + it.row.assignee, next.text + ' — ' + next.assignee]]);
+    syncChecklistStatus_(f.row.id, session.user);
+    var out = pub_(it.row);
+    Object.keys(patch).forEach(function (k) { out[k] = patch[k]; });
+    return out;
+  }, { write: true });
+}
+
+function deleteChecklistItem(token, itemId) {
+  return api_(token, function (session) {
+    var it = checklistItem_(itemId), f = checklistEntity_(it.row.entity_id);
+    if (!canSetupChecklist_(f.row, session.user)) throw new Error('Чек-лист настраивает только автор объекта');
+    it.tbl.sh.deleteRow(it.row._row);
+    writeLog_(session.user, [['check_delete', f.type, f.row.id, 'checklist', it.row.text + ' — ' + it.row.assignee, '']]);
+    syncChecklistStatus_(f.row.id, session.user);         // the remaining items may now all be confirmed
+    return { item_id: itemId };
+  }, { write: true });
+}
+
+/** Confirms / unconfirms an item. Only the person assigned to the item may do it. */
+function setChecklistConfirmed(token, itemId, confirmed) {
+  return api_(token, function (session) {
+    var it = checklistItem_(itemId), f = checklistEntity_(it.row.entity_id);
+    if (!sameName_(it.row.assignee, session.user)) {
+      throw new Error('Подтвердить пункт может только ответственный: ' + it.row.assignee);
+    }
+    var want = confirmed === true || confirmed === 1 || confirmed === '1' || confirmed === 'true';
+    if ((it.row.confirmed === '1') === want) return pub_(it.row);
+    var patch = want ? { confirmed: '1', confirmed_at: nowStr_(), confirmed_by: session.user }
+      : { confirmed: '', confirmed_at: '', confirmed_by: '' };
+    updateRow_(it.tbl.sh, it.tbl.headers, it.row._row, patch);
+    writeLog_(session.user, [[want ? 'check_confirm' : 'check_unconfirm', f.type, f.row.id, 'checklist',
+      want ? '' : it.row.text, want ? it.row.text : '']]);
+    syncChecklistStatus_(f.row.id, session.user);
+    var out = pub_(it.row);
+    Object.keys(patch).forEach(function (k) { out[k] = patch[k]; });
+    return out;
+  }, { write: true });
 }
 
 /* ============================================================================
@@ -1789,7 +1974,7 @@ function addDays_(n) {
 
 function seedDemo() {
   setupIfNeeded_();
-  var me = 'Демо', ok = true;
+  var me = 'Анна Смирнова', ok = true;      // demo objects are created by this participant, so she can set up checklists
   try {
     var ui = SpreadsheetApp.getUi();
     ok = ui.alert(APP_TITLE, 'Добавить демонстрационные данные в таблицу?', ui.ButtonSet.OK_CANCEL) === ui.Button.OK;
@@ -1834,7 +2019,7 @@ function seedDemo() {
       task_type: 'Аналитика', assignee: 'Мария Кузнецова', start_date: addDays_(45), deadline: addDays_(80),
       status: 'Not Started' }, s3);
 
-    mk('subtask', { name: 'Фотосъёмка', description: 'Предметная съёмка 120 позиций.', assignee: 'Мария Кузнецова',
+    var subPhoto = mk('subtask', { name: 'Фотосъёмка', description: 'Предметная съёмка 120 позиций.', assignee: 'Мария Кузнецова',
       start_date: addDays_(-10), deadline: addDays_(0), status: 'In Progress', progress: 80 }, t2);
     mk('subtask', { name: 'Тексты описаний', description: 'Описания и SEO-теги.', assignee: 'Анна Смирнова',
       start_date: addDays_(-4), deadline: addDays_(8), status: 'In Progress', progress: 40 }, t2);
@@ -1862,7 +2047,7 @@ function seedDemo() {
     vote(a1, 'Иван Петров', 'Agree', 'Ассортимент устраивает');
     vote(a1, 'Анна Смирнова', 'Discussed', 'Нужно уточнить маржинальность по трём позициям');
 
-    mk('meeting', { name: 'Статус проекта', description: 'Еженедельный созвон по статусам.', assignee: 'Анна Смирнова',
+    var mStatus = mk('meeting', { name: 'Статус проекта', description: 'Еженедельный созвон по статусам.', assignee: 'Анна Смирнова',
       meeting_date: addDays_(2), meeting_time: '10:00', end_time: '11:00',
       participants: 'Анна Смирнова, Иван Петров, Мария Кузнецова', location: 'Переговорная 2', status: 'Planned' }, s1);
     mk('meeting', { name: 'Планирование запуска', description: 'Подготовка к старту продаж.', assignee: 'Иван Петров',
@@ -1872,6 +2057,21 @@ function seedDemo() {
     var link = function (a, b, type) {
       addLink_(checkLink_({ source_id: a, target_id: b, link_type: type }, readAll_('Links').rows), me);
     };
+    // Sample checklists: a task, a subtask and a meeting
+    var chk = function (entityId, items) {
+      var f = findEntity_(entityId);
+      items.forEach(function (it) {
+        var row = addChecklistRow_(f.row, { text: it[0], assignee: it[1] }, me);
+        if (it[2]) {
+          var tb = readAll_('Checklist'), r = tb.rows.filter(function (x) { return x.item_id === row.item_id; })[0];
+          updateRow_(tb.sh, tb.headers, r._row, { confirmed: '1', confirmed_at: nowStr_(), confirmed_by: it[1] });
+        }
+      });
+    };
+    chk(t2, [['Просмотреть карточки контента', 'Иван Петров', true], ['Составить список недостающего контента', 'Мария Кузнецова', true],
+      ['Создать задачу на разработку контента', 'Иван Петров', false]]);
+    chk(subPhoto, [['Согласовать список позиций для съёмки', 'Анна Смирнова', false]]);
+    chk(mStatus, [['Подготовить повестку', 'Анна Смирнова', true], ['Собрать статусы по задачам', 'Иван Петров', false]]);
     hand(t1, t2); hand(t4, t6);
     link(t3, t5, 'blocks'); link(t2, t5, 'blocks');
     link(t2, a1, 'approval'); link(t4, a2, 'approval');

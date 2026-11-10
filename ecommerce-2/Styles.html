@@ -639,4 +639,29 @@ table.tbl { width: 100%; border-collapse: collapse; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ---------- Checklist (inside the entity card) ---------- */
+.cl-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); margin-bottom: var(--s-2); }
+.cl-head h4 { margin: 0; }
+.cl-count { font-size: var(--fs-xs); color: var(--muted); font-weight: 600; }
+.cl-bar { margin-bottom: var(--s-3); background: #ffffff; box-shadow: inset 0 0 0 1px #c3c9d1; }
+.cl-list { list-style: none; margin: 0 0 var(--s-3); padding: 0; }
+.cl-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--s-3); align-items: center; padding: var(--s-2) 0; }
+.cl-item + .cl-item { border-top: var(--bw) solid var(--line-2); }
+.cl-check { display: flex; align-items: flex-start; gap: var(--s-2); cursor: pointer; min-width: 0; grid-column: 1 / -1; }
+.cl-check input { margin-top: 3px; }
+.cl-check input:disabled { cursor: not-allowed; }
+.cl-text { min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.cl-item.is-done .cl-text { color: var(--muted); }
+.cl-who { font-size: var(--fs-sm); color: var(--text); padding-left: 24px; }
+.cl-item > .cl-text:first-child { grid-column: 1 / -1; }
+.cl-state { font-size: var(--fs-xs); color: var(--caption); justify-self: end; }
+.cl-state.is-done { color: var(--st-done); font-weight: 600; }
+.cl-actions { grid-column: 1 / -1; padding-left: 24px; display: flex; gap: var(--s-3); font-size: var(--fs-xs); }
+.cl-add { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto; gap: var(--s-2); margin-top: var(--s-2); }
+.cl-empty { padding: var(--s-4) 0; text-align: left; }
+.cl-badge, .k-chk { display: inline-block; font-size: 11px; font-weight: 600; color: var(--muted); margin-left: var(--s-2); white-space: nowrap; }
+.k-chk { display: block; margin: var(--s-2) 0 0; }
+.cl-badge.is-done, .k-chk.is-done { color: var(--st-done); }
+@media (max-width: 760px) { .cl-add { grid-template-columns: 1fr; } }
 </style>
