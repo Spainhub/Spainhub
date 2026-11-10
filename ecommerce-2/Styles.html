@@ -335,6 +335,10 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .info-cell { min-width: 0; overflow-wrap: anywhere; line-height: 1.5; padding: 1px 0; }
 .info-text { color: var(--ink); }
 .info-link { color: var(--link); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; font-weight: 500; }
+.info-img { display: inline-block; max-width: 100%; line-height: 0; }
+.info-img img { display: block; max-width: 100%; max-height: 140px; min-width: 96px; min-height: 64px; object-fit: contain; border-radius: 10px; background: var(--tint-mist, #eef1f4); }
+.info-img-fail { color: var(--muted); font-size: 13px; }
+.cl-bar > i { background: var(--purple); }
 .info-link:hover { filter: brightness(.85); text-decoration-thickness: 2px; }
 
 /* ---------- Calendar (compact, thin outline, even margins) ---------- */

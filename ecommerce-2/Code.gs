@@ -1544,6 +1544,39 @@ var LINK_LABEL = 'Ссылка';
  * Splits one cell into text segments, each optionally carrying a hyperlink.
  * Supports whole-cell links, partial (rich text) links and =HYPERLINK("url";"name") formulas.
  */
+/** True when the URL points at a picture (by extension or a well-known image host). */
+function isImageUrl_(u) {
+  u = safeUrl_(u);
+  if (!u) return false;
+  if (/\.(png|jpe?g|gif|webp|svg|avif|bmp)(?:[?#].*)?$/i.test(u)) return true;
+  return /^https?:\/\/(?:lh[3-6]\.googleusercontent\.com|i\.imgur\.com|images\.unsplash\.com|pbs\.twimg\.com|upload\.wikimedia\.org)\//i.test(u);
+}
+
+/** Picture address of a cell: =IMAGE("url") formula, a bare image URL, a link to an image, or an in-cell image. */
+function cellImage_(rich, display, formula, value) {
+  var m = /^=\s*IMAGE\(\s*"([^"]+)"/i.exec(String(formula || ''));
+  if (m) return { image: safeUrl_(m[1]), link: '' };
+  var shown = String(display || '').trim();
+  var link = '';
+  try { link = safeUrl_(rich.getLinkUrl()); } catch (e) { link = ''; }
+  if (!link) {
+    try {
+      var runs = rich.getRuns();
+      for (var k = 0; k < runs.length && !link; k++) link = safeUrl_(runs[k].getLinkUrl());
+    } catch (e2) { link = ''; }
+  }
+  if (isImageUrl_(shown) && (!link || link === shown || isImageUrl_(link))) return { image: shown, link: '' };
+  if (link && isImageUrl_(link) && (!shown || /^https?:\/\/\S+$/i.test(shown))) return { image: link, link: '' };
+  try {                                              // picture placed in the cell itself
+    if (value && typeof value === 'object') {
+      var src = (value.getContentUrl && value.getContentUrl()) || (value.getUrl && value.getUrl()) || '';
+      src = safeUrl_(src);
+      if (src) return { image: src, link: '' };
+    }
+  } catch (e3) { /* ignore */ }
+  return null;
+}
+
 function cellSegments_(rich, display, formula) {
   var m = /^=\s*HYPERLINK\(\s*"([^"]+)"\s*(?:[,;]\s*"([^"]*)")?\s*\)\s*$/i.exec(String(formula || ''));
   if (m) return [{ text: m[2] || display, url: safeUrl_(m[1]) }];
@@ -1579,12 +1612,19 @@ function getInfoData(token) {
     var values = rng.getDisplayValues ? rng.getDisplayValues() : rng.getValues();
     var rich = rng.getRichTextValues();
     var formulas = rng.getFormulas();
+    var raws = rng.getValues();
     var rows = [], count = 0;
 
     values.forEach(function (row, i) {
       var cells = [], level = 0, rowIndent = 0;
       row.forEach(function (cell, j) {
         var raw = String(cell === null || cell === undefined ? '' : cell);
+        var img = cellImage_(rich[i][j], raw.trim(), formulas[i][j], raws[i][j]);
+        if (img && img.image) {                         // picture cell: shown as an image in its own column
+          if (!cells.length) level = j;
+          cells.push({ col: j, segments: [{ text: '', url: img.link, image: img.image }] });
+          return;
+        }
         var segs = cellSegments_(rich[i][j], raw.trim(), formulas[i][j]);
         var text = segs.map(function (g) { return g.text; }).join('');
         if (!text.trim()) return;
@@ -1605,7 +1645,7 @@ function getInfoData(token) {
         cells.push({ col: j, segments: segs });
       });
       if (cells.length) {
-        cells[0].segments[0].text = cells[0].segments[0].text.replace(/^[\s ]+/, '');
+        if (!cells[0].segments[0].image) cells[0].segments[0].text = cells[0].segments[0].text.replace(/^[\s ]+/, '');
         rows.push({ row: i + 1, level: level, indent: rowIndent, cells: cells });
         count += cells.length;
       }
@@ -1642,9 +1682,9 @@ function getTickerText(token) {
  * item is confirmed, and it is reopened when a confirmation is withdrawn.
  * ========================================================================== */
 
-var CHECKLIST_TYPES = ['task', 'subtask', 'meeting'];
-var DONE_STATUS = { task: 'Done', subtask: 'Done', meeting: 'Held' };
-var REOPEN_STATUS = { task: 'In Progress', subtask: 'In Progress', meeting: 'Planned' };
+var CHECKLIST_TYPES = ['task', 'subtask'];   // checklists exist for tasks and subtasks only
+var DONE_STATUS = { task: 'Done', subtask: 'Done' };
+var REOPEN_STATUS = { task: 'In Progress', subtask: 'In Progress' };
 
 function sameName_(a, b) {
   return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
@@ -1720,7 +1760,7 @@ function assertCanComplete_(f, newStatus) {
 function checklistEntity_(entityId) {
   var f = findEntity_(entityId);
   if (!f) throw new Error('Объект не найден: ' + entityId);
-  if (CHECKLIST_TYPES.indexOf(f.type) === -1) throw new Error('Чек-лист есть только у задач, подзадач и встреч');
+  if (CHECKLIST_TYPES.indexOf(f.type) === -1) throw new Error('Чек-лист есть только у задач и подзадач');
   return f;
 }
 
@@ -2071,7 +2111,6 @@ function seedDemo() {
     chk(t2, [['Просмотреть карточки контента', 'Иван Петров', true], ['Составить список недостающего контента', 'Мария Кузнецова', true],
       ['Создать задачу на разработку контента', 'Иван Петров', false]]);
     chk(subPhoto, [['Согласовать список позиций для съёмки', 'Анна Смирнова', false]]);
-    chk(mStatus, [['Подготовить повестку', 'Анна Смирнова', true], ['Собрать статусы по задачам', 'Иван Петров', false]]);
     hand(t1, t2); hand(t4, t6);
     link(t3, t5, 'blocks'); link(t2, t5, 'blocks');
     link(t2, a1, 'approval'); link(t4, a2, 'approval');

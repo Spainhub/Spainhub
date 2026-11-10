@@ -369,6 +369,10 @@
         var pad = idx === 0 && r.indent ? ' padding-left:' + (r.indent * 16) + 'px;' : '';
         cells += '<div class="info-cell" style="grid-row:' + (r.row - first + 1) + ';grid-column:' + (c.col + 1) + ';' + pad + '">' +
           c.segments.map(function (g) {
+            if (g.image) {
+              var img = '<img src="' + esc(g.image) + '" alt="Изображение" loading="lazy" referrerpolicy="no-referrer">';
+              return '<a class="info-img" href="' + esc(g.url || g.image) + '" target="_blank" rel="noopener noreferrer">' + img + '</a>';
+            }
             return g.url
               ? '<a class="info-link" href="' + esc(g.url) + '" target="_blank" rel="noopener noreferrer">' + esc(g.text) + '</a>'
               : '<span class="info-text">' + esc(g.text) + '</span>';
@@ -1397,7 +1401,7 @@
   /* ============================================================================
    * CHECKLIST (tasks, subtasks, meetings)
    * ========================================================================== */
-  var CL_TYPES = ['task', 'subtask', 'meeting'];
+  var CL_TYPES = ['task', 'subtask'];
   function sameName(a, b) { return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(); }
   function clItems(id) { return S.idx.chk[id] || []; }
   function clStats(id) {
@@ -1411,8 +1415,16 @@
   }
 
   /** Small "2/3" counter next to an object that has a checklist. */
+  // A picture that fails to load is replaced by a quiet text link instead of a broken-image icon.
+  document.addEventListener('error', function (ev) {
+    var t = ev.target;
+    if (!t || t.tagName !== 'IMG' || !t.parentNode || t.parentNode.className.indexOf('info-img') === -1) return;
+    var a = t.parentNode; a.className = 'info-link info-img-fail'; a.textContent = 'Изображение недоступно';
+  }, true);
+
   function clBadge(id, cls) {
     var st = clStats(id);
+    if (/^MTG-/.test(id)) return '';
     return st.total ? '<span class="' + cls + (st.done === st.total ? ' is-done' : '') + '" title="Подтверждено пунктов чек-листа">Чек-лист ' + st.done + '/' + st.total + '</span>' : '';
   }
 
@@ -1447,7 +1459,7 @@
     }
     return '<div data-mode="' + mode + '" data-entity="' + esc(e.id) + '">' + h +
       '<p class="hint">Пункты задаёт автор. Подтверждает пункт только его ответственный. ' +
-      (e._type === 'meeting' ? 'Встреча считается проведённой' : 'Объект считается завершённым') + ', когда подтверждены все пункты.</p></div>';
+      'Объект считается завершённым' + ', когда подтверждены все пункты.</p></div>';
   }
 
   /** Checklist builder in the creation form: items are collected locally and sent together with the new object. */
@@ -1465,7 +1477,7 @@
   /** A status that completes the object (Done / Held) cannot be picked while items are unconfirmed. */
   function lockCompletionStatus(e) {
     var sel = $('#f_status'); if (!sel || !e || CL_TYPES.indexOf(e._type) === -1) return;
-    var st = clStats(e.id), doneVal = e._type === 'meeting' ? 'Held' : 'Done';
+    var st = clStats(e.id), doneVal = 'Done';
     $$('option', sel).forEach(function (o) {
       if (o.value === doneVal && st.total && st.done < st.total && e.status !== doneVal) { o.disabled = true; o.title = 'Сначала подтвердите все пункты чек-листа'; }
       else o.disabled = false;
