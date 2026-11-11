@@ -256,6 +256,7 @@
     S.tab = tab;
     $$('.tab').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === tab); });
     $$('.view').forEach(function (v) { v.classList.toggle('active', v.id === 'v-' + tab); });
+    var act = $('.tab.active'); if (act && act.scrollIntoView) { try { act.scrollIntoView({ inline: 'center', block: 'nearest' }); } catch (e) { /* older browsers */ } }
     $('#app').classList.toggle('tab-gantt', tab === 'gantt');   // the chart fills the page down to the footer
     renderTab(tab);
   }
@@ -913,7 +914,7 @@
    * плавный масштаб ползунком, фильтр «Блокирующие», ромбы согласований.
    * ========================================================================== */
   var ROW_H = 52, GROUP_H = 34;           // keep ROW_H in sync with --row-h in the styles
-  var LW_MIN = 200, LW_MAX = 720;
+  var LW_MIN = window.innerWidth <= 760 ? 140 : 200, LW_MAX = 720;
   var DW_MIN = 1.5, DW_MAX = 80, DW_DEFAULT = 24;      // пикселей на день: обзор проекта ... детали по дням
 
   /** Стили коннекторов: блокировка — сплошная, передача информации — штрих, согласование — точки. */
@@ -1282,7 +1283,7 @@
   }
 
   /* ---------- "Project structure" column width: drag, keyboard, expand to fit; persisted ---------- */
-  function lwDefault() { return window.innerWidth <= 760 ? 200 : 320; }
+  function lwDefault() { return window.innerWidth <= 760 ? 170 : 320; }
   function curLW() {
     var v = S.gantt.lw || lwDefault();
     return Math.max(LW_MIN, Math.min(v, LW_MAX, Math.max(LW_MIN, window.innerWidth - 140)));
