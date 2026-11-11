@@ -366,6 +366,7 @@
     i.rows.forEach(function (r) { r.cells.forEach(function (c) { cols = Math.max(cols, c.col + 1); }); });
     var cells = '';
     i.rows.forEach(function (r) {
+      cells += '<div class="info-row">';
       r.cells.forEach(function (c, idx) {
         var pad = idx === 0 && r.indent ? ' padding-left:' + (r.indent * 16) + 'px;' : '';
         cells += '<div class="info-cell" style="grid-row:' + (r.row - first + 1) + ';grid-column:' + (c.col + 1) + ';' + pad + '">' +
@@ -379,6 +380,7 @@
               : '<span class="info-text">' + esc(g.text) + '</span>';
           }).join('') + '</div>';
       });
+      cells += '</div>';
     });
     return head + '<div class="info-wrap"><div class="info-grid" style="grid-template-columns:repeat(' + cols + ',fit-content(320px))">' + cells + '</div></div>';
   }
@@ -667,6 +669,10 @@
     ['', 3.5], ['Этапы', 11.5], ['Задачи', 11.5], ['Подзадачи', 11.5], ['Встречи', 11.5], ['Исполнитель', 7.5], ['Начало', 6],
     ['Окончание', 6.5], ['Комментарий / протокол', 13], ['Прогресс', 8.5], ['Документ (ссылка)', 9]
   ];
+  // Phones: one name column (indented by level) and short columns so the whole table fits the screen; long text is cut with an ellipsis.
+  var TBL_COLS_C = [['', 8], ['Название', 31], ['Исполн.', 16], ['Срок', 14], ['Коммент.', 13], ['Прогр.', 10], ['Док.', 8]];
+  function tblCompact() { return window.innerWidth <= 760; }
+  function ruShortY(s) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? m[3] + '.' + m[2] + '.' + m[1].slice(2) : ''; }
   var TBL_COL_OF = { stage: 0, task: 1, subtask: 2, meeting: 3 };   // which of the four name columns holds the name
 
   /** Plain-text haystack of a row for the quick filter. */
@@ -697,7 +703,25 @@
     });
   }
 
+  /** Compact row for phones: same data, fewer and narrower columns. */
+  function tblRowCompact(r) {
+    var open = !S.tbl.collapsed[r.key] || !!S.tbl.q.trim(), dash = '<span class="muted">—</span>';
+    var toggle = r.has_children
+      ? '<button class="tg' + (open ? ' open' : '') + '" data-act="tbl-toggle" data-id="' + esc(r.key) + '" aria-expanded="' + open +
+        '" aria-label="' + (open ? 'Свернуть' : 'Развернуть') + '"><span class="tg-ico"></span></button>' : '';
+    var lvl = TBL_COL_OF[r.type] || 0;
+    var name = '<div class="tn" style="padding-left:' + lvl * 4 + 'px">' + (r.number ? '<span class="no">' + esc(r.number) + '</span>' : '') +
+      '<a href="#" data-act="open" data-id="' + esc(r.id) + '" title="' + esc(r.name) + '">' + esc(r.name) + '</a></div>';
+    var date = r.type === 'meeting' ? ruShortY(r.start_date) : ruShortY(r.finish_date);
+    var cm = r.comment ? '<span class="ell" title="' + esc(r.comment) + '">' + esc(r.comment) + '</span>' : dash;
+    var prog = r.type === 'meeting' ? '<span class="ell">' + esc(r.status_label) + '</span>' : r.progress + '%';
+    var doc = r.docs.length ? '<a class="ell doc-title" href="' + esc(r.docs[0].url) + '" target="_blank" rel="noopener noreferrer">' + esc(docLabel(r.docs[0].name)) + '</a>' + (r.docs.length > 1 ? ' +' + (r.docs.length - 1) : '') : dash;
+    return '<tr class="lv-' + r.type + '" data-key="' + esc(r.key) + '"><td class="tg-cell">' + toggle + '</td><td>' + name + '</td>' +
+      '<td><span class="ell">' + (r.assignee ? esc(r.assignee) : '—') + '</span></td><td class="nowrap">' + (date || dash) + '</td><td class="cm">' + cm + '</td><td>' + prog + '</td><td>' + doc + '</td></tr>';
+  }
+
   function tblRowHTML(r) {
+    if (tblCompact()) return tblRowCompact(r);
     var col = TBL_COL_OF[r.type], open = !S.tbl.collapsed[r.key] || !!S.tbl.q.trim();
     var toggle = r.has_children
       ? '<button class="tg' + (open ? ' open' : '') + '" data-act="tbl-toggle" data-id="' + esc(r.key) + '" aria-expanded="' + open +
@@ -737,9 +761,10 @@
     }
     var rows = tblVisibleRows();
     if (!rows.length) { body.innerHTML = '<div class="empty"><b>Ничего не найдено</b>Измените запрос.</div>'; return; }
-    body.innerHTML = '<div class="table-wrap"><table class="tbl tbl-tree"><colgroup>' +
-      TBL_COLS.map(function (c) { return '<col style="width:' + c[1] + '%">'; }).join('') + '</colgroup><thead><tr>' +
-      TBL_COLS.map(function (c) { return '<th' + (c[0] ? '' : ' aria-label="Развернуть / свернуть"') + '>' + c[0] + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    var COLS = tblCompact() ? TBL_COLS_C : TBL_COLS;
+    body.innerHTML = '<div class="table-wrap"><table class="tbl tbl-tree' + (tblCompact() ? ' tbl-compact' : '') + '"><colgroup>' +
+      COLS.map(function (c) { return '<col style="width:' + c[1] + '%">'; }).join('') + '</colgroup><thead><tr>' +
+      COLS.map(function (c) { return '<th' + (c[0] ? '' : ' aria-label="Развернуть / свернуть"') + '>' + c[0] + '</th>'; }).join('') + '</tr></thead><tbody>' +
       rows.map(tblRowHTML).join('') + '</tbody></table></div>';
     // the "more" button is shown only for comments that are actually cut off (or already expanded / multi-line)
     $$('.cm-box', body).forEach(function (box) {
@@ -2079,7 +2104,10 @@
     applyChain(S.gantt.sel ? [S.gantt.sel] : null);
   });
 
-  window.addEventListener('resize', function () { if (S.tab === 'gantt' && S.data) renderGantt(true); });
+  window.addEventListener('resize', function () {
+    if (S.tab === 'gantt' && S.data) renderGantt(true);
+    if (S.tab === 'table' && S.tbl && S.tbl.rows && S.tblCompact !== tblCompact()) { S.tblCompact = tblCompact(); drawTable(); }
+  });
 
   /* ---------- Запуск ---------- */
   $('#loginForm').addEventListener('submit', onLogin);
