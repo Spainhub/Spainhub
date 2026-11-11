@@ -194,7 +194,7 @@ input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); m
 /* ---------- Экран входа ---------- */
 .login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: var(--s-4); }
 .login-card { width: 100%; max-width: 400px; background: var(--surface); border: 0; border-radius: var(--r-lg); box-shadow: var(--shadow-lg); padding: var(--s-6); }
-.login-card .brand { margin-bottom: var(--s-2); flex: none !important; }
+.login-card .brand { margin: 0; flex: none !important; }
 
 /* ---------- Каркас на всю ширину ---------- */
 .app { min-height: 100vh; width: 100%; display: flex; flex-direction: column; }
@@ -778,9 +778,9 @@ img, svg, video { max-width: 100%; }
 }
 
 /* ---------- Login: taller card, access note under the button ---------- */
-.login-card { min-height: 520px; display: flex; flex-direction: column; justify-content: center; padding: 44px var(--s-6); }
-.login-card .btn.block { margin-top: var(--s-2); }
-.login-note { margin: var(--s-4) 0 0; text-align: center; font-size: var(--fs-xs); color: var(--caption); line-height: 1.5; }
+.login-card { min-height: 520px; display: flex; flex-direction: column; justify-content: space-evenly; gap: var(--s-3); padding: 40px var(--s-6); }   /* content spread evenly over the card height */
+.login-card .field, .login-card p { margin-bottom: 0; }
+.login-note { margin: 0; text-align: center; font-size: var(--fs-xs); color: var(--caption); line-height: 1.5; }
 .login-note a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
 
 /* ---------- Gantt: compact controls ---------- */
@@ -818,7 +818,12 @@ img, svg, video { max-width: 100%; }
   .tbl-compact .cm .ell { color: var(--muted); }
 
   /* Gantt: slim header, chart fills the screen */
-  .app.tab-gantt { height: 100vh; height: 100dvh; }
+  /* The page scrolls: controls move off screen and the chart (a full screen high) can be reached entirely */
+  .app.tab-gantt { height: auto; min-height: 100vh; min-height: 100dvh; }
+  .app.tab-gantt .content { overflow: visible; display: block; }
+  .app.tab-gantt #v-gantt.active { display: block; }
+  .app.tab-gantt .g-card { flex: none; height: calc(100vh - 16px); height: calc(100dvh - 16px); min-height: 380px; }
+  .app.tab-gantt .g-scroll { flex: 1; }
   .app.tab-gantt .content { padding: var(--s-2) 6px 6px; }
   .app.tab-gantt .footer { display: none; }
   #v-gantt .view-head { margin-bottom: 4px; flex-wrap: nowrap; align-items: center; }
@@ -836,7 +841,7 @@ img, svg, video { max-width: 100%; }
   .g-card { border-radius: var(--r-md); }
   .app.tab-gantt .g-card { min-height: 0; }
   .app.tab-gantt .g-scroll { min-height: 0; }
-  .login-card { min-height: min(560px, 78vh); min-height: min(560px, 78dvh); padding: 40px var(--s-5); }
+  .login-card { min-height: min(580px, 80vh); min-height: min(580px, 80dvh); padding: 36px var(--s-5); }
   .login { align-items: center; padding-top: var(--s-3); }
 }
 </style>
