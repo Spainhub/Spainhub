@@ -1,30 +1,42 @@
 /**********************************************************************
- * Oz Sales Report — отчёт о реализации Ozon по дням → Google Sheets
+ * Oz Sales Report — отчёт Ozon о реализации → Google Sheets
  *
- * Метод Ozon: POST /v1/finance/realization/by-day
- *   (нужна подписка Premium Plus / Premium Pro; данные — не глубже 32 дней)
+ * Два метода Ozon (гибкая загрузка):
+ *  - ежедневный  POST /v1/finance/realization/by-day  (Premium Plus / Pro,
+ *    данные не глубже 32 дней);
+ *  - ежемесячный POST /v2/finance/realization          (базовый тариф,
+ *    отчёт за месяц приходит не позднее 5-го числа следующего месяца).
  *
  * Логика:
- *  - первый запуск загружает последние 30 дней;
- *  - далее раз в сутки (триггер) перезагружаются последние 3 дня
- *    (Ozon может корректировать данные задним числом): старые строки
- *    этих дат удаляются и заменяются свежими, остальное накапливается;
+ *  - первый запуск: сначала 3 последних месяца (месячный метод), затем
+ *    попытка загрузить 30 последних дней (дневной метод). Если дневной
+ *    метод вернул 403 (нет Premium) — остаются месячные данные;
+ *  - автообновление раз в сутки: пробуем дневной метод (последние 3 дня);
+ *    нет Premium — обновляем текущий и прошлый месяц месячным методом;
+ *  - если по месяцу есть дневные строки, его месячные строки убираются
+ *    (чтобы не было двойного учёта);
  *  - строки старше 3 месяцев удаляются при каждом обновлении.
  *
  * Ключи хранятся в UserProperties (видны только тому, кто их ввёл).
  **********************************************************************/
 
 var OZ = {
-  SHEET: 'Ozon Sales',
-  URL: 'https://api-seller.ozon.ru/v1/finance/realization/by-day',
-  INITIAL_DAYS: 30,        // первая загрузка
-  REFRESH_DAYS: 3,         // ежедневное обновление (перезапись последних дней)
+  SHEET: 'Реализация Ozon',
+  URL_DAY: 'https://api-seller.ozon.ru/v1/finance/realization/by-day',
+  URL_MONTH: 'https://api-seller.ozon.ru/v2/finance/realization',
+  INITIAL_MONTHS: 3,       // первая загрузка: месяцев (месячный метод)
+  INITIAL_DAYS: 30,        // первая загрузка: дней (дневной метод)
+  REFRESH_DAYS: 3,         // ежедневное обновление: дней (Premium)
+  REFRESH_MONTHS: 2,       // ежедневное обновление без Premium: месяцев
   KEEP_MONTHS: 3,          // срок хранения данных
   TRIGGER_HOUR: 6,         // час запуска автообновления (время таблицы)
   PAUSE_MS: 400,           // пауза между запросами
+  TYPE_DAY: 'День',
+  TYPE_MONTH: 'Месяц',
   P_KEY: 'OZ_API_KEY',
   P_ID: 'OZ_CLIENT_ID',
   P_INIT: 'OZ_INITIAL_DONE',
+  P_MODE: 'OZ_MODE',
   P_STATUS: 'OZ_LAST_STATUS'
 };
 
@@ -34,40 +46,40 @@ var OZ_BLOCK = ['amount', 'bonus', 'commission', 'compensation', 'price_per_inst
 /* ============================ МЕНЮ ============================ */
 
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Ozon Sales')
-    .addItem('Add API key', 'addApiKey')
-    .addItem('Add ID', 'addClientId')
-    .addItem('Replace API key', 'replaceApiKey')
-    .addItem('Replace ID', 'replaceClientId')
-    .addItem('Delete key and ID', 'deleteCredentials')
+  SpreadsheetApp.getUi().createMenu('Отчёт Ozon')
+    .addItem('Добавить API-ключ', 'addApiKey')
+    .addItem('Добавить ID', 'addClientId')
+    .addItem('Заменить API-ключ', 'replaceApiKey')
+    .addItem('Заменить ID', 'replaceClientId')
+    .addItem('Удалить ключ и ID', 'deleteCredentials')
     .addSeparator()
-    .addItem('Update now', 'updateNow')
-    .addItem('Enable auto-update (every 24h)', 'enableAutoUpdate')
-    .addItem('Disable auto-update', 'disableAutoUpdate')
-    .addItem('Status', 'showStatus')
+    .addItem('Обновить сейчас', 'updateNow')
+    .addItem('Включить автообновление (раз в 24 часа)', 'enableAutoUpdate')
+    .addItem('Отключить автообновление', 'disableAutoUpdate')
+    .addItem('Статус', 'showStatus')
     .addToUi();
 }
 
 /* ====================== КЛЮЧ И CLIENT-ID ====================== */
 
-function addApiKey() { setCred_(OZ.P_KEY, 'API key', false); }
-function addClientId() { setCred_(OZ.P_ID, 'Client ID', false); }
-function replaceApiKey() { setCred_(OZ.P_KEY, 'API key', true); }
-function replaceClientId() { setCred_(OZ.P_ID, 'Client ID', true); }
+function addApiKey() { setCred_(OZ.P_KEY, 'API-ключ', 'Добавить', false); }
+function addClientId() { setCred_(OZ.P_ID, 'Client ID', 'Добавить', false); }
+function replaceApiKey() { setCred_(OZ.P_KEY, 'API-ключ', 'Заменить', true); }
+function replaceClientId() { setCred_(OZ.P_ID, 'Client ID', 'Заменить', true); }
 
-function setCred_(prop, label, replace) {
+function setCred_(prop, label, verb, replace) {
   var ui = SpreadsheetApp.getUi();
   var props = PropertiesService.getUserProperties();
   var exists = !!props.getProperty(prop);
   if (!replace && exists) {
-    ui.alert(label + ' уже сохранён. Используйте «Replace ' + label + '».');
+    ui.alert(label + ' уже сохранён. Используйте пункт «Заменить».');
     return;
   }
   if (replace && !exists) {
-    ui.alert(label + ' ещё не добавлен. Используйте «Add ' + label + '».');
+    ui.alert(label + ' ещё не добавлен. Используйте пункт «Добавить».');
     return;
   }
-  var r = ui.prompt((replace ? 'Replace ' : 'Add ') + label, 'Введите ' + label + ' из кабинета Ozon Seller:', ui.ButtonSet.OK_CANCEL);
+  var r = ui.prompt(verb + ': ' + label, 'Введите значение из кабинета Ozon Seller (Настройки → API-ключи):', ui.ButtonSet.OK_CANCEL);
   if (r.getSelectedButton() !== ui.Button.OK) return;
   var v = String(r.getResponseText() || '').trim();
   if (!v) { ui.alert('Пустое значение — ничего не сохранено.'); return; }
@@ -83,21 +95,23 @@ function offerInitialLoad_() {
   if (props.getProperty(OZ.P_INIT)) return;
   var ui = SpreadsheetApp.getUi();
   var r = ui.alert('Ключ и ID добавлены',
-    'Загрузить данные за последние ' + OZ.INITIAL_DAYS + ' дней и включить автообновление раз в 24 часа?',
+    'Загрузить данные (последние ' + OZ.INITIAL_MONTHS + ' месяца, а при подписке Premium — ещё и по дням за ' +
+    OZ.INITIAL_DAYS + ' дней) и включить автообновление раз в 24 часа?',
     ui.ButtonSet.YES_NO);
   if (r === ui.Button.YES) updateNow();
 }
 
 function deleteCredentials() {
   var ui = SpreadsheetApp.getUi();
-  var r = ui.alert('Delete key and ID',
-    'Удалить API key и Client ID и отключить автообновление? Загруженные данные на листе останутся.',
+  var r = ui.alert('Удалить ключ и ID',
+    'Удалить API-ключ и Client ID и отключить автообновление? Загруженные данные на листе останутся.',
     ui.ButtonSet.YES_NO);
   if (r !== ui.Button.YES) return;
   var props = PropertiesService.getUserProperties();
   props.deleteProperty(OZ.P_KEY);
   props.deleteProperty(OZ.P_ID);
   props.deleteProperty(OZ.P_INIT);
+  props.deleteProperty(OZ.P_MODE);
   removeTriggers_();
   ui.alert('Ключ и ID удалены, автообновление отключено.');
 }
@@ -155,7 +169,8 @@ function showStatus() {
   SpreadsheetApp.getUi().alert('Статус',
     'API key: ' + (p.getProperty(OZ.P_KEY) ? 'есть' : 'нет') + '\n' +
     'Client ID: ' + (p.getProperty(OZ.P_ID) ? 'есть' : 'нет') + '\n' +
-    'Автообновление: ' + (hasTrigger_() ? 'включено' : 'выключено') + '\n\n' +
+    'Автообновление: ' + (hasTrigger_() ? 'включено' : 'выключено') + '\n' +
+    'Режим загрузки: ' + (p.getProperty(OZ.P_MODE) || '—') + '\n\n' +
     'Последнее обновление:\n' + (p.getProperty(OZ.P_STATUS) || '—'),
     SpreadsheetApp.getUi().ButtonSet.OK);
 }
@@ -168,55 +183,65 @@ function runUpdate_() {
   try {
     var props = PropertiesService.getUserProperties();
     var key = props.getProperty(OZ.P_KEY), id = props.getProperty(OZ.P_ID);
-    if (!key || !id) throw new Error('Не заданы API key и/или Client ID (меню Ozon Sales).');
+    if (!key || !id) throw new Error('Не заданы API-ключ и/или Client ID (меню «Отчёт Ozon»).');
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var tz = ss.getSpreadsheetTimeZone();
     var sheet = getSheet_(ss);
     var isInitial = !props.getProperty(OZ.P_INIT);
-    var days = isInitial ? OZ.INITIAL_DAYS : OZ.REFRESH_DAYS;
+    var ctx = { id: id, key: key, tz: tz, fetched: {}, failed: [], okCalls: 0 };
 
-    var today = new Date();
-    var fetched = {};   // dateKey -> rows[]
-    var failed = [];
-    var okDays = 0;
-
-    for (var i = days - 1; i >= 0; i--) {
-      var d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-      var dk = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
-      try {
-        fetched[dk] = fetchDay_(d, dk, id, key);
-        okDays++;
-      } catch (e) {
-        if (e.fatal) throw e;          // 401/403 — дальше нет смысла
-        failed.push(dk + ': ' + e.message);
-      }
-      Utilities.sleep(OZ.PAUSE_MS);
+    var dayStatus;
+    if (isInitial) {
+      loadMonths_(ctx, OZ.INITIAL_MONTHS);
+      dayStatus = loadDays_(ctx, OZ.INITIAL_DAYS);
+    } else {
+      dayStatus = loadDays_(ctx, OZ.REFRESH_DAYS);
+      if (dayStatus !== 'ok') loadMonths_(ctx, OZ.REFRESH_MONTHS);
     }
-    if (okDays === 0) throw new Error('Не удалось загрузить ни одного дня. ' + failed.join('; '));
+    if (ctx.okCalls === 0) throw new Error('Не удалось загрузить данные. ' + ctx.failed.join('; '));
 
-    // Существующие данные (без заголовка), дни из свежей выгрузки заменяются целиком.
+    var mode = dayStatus === 'ok' ? 'ежедневный (Premium)' : 'ежемесячный (базовый тариф)';
+    props.setProperty(OZ.P_MODE, mode);
+
+    // Объединяем с существующими данными; загруженные периоды заменяются целиком.
     var last = sheet.getLastRow();
     var existing = last > 1 ? sheet.getRange(2, 1, last - 1, headers_().length).getValues() : [];
     var cutoff = cutoffKey_(tz);
+    var cutoffMonth = cutoff.slice(0, 8) + '01';
+    var expired = 0;
     var kept = existing.filter(function (r) {
       var k = keyOf_(r[0], tz);
-      return k && k >= cutoff && !(k in fetched);
+      var isMonth = r[1] === OZ.TYPE_MONTH;
+      if (!k || k < (isMonth ? cutoffMonth : cutoff)) { expired++; return false; }
+      return !((r[1] + '|' + k) in ctx.fetched);
     });
     var added = [];
-    Object.keys(fetched).forEach(function (k) {
-      if (k >= cutoff) added = added.concat(fetched[k]);
+    Object.keys(ctx.fetched).forEach(function (pk) {
+      var parts = pk.split('|');
+      var isMonth = parts[0] === OZ.TYPE_MONTH;
+      if (parts[1] >= (isMonth ? cutoffMonth : cutoff)) added = added.concat(ctx.fetched[pk]);
     });
     var all = kept.concat(added);
-    all.sort(function (a, b) { return keyOf_(a[0], tz) < keyOf_(b[0], tz) ? -1 : keyOf_(a[0], tz) > keyOf_(b[0], tz) ? 1 : 0; });
 
+    // Если по месяцу есть дневные строки — месячные строки этого месяца убираем (без двойного учёта).
+    var dayMonths = {};
+    all.forEach(function (r) { if (r[1] === OZ.TYPE_DAY) dayMonths[keyOf_(r[0], tz).slice(0, 7)] = true; });
+    var before = all.length;
+    all = all.filter(function (r) { return !(r[1] === OZ.TYPE_MONTH && dayMonths[keyOf_(r[0], tz).slice(0, 7)]); });
+    var replacedByDaily = before - all.length;
+
+    all.sort(function (a, b) {
+      var ka = keyOf_(a[0], tz), kb = keyOf_(b[0], tz);
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
     writeSheet_(sheet, all);
     props.setProperty(OZ.P_INIT, '1');
 
-    var expired = existing.filter(function (r) { var k = keyOf_(r[0], tz); return !k || k < cutoff; }).length;
-    var msg = 'Загружено дней: ' + okDays + ' из ' + days + ', новых строк: ' + added.length +
-      ', всего на листе: ' + all.length + ', удалено старше ' + OZ.KEEP_MONTHS + ' мес.: ' + expired + '.' +
-      (failed.length ? '\nНе удалось: ' + failed.join('; ') : '');
+    var msg = 'Режим: ' + mode + '. Новых строк: ' + added.length + ', всего на листе: ' + all.length +
+      ', удалено устаревших (старше ' + OZ.KEEP_MONTHS + ' мес.): ' + expired +
+      (replacedByDaily ? ', месячных строк заменено дневными: ' + replacedByDaily : '') + '.' +
+      (ctx.failed.length ? '\nНе удалось: ' + ctx.failed.join('; ') : '');
     saveStatus_(Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm') + ' — ' + msg);
     return msg;
   } finally {
@@ -224,44 +249,99 @@ function runUpdate_() {
   }
 }
 
+// Месячный (базовый) метод: текущий месяц и n-1 предыдущих. Недоступный месяц — не ошибка.
+function loadMonths_(ctx, n) {
+  var now = new Date();
+  for (var i = n - 1; i >= 0; i--) {
+    var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    var mk = Utilities.formatDate(d, ctx.tz, 'yyyy-MM-dd');
+    try {
+      ctx.fetched[OZ.TYPE_MONTH + '|' + mk] = fetchMonth_(d, ctx);
+      ctx.okCalls++;
+    } catch (e) {
+      if (e.fatal) throw e;
+      ctx.failed.push('месяц ' + mk.slice(0, 7) + ': ' + e.message);
+    }
+    Utilities.sleep(OZ.PAUSE_MS);
+  }
+}
+
+// Дневной метод (Premium). Возвращает 'ok' | 'nopremium' | 'error'.
+function loadDays_(ctx, n) {
+  var now = new Date(), okDays = 0;
+  for (var i = n - 1; i >= 0; i--) {
+    var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    var dk = Utilities.formatDate(d, ctx.tz, 'yyyy-MM-dd');
+    try {
+      ctx.fetched[OZ.TYPE_DAY + '|' + dk] = fetchDay_(d, ctx);
+      okDays++;
+      ctx.okCalls++;
+    } catch (e) {
+      if (e.fatal) throw e;
+      if (e.noPremium && okDays === 0) return 'nopremium';
+      ctx.failed.push('день ' + dk + ': ' + e.message);
+    }
+    Utilities.sleep(OZ.PAUSE_MS);
+  }
+  return okDays > 0 ? 'ok' : 'error';
+}
+
 /* ============================ OZON API ============================ */
 
-function fetchDay_(date, dateKey, clientId, apiKey) {
-  var body = JSON.stringify({ day: date.getDate(), month: date.getMonth() + 1, year: date.getFullYear() });
+function post_(url, bodyObj, ctx) {
   var opts = {
     method: 'post',
     contentType: 'application/json',
-    headers: { 'Client-Id': clientId, 'Api-Key': apiKey },
-    payload: body,
+    headers: { 'Client-Id': ctx.id, 'Api-Key': ctx.key },
+    payload: JSON.stringify(bodyObj),
     muteHttpExceptions: true
   };
   var resp, code, text;
   for (var attempt = 1; attempt <= 4; attempt++) {
-    resp = UrlFetchApp.fetch(OZ.URL, opts);
+    resp = UrlFetchApp.fetch(url, opts);
     code = resp.getResponseCode();
     text = resp.getContentText();
     if (code === 429 || code >= 500) { Utilities.sleep(1000 * attempt * attempt); continue; }
     break;
   }
-  if (code === 404) return [];  // за этот день отчёта нет
-  if (code !== 200) {
-    var m = text;
-    try { m = JSON.parse(text).message || text; } catch (ignore) {}
-    var err = new Error('HTTP ' + code + ' — ' + m);
-    if (code === 401 || code === 403) {
-      err.message += '. Проверьте Client ID / API key и наличие подписки Premium Plus/Pro.';
-      err.fatal = true;
-    }
-    throw err;
-  }
-  var rows = (JSON.parse(text).rows) || [];
-  var dateCell = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  return rows.map(function (r) { return rowToArray_(dateCell, r); });
+  return { code: code, text: text };
 }
 
-function rowToArray_(date, r) {
+function apiError_(res) {
+  var m = res.text;
+  try { m = JSON.parse(res.text).message || res.text; } catch (ignore) {}
+  return new Error('HTTP ' + res.code + ' — ' + m);
+}
+
+// Дневной метод. 403 = нет подписки Premium (или неверные данные — это выяснится на месячном методе).
+function fetchDay_(date, ctx) {
+  var res = post_(OZ.URL_DAY, { day: date.getDate(), month: date.getMonth() + 1, year: date.getFullYear() }, ctx);
+  if (res.code === 404) return [];
+  if (res.code === 403) { var e403 = apiError_(res); e403.noPremium = true; throw e403; }
+  if (res.code === 401) { var e401 = apiError_(res); e401.fatal = true; e401.message += '. Проверьте Client ID и API-ключ.'; throw e401; }
+  if (res.code !== 200) throw apiError_(res);
+  var cell = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return ((JSON.parse(res.text).rows) || []).map(function (r) { return rowToArray_(cell, OZ.TYPE_DAY, r); });
+}
+
+// Месячный метод. 401/403 = неверные данные доступа.
+function fetchMonth_(date, ctx) {
+  var res = post_(OZ.URL_MONTH, { month: date.getMonth() + 1, year: date.getFullYear() }, ctx);
+  if (res.code === 404) return [];
+  if (res.code === 401 || res.code === 403) {
+    var e = apiError_(res); e.fatal = true;
+    e.message += '. Проверьте Client ID и API-ключ.';
+    throw e;
+  }
+  if (res.code !== 200) throw apiError_(res);
+  var result = JSON.parse(res.text).result || {};
+  var cell = new Date(date.getFullYear(), date.getMonth(), 1);
+  return (result.rows || []).map(function (r) { return rowToArray_(cell, OZ.TYPE_MONTH, r); });
+}
+
+function rowToArray_(date, type, r) {
   var item = r.item || {};
-  var out = [date, r.rowNumber, item.sku, item.offer_id, item.name, item.barcode,
+  var out = [date, type, r.rowNumber, item.sku, item.offer_id, item.name, item.barcode,
     r.seller_price_per_instance, r.commission_ratio];
   [r.delivery_commission || {}, r.return_commission || {}].forEach(function (b) {
     OZ_BLOCK.forEach(function (f) { out.push(b[f] === undefined ? 0 : b[f]); });
@@ -272,7 +352,7 @@ function rowToArray_(date, r) {
 /* ============================== ЛИСТ ============================== */
 
 function headers_() {
-  var h = ['Дата', '№ строки', 'SKU', 'Артикул (offer_id)', 'Название', 'Штрихкод',
+  var h = ['Период', 'Тип', '№ строки', 'SKU', 'Артикул (offer_id)', 'Название', 'Штрихкод',
     'Цена продавца с учётом скидки', 'Доля комиссии'];
   var label = {
     amount: 'Сумма', bonus: 'Бонус', commission: 'Комиссия', compensation: 'Компенсация',
@@ -304,14 +384,14 @@ function writeSheet_(sheet, rows) {
   if (sheet.getMaxRows() < rows.length + 1) sheet.insertRowsAfter(sheet.getMaxRows(), rows.length + 1 - sheet.getMaxRows());
   sheet.getRange(2, 1, rows.length, width).setValues(rows);
   sheet.getRange(2, 1, rows.length, 1).setNumberFormat('yyyy-mm-dd');
-  sheet.getRange(2, 6, rows.length, 1).setNumberFormat('@');       // штрихкод как текст
-  sheet.getRange(2, 7, rows.length, 1).setNumberFormat('#,##0.00');
-  sheet.getRange(2, 8, rows.length, 1).setNumberFormat('0.00%');
-  sheet.getRange(2, 9, rows.length, width - 8).setNumberFormat('#,##0.00');
-  sheet.getRange(2, 9 + 5, rows.length, 1).setNumberFormat('0');    // кол-во (доставка)
-  sheet.getRange(2, 9 + 11 + 5, rows.length, 1).setNumberFormat('0'); // кол-во (возврат)
-  sheet.autoResizeColumns(1, 4);
-  sheet.setColumnWidth(5, 300);
+  sheet.getRange(2, 7, rows.length, 1).setNumberFormat('@');          // штрихкод как текст
+  sheet.getRange(2, 8, rows.length, 1).setNumberFormat('#,##0.00');
+  sheet.getRange(2, 9, rows.length, 1).setNumberFormat('0.00%');
+  sheet.getRange(2, 10, rows.length, width - 9).setNumberFormat('#,##0.00');
+  sheet.getRange(2, 10 + 5, rows.length, 1).setNumberFormat('0');       // кол-во (доставка)
+  sheet.getRange(2, 10 + 11 + 5, rows.length, 1).setNumberFormat('0');  // кол-во (возврат)
+  sheet.autoResizeColumns(1, 5);
+  sheet.setColumnWidth(6, 300);
   if (sheet.getFilter()) sheet.getFilter().remove();
   sheet.getRange(1, 1, rows.length + 1, width).createFilter();
 }
@@ -331,4 +411,4 @@ function cutoffKey_(tz) {
 
 function saveStatus_(s) { PropertiesService.getUserProperties().setProperty(OZ.P_STATUS, s); }
 
-function toast_(s) { try { SpreadsheetApp.getActiveSpreadsheet().toast(s, 'Ozon Sales', 5); } catch (e) {} }
+function toast_(s) { try { SpreadsheetApp.getActiveSpreadsheet().toast(s, 'Отчёт Ozon', 5); } catch (e) {} }
