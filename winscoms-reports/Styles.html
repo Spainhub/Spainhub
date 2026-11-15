@@ -24,6 +24,13 @@ button,input{font:inherit}
 .tab:hover,.tab.on{color:var(--accent)}
 .tab.on{border-bottom-color:var(--accent)}
 .spacer{flex:1 1 auto}
+.tab.mp{color:var(--accent)}
+.tab.mp:hover{background:var(--accent-soft)}
+.tab.mp.on{background:var(--accent-soft);border-bottom-color:var(--accent);font-weight:750}
+.tab-tools{display:flex;align-items:center;gap:10px;padding:3px 0}
+.tab-tools .count{font-size:11px;color:var(--muted);white-space:nowrap}
+.tab-tools input[type=search]{width:240px;max-width:100%;padding:6px 10px;border:1px solid var(--line);border-radius:7px;outline:none;font-size:12px}
+.tab-tools input[type=search]:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(239,123,34,.08)}
 .pane[hidden]{display:none!important}
 
 /* ── Информационный блок (строки 1–5 листа) ── */
@@ -34,39 +41,44 @@ button,input{font:inherit}
 .info-grid tr.blank td{height:8px;padding:0}
 .info-grid td.merged{overflow:hidden;text-overflow:ellipsis}
 
-.toolbar{display:flex;align-items:center;gap:9px;margin:0 0 8px;min-width:0}
-.toolbar input[type=search]{width:min(320px,100%);min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:7px;outline:none;font-size:12px}
-.toolbar input[type=search]:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(239,123,34,.08)}
-.toolbar .count{font-size:11px;color:var(--muted)}
 
 .tbl-wrap{width:100%;max-width:100%;overflow-x:auto;overflow-y:auto;max-height:74vh;border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:var(--shadow)}
-table.report{width:100%;table-layout:auto;border-collapse:separate;border-spacing:0;font-size:12px}
-table.report th,table.report td{box-sizing:border-box;text-align:left}
+table.report{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:12px}
+table.report th,table.report td{box-sizing:border-box;text-align:left;white-space:nowrap}
 table.report thead th{
   position:sticky;top:0;z-index:3;background:var(--head);color:#383838;
-  font-weight:700;padding:7px 8px;border-bottom:1px solid #dedfe2;
-  line-height:1.2;white-space:normal;vertical-align:top;
+  font-weight:700;padding:7px 10px 7px 8px;border-bottom:1px solid #dedfe2;
+  line-height:1.2;vertical-align:middle;overflow:visible;
 }
 table.report thead th.sortable{cursor:pointer}
 table.report thead th.sortable:hover{background:#e9eaed}
-.sort-ind{color:var(--accent);font-size:9px;margin-left:3px}
-.col-filter-btn{border:0;background:transparent;color:#888;font-size:8px;padding:1px 2px;margin-left:2px;cursor:pointer;vertical-align:middle}
+.th-in{display:flex;align-items:center;gap:3px;min-width:0}
+.th-label{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sort-ind{color:var(--accent);font-size:9px;flex:none}
+.col-filter-btn{border:0;background:transparent;color:#888;font-size:8px;padding:1px 2px;cursor:pointer;flex:none}
 .col-filter-btn.on{color:var(--accent)}
-table.report tbody td{padding:6px 8px;border-bottom:1px solid #f0f0f0;line-height:1.25;white-space:nowrap;font-variant-numeric:tabular-nums}
-table.report tbody td.wrap{white-space:normal;min-width:120px}
+.col-grip{position:absolute;top:0;right:0;width:9px;height:100%;cursor:col-resize;z-index:4;touch-action:none}
+.col-grip::after{content:"";position:absolute;top:22%;bottom:22%;right:3px;width:2px;border-radius:1px;background:#cfd2d8}
+.col-grip:hover::after,body.resizing .col-grip::after{background:var(--accent)}
+body.resizing{cursor:col-resize;user-select:none}
+table.report th.filler,table.report td.filler{padding:0}
+table.report tbody td{padding:6px 8px;border-bottom:1px solid #f0f0f0;line-height:1.25;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
 table.report tbody tr:nth-child(even){background:#fafafa}
 table.report tbody tr:hover{background:#fff8f2}
-.pl table.report tbody td{white-space:normal}
 
-/* ── Цвета ТОЛЬКО для столбца ABC ── */
-table.report td.abc{font-weight:750}
-table.report td.abc-A{background:var(--abc-a)!important;color:var(--abc-a-ink)}
-table.report td.abc-B{background:var(--abc-b)!important;color:var(--abc-b-ink)}
-table.report td.abc-C{background:var(--abc-c)!important;color:var(--abc-c-ink)}
+/* Отрицательные значения */
+.neg{color:#d12f2f!important}
+.info-grid td.neg{color:#d12f2f}
+
+/* ABC: аккуратные одинаковые «пилюли», ячейка без заливки */
+.abc-pill{display:inline-block;min-width:26px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;line-height:1.3;text-align:center;border:1px solid transparent}
+.abc-pill.abc-A{background:#e8f5ec;color:#23703a;border-color:#bfe2c9}
+.abc-pill.abc-B{background:#fdf0e1;color:#b2600f;border-color:#f4d3ab}
+.abc-pill.abc-C{background:#fbe8e8;color:#b03030;border-color:#efc0c0}
 
 tr.total-row td{position:sticky;top:var(--head-h);z-index:2;background:var(--total)!important;font-weight:750;border-bottom:1px solid var(--accent)}
 
-.chart-action-cell{text-align:left}
+.chart-action-cell{text-align:left;overflow:hidden}
 .chart-cell{display:flex;align-items:center;gap:7px;min-width:130px}
 .spark{display:block;width:84px;height:24px}
 .spark-empty{color:#bbb}
@@ -104,13 +116,13 @@ tr.total-row td{position:sticky;top:var(--head-h);z-index:2;background:var(--tot
 
 @media(max-width:850px){.app{padding:8px 10px 20px}table.report{font-size:11px}.tables-row{gap:7px}table.report thead th,table.report tbody td{padding-left:5px;padding-right:5px}}
 @media(max-width:700px){.tables-row{grid-template-columns:minmax(0,1fr)}}
-@media(max-width:620px){.topbar{align-items:flex-start}.topbar-actions{gap:0}.data-status{display:none}.tabs{flex-wrap:nowrap;overflow-x:auto}.tab{padding:9px 9px;font-size:11px}.tbl-wrap{max-height:60vh}.toolbar input[type=search]{width:100%}.footer{flex-direction:column;gap:4px}.chart-dialog{height:70vh;padding:12px}}
+@media(max-width:620px){.topbar{align-items:flex-start}.topbar-actions{gap:0}.data-status{display:none}.tab-tools{flex:1 1 100%}.tab-tools input[type=search]{width:100%}.tab{padding:9px 9px;font-size:11px}.tbl-wrap{max-height:60vh}.footer{flex-direction:column;gap:4px}.chart-dialog{height:70vh;padding:12px}}
 @media print{
-  .app{padding:0}.topbar,.tabs,.toolbar,.footer,.toast,.chart-modal,.col-filter-btn,.row-chart-btn{display:none!important}
+  .app{padding:0}.topbar,.tabs,.footer,.toast,.chart-modal,.col-filter-btn,.row-chart-btn{display:none!important}
   .tbl-wrap{max-height:none;overflow:visible;box-shadow:none;border:0}
-  table.report{font-size:8px}table.report th,table.report td{padding:3px}
+  table.report{font-size:8px;table-layout:auto}table.report th,table.report td{padding:3px;white-space:normal}.col-grip{display:none}
   .tables-row{grid-template-columns:1fr 1fr;gap:8px}
   table.report thead th,tr.total-row td{position:static}
-  table.report td.abc-A,table.report td.abc-B,table.report td.abc-C{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  table.report .abc-pill{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 </style>

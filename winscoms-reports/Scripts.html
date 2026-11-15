@@ -106,6 +106,14 @@
       loadActive(true);
     });
     $('btnPrint').addEventListener('click', () => window.print());
+    let searchTimer = null;
+    $('globalSearch').addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        const entry = state.cache[state.activeSheet];
+        if (entry) renderPane(state.activeSheet, entry.data);
+      }, 120);
+    });
     $('chartClose').addEventListener('click', closeChart);
     $('chartModal').addEventListener('click', e => { if (e.target === $('chartModal')) closeChart(); });
     document.addEventListener('keydown', e => {
@@ -141,6 +149,7 @@
       const b = el('button', 'tab', sheet.title);
       b.type = 'button';
       b.dataset.sheet = sheet.name;
+      if (sheet.marketplace) b.classList.add('mp');
       b.addEventListener('click', () => activateSheet(sheet.name));
       nav.insertBefore(b, spacer);
     });
@@ -168,30 +177,14 @@
     pane.hidden = true;
 
     const info = el('div', 'info');
-    const toolbar = el('div', 'toolbar');
-    const search = el('input');
-    search.type = 'search';
-    search.placeholder = 'Поиск по таблице…';
-    search.setAttribute('aria-label', 'Поиск по таблице');
-    const count = el('span', 'count');
-    toolbar.append(search, count);
-
     const tableWrap = el('div', 'tbl-wrap');
     const stateBox = el('div', 'state');
     tableWrap.appendChild(stateBox);
-    pane.append(info, toolbar, tableWrap);
+    pane.append(info, tableWrap);
     $('panes').appendChild(pane);
 
-    const ref = { pane, info, toolbar, tableWrap, state: stateBox, search, count };
+    const ref = { pane, info, tableWrap, state: stateBox };
     pane._ref = ref;
-    let timer = null;
-    search.addEventListener('input', () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        const entry = state.cache[name];
-        if (entry) renderPane(name, entry.data);
-      }, 120);
-    });
     return ref;
   }
 
@@ -206,6 +199,7 @@
     ref.state.style.display = '';
     ref.state.innerHTML = '<span class="spinner"></span>Загружаю данные…';
     ref.tableWrap.style.display = 'none';
+    $('rowCount').textContent = '';
     $('btnReload').disabled = true;
     $('dataStatus').textContent = 'Загрузка…';
 
@@ -286,6 +280,7 @@
         const td = el('td');
         const text = fmtCell(row[c], info.fmts[r][c]);
         td.textContent = text;
+        if (typeof row[c] === 'number' && row[c] < 0) td.classList.add('neg');
         if (m) {
           td.colSpan = m.cs; td.rowSpan = m.rs; td.classList.add('merged');
           c += m.cs - 1;
@@ -321,7 +316,7 @@
     let ts = tableState[key];
     if (!ts || ts._data !== data) {
       ts = tableState[key] = {
-        _data: data, columns: columns || [], rows: rows || [], total: total || null,
+        key, _data: data, columns: columns || [], rows: rows || [], total: total || null,
         meta: meta || {}, sheetName, sortable,
         sortIdx: -1, sortDir: 1, filters: {}, global: ''
       };
@@ -353,11 +348,6 @@
     return rows;
   }
 
-  function isTextColumn(ts, i) {
-    const sample = ts.rows.slice(0, 40).map(r => r.v[i]).filter(v => !isBlank(v));
-    return sample.length > 0 && sample.filter(v => typeof v !== 'number').length / sample.length > 0.5;
-  }
-
   function renderSingleTable(ref, data) {
     const dateSeries = (data.dateSeries || []).map(d => ({
       pos: data.columns.findIndex(c => c.idx === d.idx), label: d.label
@@ -365,7 +355,7 @@
 
     const ts = getTableState(data.name + '|single', data, data.columns, data.rowObjs, data.totalObj,
       Object.assign({}, data.meta || {}, { dateSeries }), data.name, data.sortable);
-    ts.global = ref.search.value || '';
+    ts.global = $('globalSearch').value || '';
     const rows = filteredRows(ts);
 
     ref.state.style.display = 'none';
@@ -374,7 +364,7 @@
     ref.tableWrap.innerHTML = '';
     ref.tableWrap.appendChild(buildTable(ts, rows, data));
     syncHeadHeight(ref.tableWrap);
-    ref.count.textContent = 'Строк: ' + rows.length + ' / ' + ts.rows.length;
+    $('rowCount').textContent = 'Строк: ' + rows.length + ' / ' + ts.rows.length;
   }
 
   function renderTwoTables(ref, data) {
@@ -386,7 +376,7 @@
     (data.tables || []).forEach(tbl => {
       const ts = getTableState(data.name + '|' + tbl.key, data, tbl.columns, tbl.rowObjs, tbl.totalObj,
         {}, data.name, data.sortable);
-      ts.global = ref.search.value || '';
+      ts.global = $('globalSearch').value || '';
       const visible = filteredRows(ts);
       const block = el('div', 'table-block');
       block.appendChild(el('div', 'sub-table-title', tbl.title));
@@ -397,7 +387,7 @@
     });
     ref.tableWrap.appendChild(row);
     ref.tableWrap.querySelectorAll('.tbl-wrap').forEach(syncHeadHeight);
-    ref.count.textContent = '';
+    $('rowCount').textContent = '';
   }
 
   /** Высота шапки → отступ закреплённой итоговой строки. */
@@ -406,26 +396,71 @@
     if (thead) wrap.style.setProperty('--head-h', thead.offsetHeight + 'px');
   }
 
+  const widthStore = {}; // ширины столбцов переживают «Обновить»
+
   function abcClass(value) {
-    const map = { 'А': 'A', 'В': 'B', 'С': 'C' }; // кириллица → латиница
+    const map = { 'А': 'A', 'В': 'B', 'С': 'C' };
     const s = String(value || '').trim().toUpperCase();
     const k = map[s] || s;
     return (k === 'A' || k === 'B' || k === 'C') ? k : '';
   }
 
-  function cellClasses(ts, pos, value, textCols) {
-    const cls = [];
-    if (pos === ts.meta.abcIdx && ts.meta.abcIdx >= 0) {
+  /** Начальная ширина столбца по самому длинному значению (в разумных пределах). */
+  function autoWidth(ts, pos) {
+    let chars = String(ts.columns[pos].label || '').length + (ts.sortable ? 5 : 2);
+    const lim = Math.min(ts.rows.length, 200);
+    for (let i = 0; i < lim; i++) { const l = ts.rows[i].t[pos].length; if (l > chars) chars = l; }
+    if (ts.total) chars = Math.max(chars, ts.total.t[pos].length);
+    return Math.max(56, Math.min(340, Math.round(chars * 7 + 24)));
+  }
+
+  function fillCell(td, ts, pos, value, text) {
+    td.title = text;
+    if (typeof value === 'number' && value < 0) td.classList.add('neg');
+    if (ts.meta.abcIdx >= 0 && pos === ts.meta.abcIdx) {
       const k = abcClass(value);
-      cls.push('abc');
-      if (k) cls.push('abc-' + k);
+      if (k) { td.appendChild(el('span', 'abc-pill abc-' + k, text.trim() || k)); return; }
     }
-    if (textCols[pos]) cls.push('wrap');
-    return cls;
+    td.textContent = text;
+  }
+
+  function attachGrip(th, colEl, widths, pos, resetWidth, applyMin) {
+    const grip = el('span', 'col-grip');
+    grip.title = 'Потяните, чтобы изменить ширину (двойной клик — по содержимому)';
+    grip.addEventListener('click', e => e.stopPropagation());
+    grip.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      widths[pos] = resetWidth();
+      colEl.style.width = widths[pos] + 'px';
+      applyMin();
+    });
+    grip.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX, startW = widths[pos];
+      grip.setPointerCapture(e.pointerId);
+      document.body.classList.add('resizing');
+      const move = ev => {
+        widths[pos] = Math.max(40, Math.min(900, Math.round(startW + ev.clientX - startX)));
+        colEl.style.width = widths[pos] + 'px';
+        applyMin();
+      };
+      const up = () => {
+        grip.removeEventListener('pointermove', move);
+        grip.removeEventListener('pointerup', up);
+        grip.removeEventListener('pointercancel', up);
+        document.body.classList.remove('resizing');
+      };
+      grip.addEventListener('pointermove', move);
+      grip.addEventListener('pointerup', up);
+      grip.addEventListener('pointercancel', up);
+    });
+    th.appendChild(grip);
   }
 
   function buildTable(ts, rows, data) {
     const table = el('table', 'report');
+    const colgroup = el('colgroup');
     const thead = el('thead');
     const headRow = el('tr');
 
@@ -433,16 +468,25 @@
     const dateSet = new Set(ts.meta && ts.meta.dateColumns ? dateSeries.map(d => d.pos) : []);
     const hasChart = dateSeries.length > 0;
     const visible = ts.columns.map((col, pos) => ({ col, pos })).filter(x => !dateSet.has(x.pos));
-    const textCols = {};
-    visible.forEach(({ pos }) => { textCols[pos] = isTextColumn(ts, pos); });
+
+    const widths = widthStore[ts.key] || (widthStore[ts.key] = {});
+    visible.forEach(({ pos }) => { if (widths[pos] == null) widths[pos] = autoWidth(ts, pos); });
+    widths.chart = 200;
+    const keys = visible.map(x => x.pos).concat(hasChart ? ['chart'] : []);
+    const applyMin = () => { table.style.minWidth = keys.reduce((sum, k) => sum + widths[k], 0) + 'px'; };
 
     visible.forEach(({ col, pos }) => {
+      const colEl = el('col');
+      colEl.style.width = widths[pos] + 'px';
+      colgroup.appendChild(colEl);
+
       const th = el('th');
       th.title = col.label;
-      th.appendChild(el('span', 'th-label', col.label));
+      const inner = el('div', 'th-in');
+      inner.appendChild(el('span', 'th-label', col.label));
       if (ts.sortable) {
         th.classList.add('sortable');
-        if (ts.sortIdx === pos) th.appendChild(el('span', 'sort-ind', ts.sortDir > 0 ? '▲' : '▼'));
+        if (ts.sortIdx === pos) inner.appendChild(el('span', 'sort-ind', ts.sortDir > 0 ? '▲' : '▼'));
         const filter = el('button', 'col-filter-btn', '▼');
         filter.type = 'button';
         filter.title = 'Фильтр столбца';
@@ -451,7 +495,7 @@
           e.stopPropagation();
           openFilter(ts, pos, filter, () => redraw(ts));
         });
-        th.appendChild(filter);
+        inner.appendChild(filter);
         th.addEventListener('click', e => {
           if (e.target.classList.contains('col-filter-btn')) return;
           if (ts.sortIdx === pos) {
@@ -460,9 +504,21 @@
           redraw(ts);
         });
       }
+      th.appendChild(inner);
+      attachGrip(th, colEl, widths, pos, () => autoWidth(ts, pos), applyMin);
       headRow.appendChild(th);
     });
-    if (hasChart) headRow.appendChild(el('th', 'chart-action-cell', 'График'));
+    if (hasChart) {
+      const colEl = el('col');
+      colEl.style.width = widths.chart + 'px';
+      colgroup.appendChild(colEl);
+      headRow.appendChild(el('th', 'chart-action-cell', 'График'));
+    }
+    // «добивающий» столбец: забирает свободное место, чтобы ширины остальных были точными
+    colgroup.appendChild(el('col'));
+    headRow.appendChild(el('th', 'filler'));
+    applyMin();
+    table.appendChild(colgroup);
     thead.appendChild(headRow);
     table.appendChild(thead);
 
@@ -470,11 +526,12 @@
     if (ts.total) {
       const tr = el('tr', 'total-row');
       visible.forEach(({ pos }) => {
-        const td = el('td', '', ts.total.t[pos]);
-        td.title = td.textContent;
+        const td = el('td');
+        fillCell(td, ts, pos, ts.total.v[pos], ts.total.t[pos]);
         tr.appendChild(td);
       });
       if (hasChart) tr.appendChild(el('td', 'chart-action-cell', ''));
+      tr.appendChild(el('td', 'filler'));
       tbody.appendChild(tr);
     }
 
@@ -482,9 +539,8 @@
     rows.forEach(row => {
       const tr = el('tr');
       visible.forEach(({ pos }) => {
-        const td = el('td', '', row.t[pos]);
-        cellClasses(ts, pos, row.v[pos], textCols).forEach(c => td.classList.add(c));
-        td.title = row.t[pos];
+        const td = el('td');
+        fillCell(td, ts, pos, row.v[pos], row.t[pos]);
         tr.appendChild(td);
       });
       if (hasChart) {
@@ -507,6 +563,7 @@
         td.appendChild(wrap);
         tr.appendChild(td);
       }
+      tr.appendChild(el('td', 'filler'));
       frag.appendChild(tr);
     });
     tbody.appendChild(frag);

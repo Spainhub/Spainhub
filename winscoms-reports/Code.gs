@@ -20,10 +20,10 @@ const SHEETS_CONFIG = {
     twoTables: true,        // слева Wildberries, справа Ozon
     sortable: false         // P&L читается в заданном порядке строк
   },
-  'OZ_UNIT1': { title: 'Ozon Kvantum', stickyTotal: true },
-  'OZ_UNIT2': { title: 'Ozon Azimut',  stickyTotal: true },
-  'WB_UNIT1': { title: 'WB Kvantum',   stickyTotal: true, dateColumns: true },
-  'WB_UNIT2': { title: 'WB Azimut',    stickyTotal: true, dateColumns: true }
+  'OZ_UNIT1': { title: 'Ozon Kvantum', stickyTotal: true, marketplace: true },
+  'OZ_UNIT2': { title: 'Ozon Azimut',  stickyTotal: true, marketplace: true },
+  'WB_UNIT1': { title: 'WB Kvantum',   stickyTotal: true, dateColumns: true, marketplace: true },
+  'WB_UNIT2': { title: 'WB Azimut',    stickyTotal: true, dateColumns: true, marketplace: true }
 };
 
 /** Если проект НЕ привязан к Google-таблице, укажите её ID. */
@@ -70,7 +70,7 @@ function getSheetsList() {
   const ss = getSpreadsheet();
   return Object.keys(SHEETS_CONFIG)
     .filter(name => ss.getSheetByName(name))
-    .map(name => ({ name, title: SHEETS_CONFIG[name].title }));
+    .map(name => ({ name, title: SHEETS_CONFIG[name].title, marketplace: !!SHEETS_CONFIG[name].marketplace }));
 }
 
 // ───────────────────────── Вспомогательное ─────────────────────────
