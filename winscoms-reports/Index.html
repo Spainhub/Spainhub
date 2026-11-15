@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('Styles'); ?>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-mark">WINSCOMS · P&amp;L 4 маркетплейса</div>
+      <div class="topbar-actions">
+        <span class="data-status" id="dataStatus" aria-live="polite"></span>
+        <button class="btn-text" id="btnReload" type="button">↻ Обновить</button>
+        <button class="btn-text" id="btnPrint" type="button">Печать</button>
+      </div>
+    </header>
+
+    <nav class="tabs" id="tabs" aria-label="Разделы отчётов"><div class="spacer"></div></nav>
+
+    <main id="panes"><div class="state">Подготовка приложения…</div></main>
+
+    <footer class="footer">
+      <span>© <span id="year"></span> WINSCOMS</span>
+      <span>Analytics · Finance · Automation</span>
+    </footer>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <section class="chart-modal" id="chartModal" aria-hidden="true">
+    <div class="chart-dialog" role="dialog" aria-modal="true" aria-labelledby="chartTitle">
+      <div class="chart-dialog-head">
+        <div>
+          <div class="chart-kicker">ДИНАМИКА ПО ДАТАМ</div>
+          <h3 id="chartTitle">График показателя</h3>
+        </div>
+        <button class="chart-close" id="chartClose" type="button" aria-label="Закрыть">×</button>
+      </div>
+      <div class="chart-canvas-wrap"><canvas id="trendCanvas"></canvas></div>
+    </div>
+  </section>
+
+  <?!= include('Scripts'); ?>
+</body>
+</html>

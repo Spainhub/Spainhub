@@ -1,0 +1,645 @@
+<script>
+(function () {
+  'use strict';
+
+  const $ = id => document.getElementById(id);
+  const state = { sheets: [], activeSheet: null, cache: {} };
+  const tableState = {};
+  const requestCounter = {};
+  let appBooted = false;
+  let activePop = null;
+  let outsideCloseHandler = null;
+  let chartInstance = null;
+  let prefetchToken = 0;
+
+  // ───────── утилиты ─────────
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function toast(message) {
+    const node = $('toast');
+    node.textContent = message;
+    node.classList.add('on');
+    clearTimeout(node._timer);
+    node._timer = setTimeout(() => node.classList.remove('on'), 2400);
+  }
+  function errorText(err) { return err && err.message ? err.message : String(err || 'Неизвестная ошибка'); }
+  function isBlank(v) { return v === '' || v === null || v === undefined; }
+
+  /**
+   * Форматирование по коду формата от сервера:
+   *   -1 — как есть, 0..9 — число с N знаками, 100+N — процент с N знаками (значение — доля).
+   */
+  function fmtCell(value, code) {
+    if (isBlank(value)) return '';
+    if (code === -1 || typeof value !== 'number') return String(value);
+    if (code >= 100) {
+      const d = code - 100;
+      return (value * 100).toLocaleString('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d }) + '%';
+    }
+    return value.toLocaleString('ru-RU', { minimumFractionDigits: code, maximumFractionDigits: code });
+  }
+
+  function numOf(value) {
+    return typeof value === 'number' ? value : NaN;
+  }
+
+  // ───────── API ─────────
+  function apiListSheets() {
+    return new Promise((resolve, reject) => {
+      if (typeof google === 'undefined' || !google.script || !google.script.run) {
+        reject(new Error('Google Apps Script недоступен. Откройте опубликованное Web App.'));
+        return;
+      }
+      google.script.run.withSuccessHandler(resolve)
+        .withFailureHandler(err => reject(new Error(errorText(err))))
+        .getSheetsList();
+    });
+  }
+  function apiGetSheet(name) {
+    return new Promise((resolve, reject) => {
+      google.script.run.withSuccessHandler(resolve)
+        .withFailureHandler(err => reject(new Error(errorText(err))))
+        .getSheetData(name);
+    });
+  }
+
+  // ───────── запуск ─────────
+  function boot() {
+    if (appBooted) return;
+    appBooted = true;
+    $('year').textContent = new Date().getFullYear();
+    $('btnReload').addEventListener('click', () => {
+      if (!state.activeSheet) return;
+      state.cache = {};
+      Object.keys(tableState).forEach(key => delete tableState[key]);
+      loadActive(true);
+    });
+    $('btnPrint').addEventListener('click', () => window.print());
+    $('chartClose').addEventListener('click', closeChart);
+    $('chartModal').addEventListener('click', e => { if (e.target === $('chartModal')) closeChart(); });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { closeChart(); closeFilterPop(); }
+    });
+
+    $('panes').innerHTML = '<div class="state"><span class="spinner"></span>Подключение к Google Sheets…</div>';
+    apiListSheets().then(sheets => {
+      if (!Array.isArray(sheets)) throw new Error('Некорректный ответ сервера.');
+      state.sheets = sheets;
+      $('panes').innerHTML = '';
+      buildTabs();
+      sheets.forEach(s => getOrCreatePane(s.name));
+      if (sheets.length) activateSheet(sheets[0].name);
+      else $('panes').innerHTML = '<div class="state">Не найдено доступных листов.</div>';
+    }).catch(err => {
+      $('panes').innerHTML = '<div class="state">Ошибка подключения: ' + escapeHtml(errorText(err)) + '</div>';
+    });
+  }
+
+  function buildTabs() {
+    const nav = $('tabs');
+    nav.querySelectorAll('.tab').forEach(n => n.remove());
+    const spacer = nav.querySelector('.spacer');
+    state.sheets.forEach(sheet => {
+      const b = el('button', 'tab', sheet.title);
+      b.type = 'button';
+      b.dataset.sheet = sheet.name;
+      b.addEventListener('click', () => activateSheet(sheet.name));
+      nav.insertBefore(b, spacer);
+    });
+  }
+
+  function paneId(name) { return 'pane-' + name.replace(/[^a-z0-9]/gi, '_'); }
+
+  function activateSheet(name) {
+    state.activeSheet = name;
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.sheet === name));
+    document.querySelectorAll('.pane').forEach(p => p.hidden = p.dataset.sheet !== name);
+    closeChart();
+    closeFilterPop();
+    loadActive(false);
+  }
+
+  function getOrCreatePane(name) {
+    const id = paneId(name);
+    let pane = document.getElementById(id);
+    if (pane && pane._ref) return pane._ref;
+
+    pane = el('section', 'pane');
+    pane.id = id;
+    pane.dataset.sheet = name;
+    pane.hidden = true;
+
+    const info = el('div', 'info');
+    const toolbar = el('div', 'toolbar');
+    const search = el('input');
+    search.type = 'search';
+    search.placeholder = 'Поиск по таблице…';
+    search.setAttribute('aria-label', 'Поиск по таблице');
+    const count = el('span', 'count');
+    toolbar.append(search, count);
+
+    const tableWrap = el('div', 'tbl-wrap');
+    const stateBox = el('div', 'state');
+    tableWrap.appendChild(stateBox);
+    pane.append(info, toolbar, tableWrap);
+    $('panes').appendChild(pane);
+
+    const ref = { pane, info, toolbar, tableWrap, state: stateBox, search, count };
+    pane._ref = ref;
+    let timer = null;
+    search.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const entry = state.cache[name];
+        if (entry) renderPane(name, entry.data);
+      }, 120);
+    });
+    return ref;
+  }
+
+  function loadActive(force) {
+    const name = state.activeSheet;
+    if (!name) return;
+    const ref = getOrCreatePane(name);
+    if (!force && state.cache[name]) { renderPane(name, state.cache[name].data); return; }
+
+    requestCounter[name] = (requestCounter[name] || 0) + 1;
+    const requestId = requestCounter[name];
+    ref.state.style.display = '';
+    ref.state.innerHTML = '<span class="spinner"></span>Загружаю данные…';
+    ref.tableWrap.style.display = 'none';
+    $('btnReload').disabled = true;
+    $('dataStatus').textContent = 'Загрузка…';
+
+    apiGetSheet(name).then(data => {
+      if (requestCounter[name] !== requestId) return;
+      if (!data || data.name !== name) throw new Error('Сервер вернул некорректные данные.');
+      prepareData(data);
+      state.cache[name] = { loadedAt: Date.now(), data };
+      renderPane(name, data);
+      $('dataStatus').textContent = 'Обновлено ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      if (force) toast('Данные обновлены');
+      prefetchOthers();
+    }).catch(err => {
+      if (requestCounter[name] !== requestId) return;
+      ref.state.style.display = '';
+      ref.tableWrap.style.display = 'none';
+      ref.state.textContent = 'Ошибка загрузки: ' + errorText(err);
+      $('dataStatus').textContent = 'Ошибка загрузки';
+      if (force) toast('Не удалось обновить данные');
+    }).finally(() => {
+      if (requestCounter[name] === requestId) $('btnReload').disabled = false;
+    });
+  }
+
+  /** Фоновая подгрузка остальных листов — переключение вкладок становится мгновенным. */
+  function prefetchOthers() {
+    const token = ++prefetchToken;
+    const queue = state.sheets.map(s => s.name).filter(n => !state.cache[n]);
+    (function next() {
+      if (token !== prefetchToken || !queue.length) return;
+      const name = queue.shift();
+      if (state.cache[name]) return next();
+      apiGetSheet(name).then(data => {
+        if (token !== prefetchToken || state.cache[name] || !data || data.name !== name) return;
+        prepareData(data);
+        state.cache[name] = { loadedAt: Date.now(), data };
+      }).catch(() => {}).finally(next);
+    })();
+  }
+
+  // ───────── подготовка данных ─────────
+  /** Превращает массивы значений/форматов в объекты строк {v, f, t}. */
+  function toRows(values, fmts) {
+    return (values || []).map((v, i) => {
+      const f = (fmts && fmts[i]) || [];
+      return { v, f, t: v.map((x, c) => fmtCell(x, f[c])) };
+    });
+  }
+  function toTotal(total) {
+    if (!total) return null;
+    return { v: total.v, f: total.f, t: total.v.map((x, c) => fmtCell(x, total.f[c])) };
+  }
+  function prepareData(data) {
+    if (data.tables) {
+      data.tables.forEach(t => { t.rowObjs = toRows(t.rows, t.fmts); t.totalObj = toTotal(t.totalRow); });
+    } else {
+      data.rowObjs = toRows(data.rows, data.fmts);
+      data.totalObj = toTotal(data.totalRow);
+    }
+  }
+
+  // ───────── информационный блок (строки 1–5) ─────────
+  function renderInfo(box, info) {
+    box.innerHTML = '';
+    if (!info || !info.rows || !info.rows.length) return;
+    const rows = info.rows, W = info.width;
+    const covered = rows.map(() => new Array(W).fill(false));
+    const origin = {};
+    (info.merges || []).forEach(m => {
+      origin[m.r + ':' + m.c] = m;
+      for (let r = m.r; r < m.r + m.rs && r < rows.length; r++)
+        for (let c = m.c; c < m.c + m.cs && c < W; c++) covered[r][c] = true;
+    });
+
+    const table = el('table', 'info-grid');
+    rows.forEach((row, r) => {
+      const tr = el('tr', 'r' + (r + 1));
+      const rowEmpty = row.every(isBlank) && !(info.merges || []).some(m => r >= m.r && r < m.r + m.rs);
+      if (rowEmpty) tr.classList.add('blank');
+      for (let c = 0; c < W; c++) {
+        const m = origin[r + ':' + c];
+        if (covered[r][c] && !m) continue;
+        const td = el('td');
+        const text = fmtCell(row[c], info.fmts[r][c]);
+        td.textContent = text;
+        if (m) {
+          td.colSpan = m.cs; td.rowSpan = m.rs; td.classList.add('merged');
+          c += m.cs - 1;
+        } else {
+          // как в Sheets: текст «переливается» вправо через пустые соседние ячейки
+          let span = 1;
+          if (text !== '') {
+            while (c + span < W && isBlank(row[c + span]) && !covered[r][c + span]) span++;
+          } else {
+            while (c + span < W && isBlank(row[c + span]) && !covered[r][c + span] && !origin[r + ':' + (c + span)]) span++;
+          }
+          if (span > 1) td.colSpan = span;
+          c += span - 1;
+        }
+        tr.appendChild(td);
+      }
+      table.appendChild(tr);
+    });
+    box.appendChild(table);
+  }
+
+  // ───────── отрисовка вкладки ─────────
+  function renderPane(name, data) {
+    const pane = document.getElementById(paneId(name));
+    if (!pane || !pane._ref) return;
+    const ref = pane._ref;
+    renderInfo(ref.info, data.info);
+    if (data.meta && data.meta.twoTables) renderTwoTables(ref, data);
+    else renderSingleTable(ref, data);
+  }
+
+  function getTableState(key, data, columns, rows, total, meta, sheetName, sortable) {
+    let ts = tableState[key];
+    if (!ts || ts._data !== data) {
+      ts = tableState[key] = {
+        _data: data, columns: columns || [], rows: rows || [], total: total || null,
+        meta: meta || {}, sheetName, sortable,
+        sortIdx: -1, sortDir: 1, filters: {}, global: ''
+      };
+    }
+    return ts;
+  }
+
+  function filteredRows(ts) {
+    let rows = ts.rows;
+    const keys = Object.keys(ts.filters);
+    if (keys.length) {
+      rows = rows.filter(row => keys.every(k => {
+        const set = ts.filters[k];
+        return !set || !set.size || set.has(row.t[Number(k)]);
+      }));
+    }
+    const q = ts.global.trim().toLowerCase();
+    if (q) rows = rows.filter(row => row.t.some(x => x.toLowerCase().includes(q)));
+    if (ts.sortIdx >= 0) {
+      const i = ts.sortIdx, dir = ts.sortDir;
+      rows = rows.slice().sort((a, b) => {
+        const na = numOf(a.v[i]), nb = numOf(b.v[i]);
+        if (!isNaN(na) && !isNaN(nb)) return (na - nb) * dir;
+        if (!isNaN(na)) return -1;
+        if (!isNaN(nb)) return 1;
+        return a.t[i].localeCompare(b.t[i], 'ru') * dir;
+      });
+    }
+    return rows;
+  }
+
+  function isTextColumn(ts, i) {
+    const sample = ts.rows.slice(0, 40).map(r => r.v[i]).filter(v => !isBlank(v));
+    return sample.length > 0 && sample.filter(v => typeof v !== 'number').length / sample.length > 0.5;
+  }
+
+  function renderSingleTable(ref, data) {
+    const dateSeries = (data.dateSeries || []).map(d => ({
+      pos: data.columns.findIndex(c => c.idx === d.idx), label: d.label
+    })).filter(d => d.pos >= 0);
+
+    const ts = getTableState(data.name + '|single', data, data.columns, data.rowObjs, data.totalObj,
+      Object.assign({}, data.meta || {}, { dateSeries }), data.name, data.sortable);
+    ts.global = ref.search.value || '';
+    const rows = filteredRows(ts);
+
+    ref.state.style.display = 'none';
+    ref.tableWrap.style.display = '';
+    ref.tableWrap.className = 'tbl-wrap';
+    ref.tableWrap.innerHTML = '';
+    ref.tableWrap.appendChild(buildTable(ts, rows, data));
+    syncHeadHeight(ref.tableWrap);
+    ref.count.textContent = 'Строк: ' + rows.length + ' / ' + ts.rows.length;
+  }
+
+  function renderTwoTables(ref, data) {
+    ref.state.style.display = 'none';
+    ref.tableWrap.style.display = '';
+    ref.tableWrap.className = 'pl';
+    ref.tableWrap.innerHTML = '';
+    const row = el('div', 'tables-row');
+    (data.tables || []).forEach(tbl => {
+      const ts = getTableState(data.name + '|' + tbl.key, data, tbl.columns, tbl.rowObjs, tbl.totalObj,
+        {}, data.name, data.sortable);
+      ts.global = ref.search.value || '';
+      const visible = filteredRows(ts);
+      const block = el('div', 'table-block');
+      block.appendChild(el('div', 'sub-table-title', tbl.title));
+      const wrap = el('div', 'tbl-wrap');
+      wrap.appendChild(buildTable(ts, visible, data));
+      block.appendChild(wrap);
+      row.appendChild(block);
+    });
+    ref.tableWrap.appendChild(row);
+    ref.tableWrap.querySelectorAll('.tbl-wrap').forEach(syncHeadHeight);
+    ref.count.textContent = '';
+  }
+
+  /** Высота шапки → отступ закреплённой итоговой строки. */
+  function syncHeadHeight(wrap) {
+    const thead = wrap.querySelector('thead');
+    if (thead) wrap.style.setProperty('--head-h', thead.offsetHeight + 'px');
+  }
+
+  function abcClass(value) {
+    const map = { 'А': 'A', 'В': 'B', 'С': 'C' }; // кириллица → латиница
+    const s = String(value || '').trim().toUpperCase();
+    const k = map[s] || s;
+    return (k === 'A' || k === 'B' || k === 'C') ? k : '';
+  }
+
+  function cellClasses(ts, pos, value, textCols) {
+    const cls = [];
+    if (pos === ts.meta.abcIdx && ts.meta.abcIdx >= 0) {
+      const k = abcClass(value);
+      cls.push('abc');
+      if (k) cls.push('abc-' + k);
+    }
+    if (textCols[pos]) cls.push('wrap');
+    return cls;
+  }
+
+  function buildTable(ts, rows, data) {
+    const table = el('table', 'report');
+    const thead = el('thead');
+    const headRow = el('tr');
+
+    const dateSeries = (ts.meta && ts.meta.dateSeries) || [];
+    const dateSet = new Set(ts.meta && ts.meta.dateColumns ? dateSeries.map(d => d.pos) : []);
+    const hasChart = dateSeries.length > 0;
+    const visible = ts.columns.map((col, pos) => ({ col, pos })).filter(x => !dateSet.has(x.pos));
+    const textCols = {};
+    visible.forEach(({ pos }) => { textCols[pos] = isTextColumn(ts, pos); });
+
+    visible.forEach(({ col, pos }) => {
+      const th = el('th');
+      th.title = col.label;
+      th.appendChild(el('span', 'th-label', col.label));
+      if (ts.sortable) {
+        th.classList.add('sortable');
+        if (ts.sortIdx === pos) th.appendChild(el('span', 'sort-ind', ts.sortDir > 0 ? '▲' : '▼'));
+        const filter = el('button', 'col-filter-btn', '▼');
+        filter.type = 'button';
+        filter.title = 'Фильтр столбца';
+        if (ts.filters[pos] && ts.filters[pos].size) filter.classList.add('on');
+        filter.addEventListener('click', e => {
+          e.stopPropagation();
+          openFilter(ts, pos, filter, () => redraw(ts));
+        });
+        th.appendChild(filter);
+        th.addEventListener('click', e => {
+          if (e.target.classList.contains('col-filter-btn')) return;
+          if (ts.sortIdx === pos) {
+            if (ts.sortDir === 1) ts.sortDir = -1; else { ts.sortIdx = -1; ts.sortDir = 1; }
+          } else { ts.sortIdx = pos; ts.sortDir = 1; }
+          redraw(ts);
+        });
+      }
+      headRow.appendChild(th);
+    });
+    if (hasChart) headRow.appendChild(el('th', 'chart-action-cell', 'График'));
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = el('tbody');
+    if (ts.total) {
+      const tr = el('tr', 'total-row');
+      visible.forEach(({ pos }) => {
+        const td = el('td', '', ts.total.t[pos]);
+        td.title = td.textContent;
+        tr.appendChild(td);
+      });
+      if (hasChart) tr.appendChild(el('td', 'chart-action-cell', ''));
+      tbody.appendChild(tr);
+    }
+
+    const frag = document.createDocumentFragment();
+    rows.forEach(row => {
+      const tr = el('tr');
+      visible.forEach(({ pos }) => {
+        const td = el('td', '', row.t[pos]);
+        cellClasses(ts, pos, row.v[pos], textCols).forEach(c => td.classList.add(c));
+        td.title = row.t[pos];
+        tr.appendChild(td);
+      });
+      if (hasChart) {
+        const td = el('td', 'chart-action-cell');
+        const points = seriesPoints(dateSeries, row);
+        const wrap = el('div', 'chart-cell');
+        if (points.length >= 2) {
+          const open = () => openRowChart(rowTitle(row, ts), points);
+          const spark = sparkline(points);
+          spark.addEventListener('click', open);
+          spark.style.cursor = 'pointer';
+          wrap.appendChild(spark);
+          const btn = el('button', 'row-chart-btn', 'Открыть');
+          btn.type = 'button';
+          btn.addEventListener('click', open);
+          wrap.appendChild(btn);
+        } else {
+          wrap.appendChild(el('span', 'spark-empty', '—'));
+        }
+        td.appendChild(wrap);
+        tr.appendChild(td);
+      }
+      frag.appendChild(tr);
+    });
+    tbody.appendChild(frag);
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function rowTitle(row, ts) {
+    // самый информативный текст строки: название/SKU, иначе первый непустой
+    const preferred = ts.columns.findIndex(c => /назв|name|товар|product/i.test(c.label));
+    const idx = preferred >= 0 && !isBlank(row.v[preferred]) ? preferred : row.v.findIndex((v, i) => i > 0 && !isBlank(v));
+    return idx >= 0 ? row.t[idx] : 'Показатель';
+  }
+
+  function redraw(ts) {
+    const entry = state.cache[ts.sheetName];
+    if (entry) renderPane(ts.sheetName, entry.data);
+  }
+
+  // ───────── фильтр столбца ─────────
+  function openFilter(ts, col, anchor, onApply) {
+    closeFilterPop();
+    const counts = {};
+    ts.rows.forEach(r => { const k = r.t[col]; counts[k] = (counts[k] || 0) + 1; });
+    const keys = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'ru', { numeric: true }));
+    const pop = el('div', 'filter-pop');
+    const search = el('input');
+    search.type = 'search';
+    search.placeholder = 'Найти значение…';
+    pop.appendChild(search);
+    const list = el('div', 'vals');
+    const checks = {};
+    keys.forEach(key => {
+      const label = el('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = ts.filters[col] ? ts.filters[col].has(key) : true;
+      checks[key] = cb;
+      label.append(cb, document.createTextNode((key || '(пусто)') + ' · ' + counts[key]));
+      list.appendChild(label);
+    });
+    pop.appendChild(list);
+    search.addEventListener('input', () => {
+      const q = search.value.toLowerCase();
+      keys.forEach(k => checks[k].parentNode.style.display = k.toLowerCase().includes(q) ? '' : 'none');
+    });
+    const actions = el('div', 'pop-actions');
+    const all = el('button', '', 'Все'), none = el('button', '', 'Снять'), apply = el('button', 'primary', 'Применить');
+    [all, none, apply].forEach(b => b.type = 'button');
+    actions.append(all, none, apply);
+    pop.appendChild(actions);
+    all.addEventListener('click', () => keys.forEach(k => checks[k].checked = true));
+    none.addEventListener('click', () => keys.forEach(k => checks[k].checked = false));
+    apply.addEventListener('click', () => {
+      const selected = keys.filter(k => checks[k].checked);
+      if (selected.length === keys.length) delete ts.filters[col];
+      else ts.filters[col] = new Set(selected);
+      closeFilterPop();
+      onApply();
+    });
+    document.body.appendChild(pop);
+    const rect = anchor.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 260)) + 'px';
+    pop.style.top = Math.max(8, Math.min(rect.bottom + 5, window.innerHeight - 320)) + 'px';
+    activePop = pop;
+    outsideCloseHandler = e => {
+      if (activePop && !activePop.contains(e.target) && e.target !== anchor) closeFilterPop();
+    };
+    setTimeout(() => document.addEventListener('mousedown', outsideCloseHandler), 0);
+  }
+
+  function closeFilterPop() {
+    if (outsideCloseHandler) document.removeEventListener('mousedown', outsideCloseHandler);
+    outsideCloseHandler = null;
+    if (activePop && activePop.parentNode) activePop.parentNode.removeChild(activePop);
+    activePop = null;
+  }
+
+  // ───────── графики ─────────
+  function parseDate(value) {
+    const m = String(value).match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    return m ? new Date(+m[3], +m[2] - 1, +m[1]).getTime() : 0;
+  }
+
+  function seriesPoints(dateSeries, row) {
+    return dateSeries
+      .map(d => ({ label: d.label, value: numOf(row.v[d.pos]), pct: (row.f[d.pos] || 0) >= 100 }))
+      .filter(p => !isNaN(p.value))
+      .sort((a, b) => parseDate(a.label) - parseDate(b.label));
+  }
+
+  function sparkline(points) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const w = 84, h = 24, pad = 2;
+    const vals = points.map(p => p.value);
+    const min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    const span = max - min || 1;
+    const pts = vals.map((v, i) => {
+      const x = pad + (i / (vals.length - 1)) * (w - pad * 2);
+      const y = h - pad - ((v - min) / span) * (h - pad * 2);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'spark');
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    const line = document.createElementNS(NS, 'polyline');
+    line.setAttribute('points', pts);
+    line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', '#ef7b22');
+    line.setAttribute('stroke-width', '1.6');
+    line.setAttribute('stroke-linejoin', 'round');
+    line.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(line);
+    return svg;
+  }
+
+  function openRowChart(title, points) {
+    if (typeof Chart === 'undefined') { toast('Не удалось загрузить библиотеку графиков'); return; }
+    if (points.length < 2) { toast('Для построения графика недостаточно числовых данных'); return; }
+
+    $('chartTitle').textContent = title;
+    $('chartModal').classList.add('on');
+    $('chartModal').setAttribute('aria-hidden', 'false');
+    if (chartInstance) chartInstance.destroy();
+
+    const isPercent = points.some(p => p.pct);
+    const values = points.map(p => isPercent ? Math.round(p.value * 10000) / 100 : Math.round(p.value));
+    const suffix = isPercent ? '%' : '';
+    chartInstance = new Chart($('trendCanvas').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: points.map(p => p.label),
+        datasets: [{
+          label: title, data: values, borderColor: '#ef7b22', backgroundColor: 'rgba(239,123,34,.13)',
+          fill: true, tension: .28, pointRadius: 2, pointHoverRadius: 5, borderWidth: 2, spanGaps: true
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => c.parsed.y.toLocaleString('ru-RU') + suffix } }
+        },
+        scales: {
+          x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } } },
+          y: { ticks: { font: { size: 10 }, callback: v => Number(v).toLocaleString('ru-RU') + suffix } }
+        }
+      }
+    });
+  }
+
+  function closeChart() {
+    $('chartModal').classList.remove('on');
+    $('chartModal').setAttribute('aria-hidden', 'true');
+    if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+  else boot();
+})();
+</script>
