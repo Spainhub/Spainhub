@@ -75,6 +75,12 @@ function getSheetsList() {
 
 // ───────────────────────── Вспомогательное ─────────────────────────
 
+/** Один вызов при старте: список листов + данные первой вкладки (быстрее, чем два вызова подряд). */
+function getBootstrap() {
+  const sheets = getSheetsList();
+  return { sheets, first: sheets.length ? getSheetData(sheets[0].name) : null };
+}
+
 function isBlank(v) { return v === '' || v === null || v === undefined; }
 
 function isDateHeader(value) {

@@ -3,6 +3,19 @@
   'use strict';
 
   const $ = id => document.getElementById(id);
+
+  // Диагностика: если скрипт выполнился — placeholder сразу меняется.
+  // Если на экране всё ещё «Подготовка приложения…», значит этот файл (Scripts) не загрузился.
+  (function () {
+    const p = document.getElementById('panes');
+    if (p) p.innerHTML = '<div class="state"><span class="spinner"></span>Запуск…</div>';
+    window.addEventListener('error', function (e) {
+      const box = document.getElementById('panes');
+      if (box && /Запуск|Подключение/.test(box.textContent)) {
+        box.innerHTML = '<div class="state">Ошибка скрипта: ' + String(e.message).replace(/</g, '&lt;') + '</div>';
+      }
+    });
+  })();
   const state = { sheets: [], activeSheet: null, cache: {} };
   const tableState = {};
   const requestCounter = {};
@@ -62,6 +75,17 @@
         .getSheetsList();
     });
   }
+  function apiBootstrap() {
+    return new Promise((resolve, reject) => {
+      if (typeof google === 'undefined' || !google.script || !google.script.run) {
+        reject(new Error('Google Apps Script недоступен. Откройте опубликованное Web App.'));
+        return;
+      }
+      google.script.run.withSuccessHandler(resolve)
+        .withFailureHandler(err => reject(new Error(errorText(err))))
+        .getBootstrap();
+    });
+  }
   function apiGetSheet(name) {
     return new Promise((resolve, reject) => {
       google.script.run.withSuccessHandler(resolve)
@@ -89,14 +113,21 @@
     });
 
     $('panes').innerHTML = '<div class="state"><span class="spinner"></span>Подключение к Google Sheets…</div>';
-    apiListSheets().then(sheets => {
+    apiBootstrap().then(boot => {
+      const sheets = boot && boot.sheets;
       if (!Array.isArray(sheets)) throw new Error('Некорректный ответ сервера.');
       state.sheets = sheets;
       $('panes').innerHTML = '';
       buildTabs();
       sheets.forEach(s => getOrCreatePane(s.name));
-      if (sheets.length) activateSheet(sheets[0].name);
-      else $('panes').innerHTML = '<div class="state">Не найдено доступных листов.</div>';
+      if (!sheets.length) { $('panes').innerHTML = '<div class="state">Не найдено доступных листов. Проверьте названия вкладок.</div>'; return; }
+      if (boot.first && boot.first.name === sheets[0].name) {
+        prepareData(boot.first);
+        state.cache[boot.first.name] = { loadedAt: Date.now(), data: boot.first };
+        $('dataStatus').textContent = 'Обновлено ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      }
+      activateSheet(sheets[0].name);
+      prefetchOthers();
     }).catch(err => {
       $('panes').innerHTML = '<div class="state">Ошибка подключения: ' + escapeHtml(errorText(err)) + '</div>';
     });
@@ -200,23 +231,18 @@
   }
 
   /** Фоновая подгрузка остальных листов — переключение вкладок становится мгновенным. */
+  /** Остальные листы грузятся параллельно в фоне — переключение вкладок мгновенное. */
   function prefetchOthers() {
     const token = ++prefetchToken;
-    const queue = state.sheets.map(s => s.name).filter(n => !state.cache[n]);
-    (function next() {
-      if (token !== prefetchToken || !queue.length) return;
-      const name = queue.shift();
-      if (state.cache[name]) return next();
+    state.sheets.map(s => s.name).filter(n => !state.cache[n]).forEach(name => {
       apiGetSheet(name).then(data => {
         if (token !== prefetchToken || state.cache[name] || !data || data.name !== name) return;
         prepareData(data);
         state.cache[name] = { loadedAt: Date.now(), data };
-      }).catch(() => {}).finally(next);
-    })();
+      }).catch(() => {});
+    });
   }
 
-  // ───────── подготовка данных ─────────
-  /** Превращает массивы значений/форматов в объекты строк {v, f, t}. */
   function toRows(values, fmts) {
     return (values || []).map((v, i) => {
       const f = (fmts && fmts[i]) || [];
