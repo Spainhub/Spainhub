@@ -435,6 +435,13 @@
 
     // быстрые фильтры по юнитам (Ozon Kvantum, Ozon Azimut, WB Kvantum, WB Azimut)
     const units = (ts.meta && ts.meta.units) || [];
+    if (units.length) {
+      const all = el('button', 'chip all' + (ts.unit ? '' : ' on'), 'Все');
+      all.type = 'button';
+      all.title = 'Показать все строки';
+      all.addEventListener('click', () => { ts.unit = null; redraw(ts); });
+      left.appendChild(all);
+    }
     units.forEach(name => {
       const key = normUnit(name);
       const chip = el('button', 'chip unit' + (ts.unit === key ? ' on' : ''), name);
@@ -447,6 +454,11 @@
     // отдельный фильтр ABC
     if (ts.meta && ts.meta.abcIdx >= 0) {
       left.appendChild(el('span', 'bar-label', 'ABC'));
+      const allAbc = el('button', 'chip all' + (ts.abcFilter.size ? '' : ' on'), 'Все');
+      allAbc.type = 'button';
+      allAbc.title = 'Показать все категории ABC';
+      allAbc.addEventListener('click', () => { ts.abcFilter.clear(); redraw(ts); });
+      left.appendChild(allAbc);
       ['A', 'B', 'C'].forEach(k => {
         const chip = el('button', 'chip abc-chip abc-' + k + (ts.abcFilter.has(k) ? ' on' : ''), k);
         chip.type = 'button';
@@ -672,7 +684,7 @@
         const points = seriesPoints(dateSeries, row);
         const wrap = el('div', 'chart-cell');
         if (points.length >= 2) {
-          const open = () => openRowChart(rowTitle(row, ts), points);
+          const open = () => openRowChart(rowInfo(row, ts), points);
           const spark = sparkline(points);
           spark.addEventListener('click', open);
           spark.style.cursor = 'pointer';
@@ -695,11 +707,22 @@
     return table;
   }
 
-  function rowTitle(row, ts) {
-    // самый информативный текст строки: название/SKU, иначе первый непустой
-    const preferred = ts.columns.findIndex(c => /назв|name|товар|product/i.test(c.label));
-    const idx = preferred >= 0 && !isBlank(row.v[preferred]) ? preferred : row.v.findIndex((v, i) => i > 0 && !isBlank(v));
-    return idx >= 0 ? row.t[idx] : 'Показатель';
+  /** Название товара + идентификаторы (SKU/артикулы) для заголовка графика. */
+  function rowInfo(row, ts) {
+    const cols = ts.columns;
+    const isId = c => /sku|артикул|баркод|barcode/i.test(c.label);
+    let nameIdx = cols.findIndex(c => !isId(c) && /назв|наимен|номенкл|name|товар|product/i.test(c.label));
+    if (nameIdx >= 0 && isBlank(row.v[nameIdx])) nameIdx = -1;
+    if (nameIdx < 0) {
+      // запасной вариант: первое непустое текстовое значение, не являющееся идентификатором
+      nameIdx = cols.findIndex((c, i) => i > 0 && !isId(c) && typeof row.v[i] === 'string' && !isBlank(row.v[i]));
+    }
+    const ids = [];
+    cols.forEach((c, i) => {
+      if (isId(c) && !isBlank(row.v[i])) ids.push(c.label + ': ' + row.t[i]);
+    });
+    const name = nameIdx >= 0 ? row.t[nameIdx] : '';
+    return { name: name || (ids.length ? ids[0].replace(/^[^:]+:\s*/, '') : 'Показатель'), ids: ids.join(' · ') };
   }
 
   function redraw(ts) {
@@ -804,11 +827,13 @@
     return svg;
   }
 
-  function openRowChart(title, points) {
+  function openRowChart(info, points) {
+    const title = info.name;
     if (typeof Chart === 'undefined') { toast('Не удалось загрузить библиотеку графиков'); return; }
     if (points.length < 2) { toast('Для построения графика недостаточно числовых данных'); return; }
 
     $('chartTitle').textContent = title;
+    $('chartSub').textContent = info.ids || '';
     $('chartModal').classList.add('on');
     $('chartModal').setAttribute('aria-hidden', 'false');
     if (chartInstance) chartInstance.destroy();
