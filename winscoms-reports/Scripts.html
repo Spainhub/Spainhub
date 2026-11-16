@@ -177,13 +177,14 @@
     pane.hidden = true;
 
     const info = el('div', 'info');
+    const viewBar = el('div', 'view-bar-host');
     const tableWrap = el('div', 'tbl-wrap');
     const stateBox = el('div', 'state');
     tableWrap.appendChild(stateBox);
-    pane.append(info, tableWrap);
+    pane.append(info, viewBar, tableWrap);
     $('panes').appendChild(pane);
 
-    const ref = { pane, info, tableWrap, state: stateBox };
+    const ref = { pane, info, viewBar, tableWrap, state: stateBox };
     pane._ref = ref;
     return ref;
   }
@@ -199,6 +200,7 @@
     ref.state.style.display = '';
     ref.state.innerHTML = '<span class="spinner"></span>Загружаю данные…';
     ref.tableWrap.style.display = 'none';
+    ref.viewBar.innerHTML = '';
     $('rowCount').textContent = '';
     $('btnReload').disabled = true;
     $('dataStatus').textContent = 'Загрузка…';
@@ -318,7 +320,7 @@
       ts = tableState[key] = {
         key, _data: data, columns: columns || [], rows: rows || [], total: total || null,
         meta: meta || {}, sheetName, sortable,
-        sortIdx: -1, sortDir: 1, filters: {}, global: ''
+        sortIdx: -1, sortDir: 1, filters: {}, global: '', abcFilter: new Set(), unit: null
       };
     }
     return ts;
@@ -332,6 +334,12 @@
         const set = ts.filters[k];
         return !set || !set.size || set.has(row.t[Number(k)]);
       }));
+    }
+    if (ts.abcFilter.size && ts.meta.abcIdx >= 0) {
+      rows = rows.filter(row => ts.abcFilter.has(abcClass(row.v[ts.meta.abcIdx])));
+    }
+    if (ts.unit) {
+      rows = rows.filter(row => row.t.slice(0, 3).some(x => normUnit(x).indexOf(ts.unit) !== -1));
     }
     const q = ts.global.trim().toLowerCase();
     if (q) rows = rows.filter(row => row.t.some(x => x.toLowerCase().includes(q)));
@@ -359,6 +367,8 @@
     const rows = filteredRows(ts);
 
     ref.state.style.display = 'none';
+    ref.viewBar.innerHTML = '';
+    ref.viewBar.appendChild(buildViewBar(ts));
     ref.tableWrap.style.display = '';
     ref.tableWrap.className = 'tbl-wrap';
     ref.tableWrap.innerHTML = '';
@@ -367,19 +377,24 @@
     $('rowCount').textContent = 'Строк: ' + rows.length + ' / ' + ts.rows.length;
   }
 
+  /** Несколько таблиц на листе — одна под другой. */
   function renderTwoTables(ref, data) {
     ref.state.style.display = 'none';
+    ref.viewBar.innerHTML = '';
     ref.tableWrap.style.display = '';
     ref.tableWrap.className = 'pl';
     ref.tableWrap.innerHTML = '';
     const row = el('div', 'tables-row');
     (data.tables || []).forEach(tbl => {
       const ts = getTableState(data.name + '|' + tbl.key, data, tbl.columns, tbl.rowObjs, tbl.totalObj,
-        {}, data.name, data.sortable);
+        { abcIdx: tbl.abcIdx, units: tbl.units || [] }, data.name, data.sortable);
       ts.global = $('globalSearch').value || '';
       const visible = filteredRows(ts);
       const block = el('div', 'table-block');
-      block.appendChild(el('div', 'sub-table-title', tbl.title));
+      const head = el('div', 'table-head');
+      head.appendChild(el('div', 'sub-table-title', tbl.title));
+      head.appendChild(buildViewBar(ts));
+      block.appendChild(head);
       const wrap = el('div', 'tbl-wrap');
       wrap.appendChild(buildTable(ts, visible, data));
       block.appendChild(wrap);
@@ -388,6 +403,114 @@
     ref.tableWrap.appendChild(row);
     ref.tableWrap.querySelectorAll('.tbl-wrap').forEach(syncHeadHeight);
     $('rowCount').textContent = '';
+  }
+
+  // ───────── скрытие/показ столбцов, фильтр ABC, быстрые фильтры по юнитам ─────────
+  const hiddenStore = {};
+  const LS_PREFIX = 'wc.hidden.';
+
+  function lsGet(key) {
+    try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
+  }
+  function lsSet(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* хранилище недоступно */ }
+  }
+  function hiddenSet(ts) {
+    if (!hiddenStore[ts.key]) hiddenStore[ts.key] = new Set(lsGet(LS_PREFIX + ts.key) || []);
+    return hiddenStore[ts.key];
+  }
+  function normUnit(text) {
+    return String(text || '').toLowerCase().replace(/[^a-zа-я0-9]/g, '').replace(/ozon/g, 'oz');
+  }
+
+  /** Столбцы, которые можно скрывать (столбцы-даты WB уходят в график и в список не попадают). */
+  function togglableColumns(ts) {
+    const dates = new Set(ts.meta && ts.meta.dateColumns ? (ts.meta.dateSeries || []).map(d => d.pos) : []);
+    return ts.columns.map((col, pos) => ({ col, pos })).filter(x => !dates.has(x.pos));
+  }
+
+  function buildViewBar(ts) {
+    const bar = el('div', 'view-bar');
+    const left = el('div', 'view-left');
+
+    // быстрые фильтры по юнитам (Ozon Kvantum, Ozon Azimut, WB Kvantum, WB Azimut)
+    const units = (ts.meta && ts.meta.units) || [];
+    units.forEach(name => {
+      const key = normUnit(name);
+      const chip = el('button', 'chip unit' + (ts.unit === key ? ' on' : ''), name);
+      chip.type = 'button';
+      chip.title = 'Показать только: ' + name;
+      chip.addEventListener('click', () => { ts.unit = ts.unit === key ? null : key; redraw(ts); });
+      left.appendChild(chip);
+    });
+
+    // отдельный фильтр ABC
+    if (ts.meta && ts.meta.abcIdx >= 0) {
+      left.appendChild(el('span', 'bar-label', 'ABC'));
+      ['A', 'B', 'C'].forEach(k => {
+        const chip = el('button', 'chip abc-chip abc-' + k + (ts.abcFilter.has(k) ? ' on' : ''), k);
+        chip.type = 'button';
+        chip.title = 'Фильтр ABC: ' + k;
+        chip.addEventListener('click', () => {
+          if (ts.abcFilter.has(k)) ts.abcFilter.delete(k); else ts.abcFilter.add(k);
+          redraw(ts);
+        });
+        left.appendChild(chip);
+      });
+    }
+    bar.appendChild(left);
+
+    const hidden = hiddenSet(ts);
+    const total = togglableColumns(ts).length;
+    const shown = togglableColumns(ts).filter(x => !hidden.has(x.col.label)).length;
+    const btn = el('button', 'cols-btn' + (shown < total ? ' on' : ''), 'Столбцы ' + shown + '/' + total + ' ▾');
+    btn.type = 'button';
+    btn.addEventListener('click', e => { e.stopPropagation(); openColumnsPicker(ts, btn, () => redraw(ts)); });
+    bar.appendChild(btn);
+    return bar;
+  }
+
+  function openColumnsPicker(ts, anchor, onApply) {
+    closeFilterPop();
+    const hidden = hiddenSet(ts);
+    const items = togglableColumns(ts);
+    const pop = el('div', 'filter-pop');
+    pop.appendChild(el('div', 'pop-title', 'Показать столбцы'));
+    const list = el('div', 'vals');
+    const checks = items.map(({ col }) => {
+      const label = el('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !hidden.has(col.label);
+      label.append(cb, document.createTextNode(col.label || '(без названия)'));
+      list.appendChild(label);
+      return cb;
+    });
+    pop.appendChild(list);
+    const actions = el('div', 'pop-actions');
+    const all = el('button', '', 'Все'), none = el('button', '', 'Снять'), apply = el('button', 'primary', 'Применить');
+    [all, none, apply].forEach(b => b.type = 'button');
+    actions.append(all, none, apply);
+    pop.appendChild(actions);
+    all.addEventListener('click', () => checks.forEach(c => c.checked = true));
+    none.addEventListener('click', () => checks.forEach(c => c.checked = false));
+    apply.addEventListener('click', () => {
+      if (!checks.some(c => c.checked)) { toast('Оставьте хотя бы один столбец'); return; }
+      hidden.clear();
+      items.forEach(({ col }, i) => { if (!checks[i].checked) hidden.add(col.label); });
+      lsSet(LS_PREFIX + ts.key, Array.from(hidden));
+      closeFilterPop();
+      onApply();
+    });
+    document.body.appendChild(pop);
+    const rect = anchor.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(rect.right - 250, window.innerWidth - 260)) + 'px';
+    pop.style.top = Math.max(8, Math.min(rect.bottom + 5, window.innerHeight - 340)) + 'px';
+    activePop = pop;
+    outsideCloseHandler = e => {
+      if (activePop && !activePop.contains(e.target) && e.target !== anchor) closeFilterPop();
+    };
+    setTimeout(() => document.addEventListener('mousedown', outsideCloseHandler), 0);
   }
 
   /** Высота шапки → отступ закреплённой итоговой строки. */
@@ -467,7 +590,8 @@
     const dateSeries = (ts.meta && ts.meta.dateSeries) || [];
     const dateSet = new Set(ts.meta && ts.meta.dateColumns ? dateSeries.map(d => d.pos) : []);
     const hasChart = dateSeries.length > 0;
-    const visible = ts.columns.map((col, pos) => ({ col, pos })).filter(x => !dateSet.has(x.pos));
+    const hiddenCols = hiddenSet(ts);
+    const visible = ts.columns.map((col, pos) => ({ col, pos })).filter(x => !dateSet.has(x.pos) && !hiddenCols.has(x.col.label));
 
     const widths = widthStore[ts.key] || (widthStore[ts.key] = {});
     visible.forEach(({ pos }) => { if (widths[pos] == null) widths[pos] = autoWidth(ts, pos); });

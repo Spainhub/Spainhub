@@ -8,6 +8,7 @@
  *   строки 3–5    — дополнительная информация (выводится «как в таблице»)
  *   строка 6      — шапка таблицы
  *   строка 7      — (OZ_UNIT*, WB_UNIT*) фиксированная итоговая строка
+ *   WB&OZ         — две таблицы: шапка 1-й в строке 6, шапка 2-й в строке 11
  *   строка 7/8+   — данные
  */
 
@@ -15,10 +16,13 @@ const HEADER_ROWS = 5;   // строки 1–5: информационный б�
 const TABLE_HEAD_ROW = 6; // строка шапки таблицы
 
 const SHEETS_CONFIG = {
+  // Две таблицы одна под другой. headRow — строка шапки; данные идут до шапки следующей таблицы.
   'WB&OZ': {
     title: 'WB & OZ Svod',
-    twoTables: true,        // слева Wildberries, справа Ozon
-    sortable: false         // P&L читается в заданном порядке строк
+    tables: [
+      { key: 'WB', title: 'Wildberries', headRow: 6,  units: ['WB Kvantum', 'WB Azimut'] },
+      { key: 'OZ', title: 'Ozon',        headRow: 11, units: ['Ozon Kvantum', 'Ozon Azimut'] }
+    ]
   },
   'OZ_UNIT1': { title: 'Ozon Kvantum', stickyTotal: true, marketplace: true },
   'OZ_UNIT2': { title: 'Ozon Azimut',  stickyTotal: true, marketplace: true },
@@ -160,7 +164,9 @@ function getSheetData(sheetName) {
   if (!sheet) throw new Error('Лист не найден: ' + sheetName);
 
   const tz = ss.getSpreadsheetTimeZone();
-  const lastRow = Math.max(sheet.getLastRow(), TABLE_HEAD_ROW);
+  const headRows = cfg.tables ? cfg.tables.map(t => t.headRow) : [];
+  const maxHead = Math.max.apply(null, [TABLE_HEAD_ROW].concat(headRows));
+  const lastRow = Math.max(sheet.getLastRow(), maxHead);
   const lastCol = Math.max(sheet.getLastColumn(), 1);
 
   const range = sheet.getRange(1, 1, lastRow, lastCol);
@@ -170,7 +176,7 @@ function getSheetData(sheetName) {
 
   // Реальная ширина: последний непустой столбец среди строк 1–6
   let width = 0;
-  for (let r = 0; r < TABLE_HEAD_ROW; r++) {
+  for (let r = 0; r < maxHead; r++) {
     for (let c = lastCol - 1; c >= width; c--) {
       if (!isBlank(raw[r][c])) { width = c + 1; break; }
     }
@@ -183,7 +189,7 @@ function getSheetData(sheetName) {
   if (lastRow < TABLE_HEAD_ROW) {
     return Object.assign(base, { meta: {}, columns: [], rows: [], fmts: [], totalRow: null });
   }
-  if (cfg.twoTables) return Object.assign(base, buildTwoTables(raw, fmts, tz, labels, width));
+  if (cfg.tables) return Object.assign(base, buildStackedTables(cfg, raw, fmts, tz, width));
   return Object.assign(base, buildUnitTable(cfg, raw, fmts, tz, labels, width));
 }
 
@@ -256,45 +262,33 @@ function buildUnitTable(cfg, raw, fmts, tz, labels, width) {
   };
 }
 
-function buildTwoTables(raw, fmts, tz, labels, width) {
-  // Блок WB — до первой пустой ячейки шапки; блок OZ — после неё.
-  let splitCol = -1, seen = false;
-  for (let c = 0; c < width; c++) {
-    if (!isBlank(labels[c])) seen = true;
-    else if (seen) { splitCol = c; break; }
-  }
-  if (splitCol < 0) splitCol = Math.floor(width / 2);
+/** Несколько таблиц на одном листе, расположенных друг под другом. */
+function buildStackedTables(cfg, raw, fmts, tz, width) {
+  const heads = cfg.tables.map(t => t.headRow - 1); // 0-based индексы строк шапок
 
-  let ozStart = splitCol;
-  while (ozStart < width && isBlank(labels[ozStart])) ozStart++;
+  const tables = cfg.tables.map((t, n) => {
+    const h = t.headRow - 1;
+    const end = n + 1 < heads.length ? heads[n + 1] : raw.length;
+    const labels = (raw[h] || []).map(v => String(serializeValue(v, tz)));
 
-  function cols(from, to) {
-    const out = [];
-    for (let c = from; c < to; c++) if (!isBlank(labels[c])) out.push({ idx: c, label: String(labels[c]) });
-    return out;
-  }
-
-  function makeTable(key, title, columns) {
+    const columns = [];
+    for (let c = 0; c < width; c++) {
+      if (!isBlank(labels[c])) columns.push({ idx: c, label: String(labels[c]) });
+    }
     const idCols = {};
     columns.forEach(col => { if (ID_HEADER_RE.test(col.label.trim())) idCols[col.idx] = true; });
-    // Подпись строки — столбец «Parameters» (второй столбец блока)
-    const labelCol = columns.length > 1 ? columns[1].idx : -1;
     const colIdx = columns.map(c => c.idx);
-    const m = buildMatrix(raw, fmts, tz, labels, labelCol, idCols, TABLE_HEAD_ROW, raw.length, colIdx);
+    const abcIdx = columns.findIndex(c => /^abc$/i.test(c.label.trim()));
+
+    const m = buildMatrix(raw, fmts, tz, labels, -1, idCols, h + 1, end, colIdx);
     const rows = [], rowFmts = [];
     m.v.forEach((vals, i) => {
       if (rowHasData(vals)) { rows.push(vals); rowFmts.push(m.f[i]); }
     });
-    return { key, title, columns, rows, fmts: rowFmts, totalRow: null };
-  }
+    return { key: t.key, title: t.title, units: t.units || [], abcIdx, columns, rows, fmts: rowFmts, totalRow: null };
+  });
 
-  return {
-    meta: { twoTables: true },
-    tables: [
-      makeTable('WB', 'Wildberries', cols(0, splitCol)),
-      makeTable('OZ', 'Ozon', cols(ozStart, width))
-    ]
-  };
+  return { meta: { twoTables: true }, tables };
 }
 
 function testConnection() {
