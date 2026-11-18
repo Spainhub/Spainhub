@@ -310,19 +310,53 @@
     box.appendChild(table);
   }
 
-  // ───────── диаграммы WB & OZ: столбцы — выручка, линия с градиентом — маржинальная прибыль ─────────
+  // ───────── диаграммы WB & OZ ─────────
+  // Столбец = выручка магазина (WB — фиолетовый, Ozon — синий).
+  // Оранжевая зона внутри столбца = маржинальная прибыль (накопленная за период).
   let plCharts = [];
+  const BRAND_ORANGE = '#ff7f57';
 
   function destroyPlCharts() { plCharts.forEach(c => c.destroy()); plCharts = []; }
 
-  function lineGradient(context) {
-    const area = context.chart.chartArea;
-    if (!area) return '#4f46e5';
-    const g = context.chart.ctx.createLinearGradient(area.left, 0, area.right, 0);
-    g.addColorStop(0, '#14b8a6');
-    g.addColorStop(1, '#4f46e5');
-    return g;
+  /** Текст периода: «01.10.2026 – 31.10.2026 · 31 days»; если у магазинов разные периоды — по каждому. */
+  function periodText(ch) {
+    const p = ch.period || {};
+    const n = Math.max((p.from || []).length, (p.to || []).length, (p.days || []).length);
+    const parts = [];
+    for (let i = 0; i < n; i++) {
+      const from = (p.from || [])[i] || '', to = (p.to || [])[i] || '', days = (p.days || [])[i] || '';
+      let t = from && to ? from + ' – ' + to : (from || to);
+      if (days) t += (t ? ' · ' : '') + days + ' days';
+      parts.push(t);
+    }
+    const nonEmpty = parts.filter(Boolean);
+    if (!nonEmpty.length) return '';
+    if (nonEmpty.every(x => x === nonEmpty[0])) return 'Period: ' + nonEmpty[0];
+    return 'Period: ' + parts.map((t, i) => (ch.labels[i] || '') + ' ' + t).join('; ');
   }
+
+  /** Подпись значения прибыли внутри оранжевой зоны (если зона достаточно высокая). */
+  const profitLabelPlugin = {
+    id: 'profitLabel',
+    afterDatasetsDraw(chart) {
+      const meta = chart.getDatasetMeta(1);
+      const ds = chart.data.datasets[1];
+      const ctx = chart.ctx;
+      meta.data.forEach((bar, i) => {
+        const v = ds.data[i];
+        if (v === null || v === undefined) return;
+        const h = Math.abs(bar.base - bar.y);
+        if (h < 20) return;
+        ctx.save();
+        ctx.fillStyle = '#fff';
+        ctx.font = '700 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 0 }), bar.x, (bar.y + bar.base) / 2);
+        ctx.restore();
+      });
+    }
+  };
 
   function renderCharts(ref, data) {
     if (ref._chartsFor === data) return; // уже нарисованы для этих данных
@@ -336,27 +370,35 @@
     const fmt = v => Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
     data.charts.forEach(ch => {
       if (!ch.labels || !ch.labels.length) return;
+      const color = ch.color || '#7b61a5';
       const card = el('div', 'chart-card');
       card.appendChild(el('div', 'chart-card-title', ch.title));
+      const per = periodText(ch);
+      if (per) card.appendChild(el('div', 'chart-card-period', per));
       const wrap = el('div', 'chart-card-canvas');
       const canvas = document.createElement('canvas');
       wrap.appendChild(canvas);
       card.appendChild(wrap);
       grid.appendChild(card);
+
+      // подписи оси X: магазин + длительность в днях
+      const xLabels = ch.labels.map((l, i) => {
+        const d = (ch.period && ch.period.days && ch.period.days[i]) || '';
+        return d ? [l, d + ' days'] : l;
+      });
       plCharts.push(new Chart(canvas.getContext('2d'), {
         type: 'bar',
+        plugins: [profitLabelPlugin],
         data: {
-          labels: ch.labels,
+          labels: xLabels,
           datasets: [
             {
-              type: 'bar', label: 'Revenue', data: ch.revenue, yAxisID: 'y', order: 2,
-              backgroundColor: 'rgba(239,123,34,.88)', borderRadius: 6, maxBarThickness: 72
+              label: 'Revenue', data: ch.revenue, order: 2, grouped: false,
+              backgroundColor: color, borderRadius: 6, borderSkipped: false, maxBarThickness: 90
             },
             {
-              type: 'line', label: 'Marginal profit', data: ch.profit, yAxisID: 'y1', order: 1,
-              borderColor: lineGradient, backgroundColor: lineGradient, pointBackgroundColor: lineGradient,
-              pointBorderColor: '#fff', pointBorderWidth: 2, pointRadius: 6, pointHoverRadius: 8,
-              borderWidth: 4, tension: 0.35, spanGaps: true
+              label: 'Marginal profit (cumulative)', data: ch.profit, order: 1, grouped: false,
+              backgroundColor: BRAND_ORANGE, borderRadius: 0, borderSkipped: false, maxBarThickness: 90
             }
           ]
         },
@@ -365,14 +407,19 @@
           interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-            tooltip: { callbacks: { label: c => c.dataset.label + ': ' + fmt(c.parsed.y) } }
+            tooltip: {
+              callbacks: {
+                label: c => c.dataset.label + ': ' + fmt(c.parsed.y),
+                afterBody: items => {
+                  const i = items[0].dataIndex, rev = ch.revenue[i], pr = ch.profit[i];
+                  return rev && pr !== null && pr !== undefined ? ['Margin: ' + (pr / rev * 100).toFixed(1).replace('.', ',') + '%'] : [];
+                }
+              }
+            }
           },
           scales: {
             x: { grid: { display: false }, ticks: { font: { size: 11 } } },
-            y: { position: 'left', title: { display: true, text: 'Revenue', font: { size: 10 } },
-                 ticks: { font: { size: 10 }, callback: v => fmt(v) }, beginAtZero: true },
-            y1: { position: 'right', title: { display: true, text: 'Marginal profit', font: { size: 10 } },
-                  grid: { drawOnChartArea: false }, ticks: { font: { size: 10 }, callback: v => fmt(v) } }
+            y: { beginAtZero: true, ticks: { font: { size: 10 }, callback: v => fmt(v) } }
           }
         }
       }));
@@ -998,7 +1045,7 @@
     const line = document.createElementNS(NS, 'polyline');
     line.setAttribute('points', pts);
     line.setAttribute('fill', 'none');
-    line.setAttribute('stroke', '#ef7b22');
+    line.setAttribute('stroke', '#ff7f57');
     line.setAttribute('stroke-width', '1.6');
     line.setAttribute('stroke-linejoin', 'round');
     line.setAttribute('stroke-linecap', 'round');
@@ -1025,7 +1072,7 @@
       data: {
         labels: points.map(p => p.label),
         datasets: [{
-          label: title, data: values, borderColor: '#ef7b22', backgroundColor: 'rgba(239,123,34,.13)',
+          label: title, data: values, borderColor: '#ff7f57', backgroundColor: 'rgba(255,127,87,.14)',
           fill: true, tension: .28, pointRadius: 2, pointHoverRadius: 5, borderWidth: 2, spanGaps: true
         }]
       },

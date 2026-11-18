@@ -33,9 +33,15 @@ const SHEETS_CONFIG = {
       { key: 'OZ', title: 'Ozon',        headRow: 11, units: ['Ozon Kvantum', 'Ozon Azimut'] }
     ],
     // Диаграммы: столбцы — выручка по магазинам, линия с градиентом — маржинальная прибыль
+    // Диаграммы: столбец — выручка по магазину, оранжевая зона внутри столбца — маржинальная прибыль.
+    // period — даты и «Кол. дней» из таблицы (период расчёта).
     charts: [
-      { title: 'Wildberries — Revenue and Marginal profit by store', store: 'B7:B8',   revenue: 'C7:C8',   profit: 'O7:O8' },
-      { title: 'Ozon — Revenue and Marginal profit by store',        store: 'B12:B13', revenue: 'C12:C13', profit: 'L12:L13' }
+      { title: 'Wildberries — Revenue and Marginal profit by store', color: '#7b61a5',
+        store: 'B7:B8', revenue: 'C7:C8', profit: 'O7:O8',
+        from: 'Q7:Q8', to: 'R7:R8', days: 'S7:S8' },
+      { title: 'Ozon — Revenue and Marginal profit by store', color: '#3f8ae0',
+        store: 'B12:B13', revenue: 'C12:C13', profit: 'L12:L13',
+        from: 'N12:N13', to: 'O12:O13', days: 'P12:P13' }
     ]
   },
   'OZ_UNIT1': { title: 'OZ Unit 1', stickyTotal: true, marketplace: true },
@@ -333,7 +339,13 @@ function buildCharts(sheet, cfg) {
     title: ch.title,
     labels: flat(sheet.getRange(ch.store).getDisplayValues()).map(String),
     revenue: flat(sheet.getRange(ch.revenue).getValues()).map(num),
-    profit: flat(sheet.getRange(ch.profit).getValues()).map(num)
+    profit: flat(sheet.getRange(ch.profit).getValues()).map(num),
+    color: ch.color || '',
+    period: {
+      from: ch.from ? flat(sheet.getRange(ch.from).getDisplayValues()).map(String) : [],
+      to: ch.to ? flat(sheet.getRange(ch.to).getDisplayValues()).map(String) : [],
+      days: ch.days ? flat(sheet.getRange(ch.days).getDisplayValues()).map(String) : []
+    }
   }));
 }
 
