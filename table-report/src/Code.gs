@@ -31,14 +31,19 @@ const SHEETS_CONFIG = {
     tables: [
       { key: 'WB', title: 'Wildberries', headRow: 6,  units: ['WB Kvantum', 'WB Azimut'] },
       { key: 'OZ', title: 'Ozon',        headRow: 11, units: ['Ozon Kvantum', 'Ozon Azimut'] }
+    ],
+    // Диаграммы: столбцы — выручка по магазинам, линия с градиентом — маржинальная прибыль
+    charts: [
+      { title: 'Wildberries — Revenue and Marginal profit by store', store: 'B7:B8',   revenue: 'C7:C8',   profit: 'O7:O8' },
+      { title: 'Ozon — Revenue and Marginal profit by store',        store: 'B12:B13', revenue: 'C12:C13', profit: 'L12:L13' }
     ]
   },
-  'OZ_UNIT1': { title: 'OZ Rp Kvantum', stickyTotal: true, marketplace: true },
-  'OZ_UNIT2': { title: 'OZ Rp Azimut',  stickyTotal: true, marketplace: true },
-  'WB_UNIT1': { title: 'WB Rp Kvantum', stickyTotal: true, dateColumns: true, marketplace: true },
-  'WB_UNIT2': { title: 'WB Rp Azimut',  stickyTotal: true, dateColumns: true, marketplace: true },
-  'OZPL1':    { title: 'OZ Stock Kvantum', infoRows: 4, headRow: 5, stickyTotal: true },
-  'OZPL2':    { title: 'OZ Stock Azimut',  infoRows: 4, headRow: 5, stickyTotal: true },
+  'OZ_UNIT1': { title: 'OZ Unit 1', stickyTotal: true, marketplace: true },
+  'OZ_UNIT2': { title: 'OZ Unit 2',  stickyTotal: true, marketplace: true },
+  'WB_UNIT1': { title: 'WB Unit 1', stickyTotal: true, dateColumns: true, marketplace: true },
+  'WB_UNIT2': { title: 'WB Unit 2',  stickyTotal: true, dateColumns: true, marketplace: true },
+  'OZPL1':    { title: 'OZ Stock 1', infoRows: 4, headRow: 5, stickyTotal: true },
+  'OZPL2':    { title: 'OZ Stock 2',  infoRows: 4, headRow: 5, stickyTotal: true },
   'LINK':     { title: 'LINK', view: true, range: 'A1:J30' }
 };
 
@@ -213,6 +218,7 @@ function getSheetData(sheetName) {
   const info = buildInfoBlock(sheet, raw, fmts, tz, width, infoRows);
   const base = { name: sheetName, info, sortable: cfg.sortable !== false };
 
+  if (cfg.charts) base.charts = buildCharts(sheet, cfg);
   if (cfg.tables) return Object.assign(base, buildStackedTables(cfg, raw, fmts, tz, width));
   return Object.assign(base, buildUnitTable(cfg, raw, fmts, tz, labels, width, head));
 }
@@ -313,6 +319,22 @@ function buildStackedTables(cfg, raw, fmts, tz, width) {
   });
 
   return { meta: { twoTables: true }, tables };
+}
+
+/** Данные диаграмм берутся напрямую из указанных диапазонов (например B7:B8, C7:C8, O7:O8). */
+function buildCharts(sheet, cfg) {
+  const flat = arr => [].concat.apply([], arr);
+  const num = v => {
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+    return isFinite(n) ? n : null;
+  };
+  return cfg.charts.map(ch => ({
+    title: ch.title,
+    labels: flat(sheet.getRange(ch.store).getDisplayValues()).map(String),
+    revenue: flat(sheet.getRange(ch.revenue).getValues()).map(num),
+    profit: flat(sheet.getRange(ch.profit).getValues()).map(num)
+  }));
 }
 
 // ───────────────────────── Лист «как есть» (LINK) ─────────────────────────

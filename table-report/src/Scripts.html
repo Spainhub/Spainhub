@@ -182,14 +182,15 @@
     pane.hidden = true;
 
     const info = el('div', 'info');
+    const chartBox = el('div', 'chart-box');
     const viewBar = el('div', 'view-bar-host');
     const tableWrap = el('div', 'tbl-wrap');
     const stateBox = el('div', 'state');
     tableWrap.appendChild(stateBox);
-    pane.append(info, viewBar, tableWrap);
+    pane.append(info, chartBox, viewBar, tableWrap);
     $('panes').appendChild(pane);
 
-    const ref = { pane, info, viewBar, tableWrap, state: stateBox };
+    const ref = { pane, info, chartBox, viewBar, tableWrap, state: stateBox };
     pane._ref = ref;
     return ref;
   }
@@ -309,6 +310,76 @@
     box.appendChild(table);
   }
 
+  // ───────── диаграммы WB & OZ: столбцы — выручка, линия с градиентом — маржинальная прибыль ─────────
+  let plCharts = [];
+
+  function destroyPlCharts() { plCharts.forEach(c => c.destroy()); plCharts = []; }
+
+  function lineGradient(context) {
+    const area = context.chart.chartArea;
+    if (!area) return '#4f46e5';
+    const g = context.chart.ctx.createLinearGradient(area.left, 0, area.right, 0);
+    g.addColorStop(0, '#14b8a6');
+    g.addColorStop(1, '#4f46e5');
+    return g;
+  }
+
+  function renderCharts(ref, data) {
+    if (ref._chartsFor === data) return; // уже нарисованы для этих данных
+    destroyPlCharts();
+    ref.chartBox.innerHTML = '';
+    ref._chartsFor = data;
+    if (!data.charts || !data.charts.length) return;
+    if (typeof Chart === 'undefined') { ref.chartBox.appendChild(el('div', 'state', 'Не удалось загрузить библиотеку графиков')); return; }
+
+    const grid = el('div', 'chart-grid');
+    const fmt = v => Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+    data.charts.forEach(ch => {
+      if (!ch.labels || !ch.labels.length) return;
+      const card = el('div', 'chart-card');
+      card.appendChild(el('div', 'chart-card-title', ch.title));
+      const wrap = el('div', 'chart-card-canvas');
+      const canvas = document.createElement('canvas');
+      wrap.appendChild(canvas);
+      card.appendChild(wrap);
+      grid.appendChild(card);
+      plCharts.push(new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: ch.labels,
+          datasets: [
+            {
+              type: 'bar', label: 'Revenue', data: ch.revenue, yAxisID: 'y', order: 2,
+              backgroundColor: 'rgba(239,123,34,.88)', borderRadius: 6, maxBarThickness: 72
+            },
+            {
+              type: 'line', label: 'Marginal profit', data: ch.profit, yAxisID: 'y1', order: 1,
+              borderColor: lineGradient, backgroundColor: lineGradient, pointBackgroundColor: lineGradient,
+              pointBorderColor: '#fff', pointBorderWidth: 2, pointRadius: 6, pointHoverRadius: 8,
+              borderWidth: 4, tension: 0.35, spanGaps: true
+            }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: { callbacks: { label: c => c.dataset.label + ': ' + fmt(c.parsed.y) } }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+            y: { position: 'left', title: { display: true, text: 'Revenue', font: { size: 10 } },
+                 ticks: { font: { size: 10 }, callback: v => fmt(v) }, beginAtZero: true },
+            y1: { position: 'right', title: { display: true, text: 'Marginal profit', font: { size: 10 } },
+                  grid: { drawOnChartArea: false }, ticks: { font: { size: 10 }, callback: v => fmt(v) } }
+          }
+        }
+      }));
+    });
+    ref.chartBox.appendChild(grid);
+  }
+
   // ───────── лист «как есть» (LINK): текст, ссылки, форматирование ─────────
   const SAFE_URL_RE = /^(https?:\/\/|mailto:|tel:)/i;
   const AUTO_URL_RE = /(https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]])/g;
@@ -417,6 +488,7 @@
     const ref = pane._ref;
     if (data.view) { renderView(ref, data); return; }
     renderInfo(ref.info, data.info);
+    renderCharts(ref, data);
     if (data.meta && data.meta.twoTables) renderTwoTables(ref, data);
     else renderSingleTable(ref, data);
   }
