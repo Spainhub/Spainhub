@@ -39,7 +39,7 @@ const SHEETS_CONFIG = {
       { title: 'Wildberries — Revenue and Marginal profit by store', color: '#7b61a5',
         store: 'B7:B8', revenue: 'C7:C8', profit: 'O7:O8',
         from: 'Q7:Q8', to: 'R7:R8', days: 'S7:S8' },
-      { title: 'Ozon — Revenue and Marginal profit by store', color: '#3f8ae0',
+      { title: 'Ozon — Revenue and Marginal profit by store', color: '#7b61a5',
         store: 'B12:B13', revenue: 'C12:C13', profit: 'L12:L13',
         from: 'N12:N13', to: 'O12:O13', days: 'P12:P13' }
     ]

@@ -163,6 +163,9 @@
     document.querySelectorAll('.pane').forEach(p => p.hidden = p.dataset.sheet !== name);
     closeChart();
     closeFilterPop();
+    // графики на скрытой вкладке теряют размер — при возврате строим заново
+    const paneRef = getOrCreatePane(name);
+    paneRef._chartsFor = null;
     const meta = state.sheets.find(x => x.name === name);
     const isView = !!(meta && meta.view);
     $('globalSearch').disabled = isView;
@@ -335,13 +338,27 @@
     return 'Period: ' + parts.map((t, i) => (ch.labels[i] || '') + ' ' + t).join('; ');
   }
 
-  /** Подпись значения прибыли внутри оранжевой зоны (если зона достаточно высокая). */
+  /** Маржа (%) оранжевым над каждым столбцом + значение прибыли внутри оранжевой зоны. */
   const profitLabelPlugin = {
     id: 'profitLabel',
     afterDatasetsDraw(chart) {
       const meta = chart.getDatasetMeta(1);
       const ds = chart.data.datasets[1];
       const ctx = chart.ctx;
+      const revMeta = chart.getDatasetMeta(0);
+      const rev = chart.data.datasets[0].data;
+      revMeta.data.forEach((bar, i) => {
+        const pr = ds.data[i];
+        if (!rev[i] || pr === null || pr === undefined) return;
+        const pct = (pr / rev[i] * 100).toFixed(1).replace('.', ',') + '%';
+        ctx.save();
+        ctx.fillStyle = BRAND_ORANGE;
+        ctx.font = '700 13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(pct, bar.x, Math.min(bar.y, bar.base) - 6);
+        ctx.restore();
+      });
       meta.data.forEach((bar, i) => {
         const v = ds.data[i];
         if (v === null || v === undefined) return;
@@ -404,6 +421,7 @@
         },
         options: {
           responsive: true, maintainAspectRatio: false, animation: false,
+          layout: { padding: { top: 24 } },
           interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
@@ -425,6 +443,8 @@
       }));
     });
     ref.chartBox.appendChild(grid);
+    // после показа вкладки пересчитать размеры (скрытый холст имел нулевой размер)
+    requestAnimationFrame(() => plCharts.forEach(c => { try { c.resize(); } catch (e) { /* график уже уничтожен */ } }));
   }
 
   // ───────── лист «как есть» (LINK): текст, ссылки, форматирование ─────────
