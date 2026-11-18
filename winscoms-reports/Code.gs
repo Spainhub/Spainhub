@@ -10,24 +10,36 @@
  *   строка 7      — (OZ_UNIT*, WB_UNIT*) фиксированная итоговая строка
  *   WB&OZ         — две таблицы: шапка 1-й в строке 6, шапка 2-й в строке 11
  *   строка 7/8+   — данные
+ *   OZPL1/OZPL2   — шапка в строке 5, «Итого» в строке 6, данные с 7
+ *   LINK          — текст и ссылки A1:J30 с исходным форматированием
  */
 
 const HEADER_ROWS = 5;   // строки 1–5: информационный блок
 const TABLE_HEAD_ROW = 6; // строка шапки таблицы
 
+/**
+ * Порядок ключей = порядок вкладок.
+ *   infoRows  — сколько верхних строк выводится блоком «как в таблице» (по умолчанию 5)
+ *   headRow   — строка шапки таблицы (по умолчанию 6)
+ *   stickyTotal — следующая за шапкой строка — фиксированный «Итого»
+ *   view      — лист показывается «как есть» (текст, ссылки, форматирование) в диапазоне range
+ */
 const SHEETS_CONFIG = {
   // Две таблицы одна под другой. headRow — строка шапки; данные идут до шапки следующей таблицы.
   'WB&OZ': {
-    title: 'WB & OZ Svod',
+    title: 'WB & OZ Total',
     tables: [
       { key: 'WB', title: 'Wildberries', headRow: 6,  units: ['WB Kvantum', 'WB Azimut'] },
       { key: 'OZ', title: 'Ozon',        headRow: 11, units: ['Ozon Kvantum', 'Ozon Azimut'] }
     ]
   },
-  'OZ_UNIT1': { title: 'Ozon Kvantum', stickyTotal: true, marketplace: true },
-  'OZ_UNIT2': { title: 'Ozon Azimut',  stickyTotal: true, marketplace: true },
-  'WB_UNIT1': { title: 'WB Kvantum',   stickyTotal: true, dateColumns: true, marketplace: true },
-  'WB_UNIT2': { title: 'WB Azimut',    stickyTotal: true, dateColumns: true, marketplace: true }
+  'OZ_UNIT1': { title: 'OZ Rp Kvantum', stickyTotal: true, marketplace: true },
+  'OZ_UNIT2': { title: 'OZ Rp Azimut',  stickyTotal: true, marketplace: true },
+  'WB_UNIT1': { title: 'WB Rp Kvantum', stickyTotal: true, dateColumns: true, marketplace: true },
+  'WB_UNIT2': { title: 'WB Rp Azimut',  stickyTotal: true, dateColumns: true, marketplace: true },
+  'OZPL1':    { title: 'OZ Stock Kvantum', infoRows: 4, headRow: 5, stickyTotal: true },
+  'OZPL2':    { title: 'OZ Stock Azimut',  infoRows: 4, headRow: 5, stickyTotal: true },
+  'LINK':     { title: 'LINK', view: true, range: 'A1:J30' }
 };
 
 /** Если проект НЕ привязан к Google-таблице, укажите её ID. */
@@ -46,12 +58,15 @@ const ID_HEADER_RE = /^(№|no\.?|id)$|sku|артикул|баркод|barcode|n
 /** Столбцы/строки, значения которых — проценты, даже если формат ячейки «Общий». */
 const PERCENT_LABEL_RE = /%|процент|выкуп|доля|share|rate/i;
 
+/** Столбцы с дробными значениями (месяцы, недели, продажи в день): знаки после запятой не отбрасываются. */
+const FRACTION_LABEL_RE = /month|week|daily|per day|мес|недел|в день|оборач/i;
+
 // ───────────────────────── Веб-приложение ─────────────────────────
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
-    .setTitle('WINSCOMS — Отчёты')
+    .setTitle('REPORT · P&L 4 version 1.0')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -74,7 +89,12 @@ function getSheetsList() {
   const ss = getSpreadsheet();
   return Object.keys(SHEETS_CONFIG)
     .filter(name => ss.getSheetByName(name))
-    .map(name => ({ name, title: SHEETS_CONFIG[name].title, marketplace: !!SHEETS_CONFIG[name].marketplace }));
+    .map(name => ({
+      name,
+      title: SHEETS_CONFIG[name].title,
+      marketplace: !!SHEETS_CONFIG[name].marketplace,
+      view: !!SHEETS_CONFIG[name].view
+    }));
 }
 
 // ───────────────────────── Вспомогательное ─────────────────────────
@@ -126,6 +146,9 @@ function classifyCell(value, fmt, colLabel, rowLabel, isIdCol) {
   if (f.indexOf('%') !== -1) {
     return { v: value, f: 100 + formatDecimals(f) };
   }
+  if (FRACTION_LABEL_RE.test(String(colLabel || ''))) {
+    return { v: value, f: Math.min(formatDecimals(f), 9) || (Number.isInteger(value) ? 0 : 1) };
+  }
   const byLabel = PERCENT_LABEL_RE.test(String(colLabel || '')) || PERCENT_LABEL_RE.test(String(rowLabel || ''));
   if (byLabel && Math.abs(value) <= 100) {
     const frac = Math.abs(value) <= 1 ? value : value / 100;
@@ -164,15 +187,19 @@ function getSheetData(sheetName) {
   if (!sheet) throw new Error('Лист не найден: ' + sheetName);
 
   const tz = ss.getSpreadsheetTimeZone();
-  const headRows = cfg.tables ? cfg.tables.map(t => t.headRow) : [];
-  const maxHead = Math.max.apply(null, [TABLE_HEAD_ROW].concat(headRows));
+  if (cfg.view) return { name: sheetName, view: buildSheetView(ss, sheet, cfg) };
+
+  const head = cfg.headRow || TABLE_HEAD_ROW;
+  const infoRows = cfg.infoRows || HEADER_ROWS;
+  const headRows = cfg.tables ? cfg.tables.map(t => t.headRow) : [head];
+  const maxHead = Math.max.apply(null, headRows);
   const lastRow = Math.max(sheet.getLastRow(), maxHead);
   const lastCol = Math.max(sheet.getLastColumn(), 1);
 
   const range = sheet.getRange(1, 1, lastRow, lastCol);
   const raw = range.getValues();
   const fmts = range.getNumberFormats();
-  const labels = (raw[TABLE_HEAD_ROW - 1] || []).map(v => String(serializeValue(v, tz)));
+  const labels = (raw[head - 1] || []).map(v => String(serializeValue(v, tz)));
 
   // Реальная ширина: последний непустой столбец среди строк 1–6
   let width = 0;
@@ -183,20 +210,17 @@ function getSheetData(sheetName) {
   }
   width = Math.max(width, 1);
 
-  const info = buildInfoBlock(sheet, raw, fmts, tz, width);
+  const info = buildInfoBlock(sheet, raw, fmts, tz, width, infoRows);
   const base = { name: sheetName, info, sortable: cfg.sortable !== false };
 
-  if (lastRow < TABLE_HEAD_ROW) {
-    return Object.assign(base, { meta: {}, columns: [], rows: [], fmts: [], totalRow: null });
-  }
   if (cfg.tables) return Object.assign(base, buildStackedTables(cfg, raw, fmts, tz, width));
-  return Object.assign(base, buildUnitTable(cfg, raw, fmts, tz, labels, width));
+  return Object.assign(base, buildUnitTable(cfg, raw, fmts, tz, labels, width, head));
 }
 
 /** Строки 1–5 «как в Google Sheets»: значения, форматы и объединённые ячейки. */
-function buildInfoBlock(sheet, raw, fmts, tz, width) {
+function buildInfoBlock(sheet, raw, fmts, tz, width, infoRows) {
   const rows = [], f = [];
-  for (let r = 0; r < HEADER_ROWS; r++) {
+  for (let r = 0; r < infoRows; r++) {
     const rv = [], rf = [];
     for (let c = 0; c < width; c++) {
       const cl = classifyCell(serializeValue(raw[r][c], tz), fmts[r][c], '', '', false);
@@ -206,7 +230,7 @@ function buildInfoBlock(sheet, raw, fmts, tz, width) {
     rows.push(rv); f.push(rf);
   }
   const merges = [];
-  sheet.getRange(1, 1, HEADER_ROWS, width).getMergedRanges().forEach(m => {
+  sheet.getRange(1, 1, infoRows, width).getMergedRanges().forEach(m => {
     merges.push({
       r: m.getRow() - 1, c: m.getColumn() - 1,
       rs: m.getNumRows(), cs: m.getNumColumns()
@@ -215,7 +239,7 @@ function buildInfoBlock(sheet, raw, fmts, tz, width) {
   return { width, rows, fmts: f, merges };
 }
 
-function buildUnitTable(cfg, raw, fmts, tz, labels, width) {
+function buildUnitTable(cfg, raw, fmts, tz, labels, width, head) {
   // Столбцы: до последнего непустого заголовка в строке 6
   let colCount = 0;
   for (let c = 0; c < width; c++) if (!isBlank(labels[c])) colCount = c + 1;
@@ -232,7 +256,7 @@ function buildUnitTable(cfg, raw, fmts, tz, labels, width) {
   const dateSeries = [];
   if (cfg.dateColumns) {
     columns.forEach(col => {
-      if (isDateHeader(raw[TABLE_HEAD_ROW - 1][col.idx])) {
+      if (isDateHeader(raw[head - 1][col.idx])) {
         dateSeries.push({ idx: col.idx, label: col.label });
         idCols[col.idx] = false;
       }
@@ -242,10 +266,10 @@ function buildUnitTable(cfg, raw, fmts, tz, labels, width) {
   const colIdx = columns.map(c => c.idx);
   const abcIdx = columns.findIndex(c => /^abc$/i.test(c.label.trim()));
 
-  const firstDataRow = TABLE_HEAD_ROW + (cfg.stickyTotal ? 1 : 0); // индекс (0-based) = строка 7 / 8
+  const firstDataRow = head + (cfg.stickyTotal ? 1 : 0); // индекс (0-based): строка после шапки / после «Итого»
   let totalRow = null;
-  if (cfg.stickyTotal && raw.length > TABLE_HEAD_ROW) {
-    const t = buildMatrix(raw, fmts, tz, labels, -1, idCols, TABLE_HEAD_ROW, TABLE_HEAD_ROW + 1, colIdx);
+  if (cfg.stickyTotal && raw.length > head) {
+    const t = buildMatrix(raw, fmts, tz, labels, -1, idCols, head, head + 1, colIdx);
     totalRow = { v: t.v[0], f: t.f[0] };
   }
 
@@ -289,6 +313,82 @@ function buildStackedTables(cfg, raw, fmts, tz, width) {
   });
 
   return { meta: { twoTables: true }, tables };
+}
+
+// ───────────────────────── Лист «как есть» (LINK) ─────────────────────────
+
+/** Ссылки допускаются только безопасных схем; внутренние (#gid=…) превращаем в полный адрес таблицы. */
+function safeUrl(url, ss) {
+  if (!url) return '';
+  url = String(url);
+  if (url.charAt(0) === '#') return ss.getUrl() + url;
+  return /^(https?:\/\/|mailto:|tel:)/i.test(url) ? url : '';
+}
+
+function buildSheetView(ss, sheet, cfg) {
+  const rng = sheet.getRange(cfg.range);
+  const R = rng.getNumRows(), C = rng.getNumColumns(), r0 = rng.getRow(), c0 = rng.getColumn();
+  const rich = rng.getRichTextValues(), disp = rng.getDisplayValues(), formulas = rng.getFormulas();
+  const bg = rng.getBackgrounds(), fc = rng.getFontColors(), fs = rng.getFontSizes();
+  const fw = rng.getFontWeights(), fst = rng.getFontStyles(), fl = rng.getFontLines();
+  const ha = rng.getHorizontalAlignments(), va = rng.getVerticalAlignments(), ws = rng.getWrapStrategies();
+
+  const cells = [];
+  for (let r = 0; r < R; r++) {
+    const row = [];
+    for (let c = 0; c < C; c++) {
+      const cell = {};
+      const text = disp[r][c];
+      const rv = rich[r][c];
+      let runs = null;
+
+      if (rv && rv.getText() !== '') {
+        const list = rv.getRuns();
+        const hasStyleOrLink = list.some(run => run.getLinkUrl() || list.length > 1);
+        if (hasStyleOrLink) {
+          runs = list.map(run => {
+            const st = run.getTextStyle();
+            const o = { t: run.getText() };
+            const url = safeUrl(run.getLinkUrl(), ss);
+            if (url) o.url = url;
+            if (st.isBold()) o.b = 1;
+            if (st.isItalic()) o.i = 1;
+            if (st.isUnderline() && !url) o.u = 1;
+            const col = st.getForegroundColor();
+            if (col && !url) o.fg = col;
+            return o;
+          });
+        }
+      }
+      const m = String(formulas[r][c] || '').match(/^=HYPERLINK\(\s*"([^"]+)"/i);
+      if (m && safeUrl(m[1], ss)) runs = [{ t: text, url: safeUrl(m[1], ss) }];
+
+      if (runs) cell.runs = runs; else if (text !== '') cell.t = text;
+      if (bg[r][c] && bg[r][c].toLowerCase() !== '#ffffff') cell.bg = bg[r][c];
+      if (fc[r][c] && fc[r][c].toLowerCase() !== '#000000') cell.fg = fc[r][c];
+      if (fs[r][c] && fs[r][c] !== 10) cell.fs = fs[r][c];
+      if (fw[r][c] === 'bold') cell.b = 1;
+      if (fst[r][c] === 'italic') cell.i = 1;
+      if (fl[r][c] === 'underline') cell.u = 1;
+      if (fl[r][c] === 'line-through') cell.s = 1;
+      if (ha[r][c] && ha[r][c] !== 'general-left' && ha[r][c] !== 'general') cell.ha = ha[r][c];
+      if (va[r][c] && va[r][c] !== 'bottom') cell.va = va[r][c];
+      if (String(ws[r][c]) === 'WRAP') cell.w = 1;
+      row.push(cell);
+    }
+    cells.push(row);
+  }
+
+  const merges = [];
+  rng.getMergedRanges().forEach(mr => {
+    merges.push({ r: mr.getRow() - r0, c: mr.getColumn() - c0, rs: mr.getNumRows(), cs: mr.getNumColumns() });
+  });
+
+  const colWidths = [], rowHeights = [];
+  for (let c = 0; c < C; c++) colWidths.push(sheet.isColumnHiddenByUser(c0 + c) ? 0 : sheet.getColumnWidth(c0 + c));
+  for (let r = 0; r < R; r++) rowHeights.push(sheet.isRowHiddenByUser(r0 + r) ? 0 : sheet.getRowHeight(r0 + r));
+
+  return { rows: R, cols: C, cells, merges, colWidths, rowHeights };
 }
 
 function testConnection() {
