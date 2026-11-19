@@ -318,25 +318,9 @@
   // Оранжевая зона внутри столбца = маржинальная прибыль (накопленная за период).
   let plCharts = [];
   const BRAND_ORANGE = '#ff7f57';
+  const DONUT_COLORS = ['#ff7f57', '#f4511e', '#ffab40', '#bf5b3d'];
 
   function destroyPlCharts() { plCharts.forEach(c => c.destroy()); plCharts = []; }
-
-  /** Текст периода: «01.10.2026 – 31.10.2026 · 31 days»; если у магазинов разные периоды — по каждому. */
-  function periodText(ch) {
-    const p = ch.period || {};
-    const n = Math.max((p.from || []).length, (p.to || []).length, (p.days || []).length);
-    const parts = [];
-    for (let i = 0; i < n; i++) {
-      const from = (p.from || [])[i] || '', to = (p.to || [])[i] || '', days = (p.days || [])[i] || '';
-      let t = from && to ? from + ' – ' + to : (from || to);
-      if (days) t += (t ? ' · ' : '') + days + ' days';
-      parts.push(t);
-    }
-    const nonEmpty = parts.filter(Boolean);
-    if (!nonEmpty.length) return '';
-    if (nonEmpty.every(x => x === nonEmpty[0])) return 'Period: ' + nonEmpty[0];
-    return 'Period: ' + parts.map((t, i) => (ch.labels[i] || '') + ' ' + t).join('; ');
-  }
 
   /** Маржа (%) оранжевым над каждым столбцом + значение прибыли внутри оранжевой зоны. */
   function marginLabel(ch, i) {
@@ -400,8 +384,6 @@
       const color = ch.color || '#7b61a5';
       const card = el('div', 'chart-card');
       card.appendChild(el('div', 'chart-card-title', ch.title));
-      const per = periodText(ch);
-      if (per) card.appendChild(el('div', 'chart-card-period', per));
       const wrap = el('div', 'chart-card-canvas');
       const canvas = document.createElement('canvas');
       wrap.appendChild(canvas);
@@ -448,6 +430,63 @@
           scales: {
             x: { grid: { display: false }, ticks: { font: { size: 11 } } },
             y: { beginAtZero: true, ticks: { font: { size: 10 }, callback: v => fmt(v) } }
+          }
+        }
+      }));
+
+      // ───── тонкое кольцо: только Contribution margin по магазинам ─────
+      const dCard = el('div', 'chart-card');
+      dCard.appendChild(el('div', 'chart-card-title', 'Contribution margin by account'));
+      const dWrap = el('div', 'chart-card-canvas');
+      const dCanvas = document.createElement('canvas');
+      dWrap.appendChild(dCanvas);
+      dCard.appendChild(dWrap);
+      grid.appendChild(dCard);
+
+      const total = ch.profit.reduce((a, v) => a + (v || 0), 0);
+      const centerText = {
+        id: 'centerText',
+        afterDraw(chart) {
+          const area = chart.chartArea;
+          if (!area) return;
+          const cx = (area.left + area.right) / 2, cy = (area.top + area.bottom) / 2;
+          const c = chart.ctx;
+          c.save();
+          c.textAlign = 'center';
+          c.textBaseline = 'middle';
+          c.fillStyle = '#777';
+          c.font = '600 11px sans-serif';
+          c.fillText('Contribution margin', cx, cy - 12);
+          c.fillStyle = BRAND_ORANGE;
+          c.font = '700 20px sans-serif';
+          c.fillText(fmt(total), cx, cy + 10);
+          c.restore();
+        }
+      };
+      plCharts.push(new Chart(dCanvas.getContext('2d'), {
+        type: 'doughnut',
+        plugins: [centerText],
+        data: {
+          labels: ch.labels,
+          datasets: [{
+            data: ch.profit.map(v => Math.max(0, v || 0)),
+            backgroundColor: DONUT_COLORS, borderColor: '#fff', borderWidth: 3, hoverOffset: 6
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          cutout: '82%', // тонкое кольцо
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: c => {
+                  const real = ch.profit[c.dataIndex] || 0;
+                  const share = total > 0 ? ' (' + (real / total * 100).toFixed(1).replace('.', ',') + '%)' : '';
+                  return c.label + ': ' + fmt(real) + share;
+                }
+              }
+            }
           }
         }
       }));
@@ -893,7 +932,8 @@
 
     const widths = widthStore[ts.key] || (widthStore[ts.key] = {});
     visible.forEach(({ pos }) => { if (widths[pos] == null) widths[pos] = autoWidth(ts, pos); });
-    const keys = visible.map(x => x.pos);
+    widths.chart = 140;
+    const keys = visible.map(x => x.pos).concat(clickable ? ['chart'] : []);
     const applyMin = () => {
       table.style.minWidth = keys.reduce((sum, k) => sum + widths[k], 0) + 'px';
       // смещение 2-го закреплённого столбца = ширина 1-го
@@ -934,6 +974,12 @@
       attachGrip(th, colEl, widths, pos, () => autoWidth(ts, pos), applyMin);
       headRow.appendChild(th);
     });
+    if (clickable) {
+      const colEl = el('col');
+      colEl.style.width = widths.chart + 'px';
+      colgroup.appendChild(colEl);
+      headRow.appendChild(el('th', 'chart-action-cell', 'График'));
+    }
     // «добивающий» столбец: забирает свободное место, чтобы ширины остальных были точными
     colgroup.appendChild(el('col'));
     headRow.appendChild(el('th', 'filler'));
@@ -954,6 +1000,7 @@
     if (ts.total) {
       const tr = el('tr', 'total-row');
       visible.forEach(({ pos }, vi) => tr.appendChild(makeCell(pos, vi, ts.total.v[pos], ts.total.t[pos])));
+      if (clickable) tr.appendChild(el('td', 'chart-action-cell', ''));
       tr.appendChild(el('td', 'filler'));
       tbody.appendChild(tr);
     }
@@ -962,6 +1009,12 @@
     rows.forEach(row => {
       const tr = el('tr');
       visible.forEach(({ pos }, vi) => tr.appendChild(makeCell(pos, vi, row.v[pos], row.t[pos])));
+      if (clickable) {
+        const td = el('td', 'chart-action-cell');
+        const points = seriesPoints(dateSeries, row);
+        if (points.length >= 2) td.appendChild(sparkline(points)); else td.textContent = '—';
+        tr.appendChild(td);
+      }
       tr.appendChild(el('td', 'filler'));
       if (clickable) {
         tr.classList.add('clickable');
@@ -1071,6 +1124,38 @@
       .map(d => ({ label: d.label, value: numOf(row.v[d.pos]), pct: (row.f[d.pos] || 0) >= 100 }))
       .filter(p => !isNaN(p.value))
       .sort((a, b) => parseDate(a.label) - parseDate(b.label));
+  }
+
+  /** Мини-график (sparkline) для строки: динамика по датам. */
+  function sparkline(points) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const w = 110, h = 26, pad = 3;
+    const vals = points.map(p => p.value);
+    const min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    const span = max - min || 1;
+    const xy = vals.map((v, i) => [
+      pad + (i / (vals.length - 1)) * (w - pad * 2),
+      h - pad - ((v - min) / span) * (h - pad * 2)
+    ]);
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'spark');
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    const line = document.createElementNS(NS, 'polyline');
+    line.setAttribute('points', xy.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' '));
+    line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', '#ff7f57');
+    line.setAttribute('stroke-width', '1.6');
+    line.setAttribute('stroke-linejoin', 'round');
+    line.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(line);
+    const last = xy[xy.length - 1];
+    const dot = document.createElementNS(NS, 'circle');
+    dot.setAttribute('cx', last[0].toFixed(1));
+    dot.setAttribute('cy', last[1].toFixed(1));
+    dot.setAttribute('r', '2.4');
+    dot.setAttribute('fill', '#7b61a5');
+    svg.appendChild(dot);
+    return svg;
   }
 
   function openRowChart(info, points) {

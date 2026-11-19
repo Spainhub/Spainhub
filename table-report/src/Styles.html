@@ -94,8 +94,8 @@ table.report tbody tr.clickable{cursor:pointer}
 tr.total-row td{position:sticky;top:var(--head-h);z-index:2;background:var(--total)!important;font-weight:750;border-bottom:1px solid var(--accent)}
 
 .chart-action-cell{text-align:left;overflow:hidden}
+.spark{display:block;width:110px;height:26px}
 .chart-cell{display:flex;align-items:center;gap:7px;min-width:130px}
-.spark{display:block;width:84px;height:24px}
 .spark-empty{color:#bbb}
 .row-chart-btn{border:1px solid #ffd2c4;background:#fff6f3;color:#e5603a;border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;white-space:nowrap}
 .row-chart-btn:hover{background:#ffe6dd;border-color:#ffab94}
@@ -143,11 +143,11 @@ tr.total-row td{position:sticky;top:var(--head-h);z-index:2;background:var(--tot
 .chart-dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
 .chart-kicker{font-size:9px;font-weight:800;letter-spacing:1px;color:var(--accent);margin-bottom:3px}
 .chart-box:empty{display:none}
-.chart-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin:0 0 16px}
+.chart-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:14px;margin:0 0 16px}
 .chart-card{border:1px solid var(--line);border-radius:10px;padding:12px 14px 8px;background:#fff;box-shadow:var(--shadow);min-width:0}
-.chart-card-title{font-size:12px;font-weight:600;color:#333;margin-bottom:2px}
-.chart-card-period{font-size:11px;color:#666;margin-bottom:8px}
+.chart-card-title{font-size:12px;font-weight:600;color:#333;margin-bottom:10px}
 .chart-card-canvas{position:relative;height:340px}
+@media(max-width:850px){.chart-grid{grid-template-columns:minmax(0,1fr)}}
 .view-wrap{width:100%;overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:var(--shadow);padding:6px}
 table.view-grid{table-layout:fixed;border-collapse:collapse;font-size:10pt;color:#202124}
 table.view-grid td{padding:1px 4px;overflow:hidden;line-height:1.3;box-sizing:border-box}

@@ -37,7 +37,7 @@ const SHEETS_CONFIG = {
     // фиолетовый столбец — выручка магазина, оранжевая зона внутри — Contribution Margin,
     // оранжевый % над столбцом — Margin %. Период — из таблиц WB (Q:S) и Ozon (N:P), по порядку строк.
     charts: [
-      { title: 'Revenue and Contribution margin by store', color: '#7b61a5',
+      { title: 'Revenue by Account for the Period', color: '#7b61a5',
         store: 'B18:B21', revenue: 'C18:C21', profit: 'D18:D21', margin: 'E18:E21',
         from: ['Q7:Q8', 'N12:N13'], to: ['R7:R8', 'O12:O13'], days: ['S7:S8', 'P12:P13'] }
     ]
