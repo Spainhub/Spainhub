@@ -25,31 +25,36 @@ const TABLE_HEAD_ROW = 6; // строка шапки таблицы
  *   view      — лист показывается «как есть» (текст, ссылки, форматирование) в диапазоне range
  */
 const SHEETS_CONFIG = {
-  // Две таблицы одна под другой. headRow — строка шапки; данные идут до шапки следующей таблицы.
+  // Две таблицы одна под другой. headRow — строка шапки; данные идут до шапки следующей таблицы
+  // (или до endRow, если указан). Таблица с шапкой в строке 17 — источник диаграммы, в списке таблиц не выводится.
   'WB&OZ': {
     title: 'WB & OZ Total',
     tables: [
       { key: 'WB', title: 'Wildberries', headRow: 6,  units: ['WB Kvantum', 'WB Azimut'] },
-      { key: 'OZ', title: 'Ozon',        headRow: 11, units: ['Ozon Kvantum', 'Ozon Azimut'] }
+      { key: 'OZ', title: 'Ozon',        headRow: 11, endRow: 16, units: ['Ozon Kvantum', 'Ozon Azimut'] }
     ],
-    // Диаграммы: столбцы — выручка по магазинам, линия с градиентом — маржинальная прибыль
-    // Диаграммы: столбец — выручка по магазину, оранжевая зона внутри столбца — маржинальная прибыль.
-    // period — даты и «Кол. дней» из таблицы (период расчёта).
+    // Одна широкая диаграмма из таблицы «A17» (шапка в строке 17, данные 18–21):
+    // фиолетовый столбец — выручка магазина, оранжевая зона внутри — Contribution Margin,
+    // оранжевый % над столбцом — Margin %. Период — из таблиц WB (Q:S) и Ozon (N:P), по порядку строк.
     charts: [
-      { title: 'Wildberries — Revenue and Marginal profit by store', color: '#7b61a5',
-        store: 'B7:B8', revenue: 'C7:C8', profit: 'O7:O8',
-        from: 'Q7:Q8', to: 'R7:R8', days: 'S7:S8' },
-      { title: 'Ozon — Revenue and Marginal profit by store', color: '#7b61a5',
-        store: 'B12:B13', revenue: 'C12:C13', profit: 'L12:L13',
-        from: 'N12:N13', to: 'O12:O13', days: 'P12:P13' }
+      { title: 'Revenue and Contribution margin by store', color: '#7b61a5',
+        store: 'B18:B21', revenue: 'C18:C21', profit: 'D18:D21', margin: 'E18:E21',
+        from: ['Q7:Q8', 'N12:N13'], to: ['R7:R8', 'O12:O13'], days: ['S7:S8', 'P12:P13'] }
     ]
   },
-  'OZ_UNIT1': { title: 'OZ Unit 1', stickyTotal: true, marketplace: true },
-  'OZ_UNIT2': { title: 'OZ Unit 2',  stickyTotal: true, marketplace: true },
-  'WB_UNIT1': { title: 'WB Unit 1', stickyTotal: true, dateColumns: true, marketplace: true },
-  'WB_UNIT2': { title: 'WB Unit 2',  stickyTotal: true, dateColumns: true, marketplace: true },
-  'OZPL1':    { title: 'OZ Stock 1', infoRows: 4, headRow: 5, stickyTotal: true },
-  'OZPL2':    { title: 'OZ Stock 2',  infoRows: 4, headRow: 5, stickyTotal: true },
+  // freezeCols — сколько первых столбцов закрепить при горизонтальной прокрутке
+  'OZ_UNIT1': { title: 'OZ Unit 1', stickyTotal: true, marketplace: true, freezeCols: 2 },
+  'OZ_UNIT2': { title: 'OZ Unit 2', stickyTotal: true, marketplace: true, freezeCols: 2 },
+  'WB_UNIT1': { title: 'WB Unit 1', stickyTotal: true, dateColumns: true, marketplace: true, freezeCols: 2 },
+  'WB_UNIT2': { title: 'WB Unit 2', stickyTotal: true, dateColumns: true, marketplace: true, freezeCols: 2 },
+  'OZPL1':    { title: 'OZ Stock 1', infoRows: 4, headRow: 5, stickyTotal: true, freezeCols: 2 },
+  'OZPL2':    { title: 'OZ Stock 2', infoRows: 4, headRow: 5, stickyTotal: true, freezeCols: 2 },
+  // Планирование закупок: шапка в строке 5, «Итого» в строке 6.
+  //   nameCols   — столбцы с названиями (C–F): строки, где все они пусты, исключаются;
+  //                по этим столбцам есть быстрые фильтры «есть в …»
+  //   accentCols — столбцы, текст которых выводится оранжевым (L — «Total for procurement per month»)
+  'STOCKUP':  { title: 'STOCKUP', infoRows: 4, headRow: 5, stickyTotal: true, freezeCols: 2,
+                nameCols: [3, 4, 5, 6], accentCols: [12] },
   'LINK':     { title: 'LINK', view: true, range: 'A1:J30' }
 };
 
@@ -70,7 +75,7 @@ const ID_HEADER_RE = /^(№|no\.?|id)$|sku|артикул|баркод|barcode|n
 const PERCENT_LABEL_RE = /%|процент|выкуп|доля|share|rate/i;
 
 /** Столбцы с дробными значениями (месяцы, недели, продажи в день): знаки после запятой не отбрасываются. */
-const FRACTION_LABEL_RE = /month|week|daily|per day|мес|недел|в день|оборач/i;
+const FRACTION_LABEL_RE = /\((months?|weeks?)\)|daily|per day|\(мес|\(нед|в день|оборач/i;
 
 // ───────────────────────── Веб-приложение ─────────────────────────
 
@@ -252,14 +257,22 @@ function buildInfoBlock(sheet, raw, fmts, tz, width, infoRows) {
 }
 
 function buildUnitTable(cfg, raw, fmts, tz, labels, width, head) {
-  // Столбцы: до последнего непустого заголовка в строке 6
+  // Столбцы: до последнего непустого заголовка шапки
   let colCount = 0;
   for (let c = 0; c < width; c++) if (!isBlank(labels[c])) colCount = c + 1;
+
+  const firstDataRow = head + (cfg.stickyTotal ? 1 : 0); // индекс (0-based): строка после шапки / после «Итого»
+  const columnHasData = c => {
+    for (let r = firstDataRow; r < raw.length; r++) if (!isBlank(raw[r][c])) return true;
+    return false;
+  };
 
   const columns = [];
   const idCols = {};
   for (let c = 0; c < colCount; c++) {
     const label = isBlank(labels[c]) ? '' : labels[c];
+    // пустой столбец-разделитель (без заголовка и без данных) не выводим
+    if (label === '' && !columnHasData(c)) continue;
     columns.push({ idx: c, label });
     if (ID_HEADER_RE.test(label.trim())) idCols[c] = true;
   }
@@ -277,8 +290,10 @@ function buildUnitTable(cfg, raw, fmts, tz, labels, width, head) {
 
   const colIdx = columns.map(c => c.idx);
   const abcIdx = columns.findIndex(c => /^abc$/i.test(c.label.trim()));
+  const posOf = n => columns.findIndex(c => c.idx === n - 1); // номер столбца листа (1-based) → позиция
+  const nameColIdx = (cfg.nameCols || []).map(posOf).filter(p => p >= 0);
+  const accentIdx = (cfg.accentCols || []).map(posOf).filter(p => p >= 0);
 
-  const firstDataRow = head + (cfg.stickyTotal ? 1 : 0); // индекс (0-based): строка после шапки / после «Итого»
   let totalRow = null;
   if (cfg.stickyTotal && raw.length > head) {
     const t = buildMatrix(raw, fmts, tz, labels, -1, idCols, head, head + 1, colIdx);
@@ -289,11 +304,17 @@ function buildUnitTable(cfg, raw, fmts, tz, labels, width, head) {
   const data = buildMatrix(raw, fmts, tz, labels, -1, idCols, firstDataRow, raw.length, colIdx);
   const rows = [], rowFmts = [];
   data.v.forEach((vals, i) => {
-    if (rowHasData(vals)) { rows.push(vals); rowFmts.push(data.f[i]); }
+    if (!rowHasData(vals)) return;
+    // строки, где ВСЕ столбцы-названия пусты одновременно, не допускаются
+    if (nameColIdx.length && nameColIdx.every(p => isBlank(vals[p]))) return;
+    rows.push(vals); rowFmts.push(data.f[i]);
   });
 
   return {
-    meta: { dateColumns: !!cfg.dateColumns, stickyTotal: !!cfg.stickyTotal, abcIdx },
+    meta: {
+      dateColumns: !!cfg.dateColumns, stickyTotal: !!cfg.stickyTotal, abcIdx,
+      freezeCols: cfg.freezeCols || 0, accentIdx, nameColIdx
+    },
     columns, rows, fmts: rowFmts, totalRow, dateSeries
   };
 }
@@ -304,7 +325,8 @@ function buildStackedTables(cfg, raw, fmts, tz, width) {
 
   const tables = cfg.tables.map((t, n) => {
     const h = t.headRow - 1;
-    const end = n + 1 < heads.length ? heads[n + 1] : raw.length;
+    const nextHead = n + 1 < heads.length ? heads[n + 1] : raw.length;
+    const end = t.endRow ? Math.min(t.endRow, nextHead) : nextHead;
     const labels = (raw[h] || []).map(v => String(serializeValue(v, tz)));
 
     const columns = [];
@@ -335,17 +357,16 @@ function buildCharts(sheet, cfg) {
     const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
     return isFinite(n) ? n : null;
   };
+  const list = spec => (spec ? [].concat(spec) : []);
+  const display = spec => flat(list(spec).map(r => flat(sheet.getRange(r).getDisplayValues()))).map(String);
   return cfg.charts.map(ch => ({
     title: ch.title,
-    labels: flat(sheet.getRange(ch.store).getDisplayValues()).map(String),
+    labels: display(ch.store),
     revenue: flat(sheet.getRange(ch.revenue).getValues()).map(num),
     profit: flat(sheet.getRange(ch.profit).getValues()).map(num),
+    marginText: ch.margin ? display(ch.margin) : [], // Margin % как показано в таблице
     color: ch.color || '',
-    period: {
-      from: ch.from ? flat(sheet.getRange(ch.from).getDisplayValues()).map(String) : [],
-      to: ch.to ? flat(sheet.getRange(ch.to).getDisplayValues()).map(String) : [],
-      days: ch.days ? flat(sheet.getRange(ch.days).getDisplayValues()).map(String) : []
-    }
+    period: { from: display(ch.from), to: display(ch.to), days: display(ch.days) }
   }));
 }
 

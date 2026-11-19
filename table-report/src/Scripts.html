@@ -339,7 +339,18 @@
   }
 
   /** Маржа (%) оранжевым над каждым столбцом + значение прибыли внутри оранжевой зоны. */
-  const profitLabelPlugin = {
+  function marginLabel(ch, i) {
+    let t = ch.marginText && ch.marginText[i];
+    if (t && /^-?\d+([.,]\d+)?$/.test(t.trim())) { // ячейка без формата %: 0.2949 → 29,49%
+      const n = parseFloat(t.replace(',', '.'));
+      t = (Math.abs(n) <= 1 ? n * 100 : n).toFixed(2).replace('.', ',') + '%';
+    }
+    if (t) return t;
+    const rev = ch.revenue[i], pr = ch.profit[i];
+    return rev && pr !== null && pr !== undefined ? (pr / rev * 100).toFixed(2).replace('.', ',') + '%' : '';
+  }
+
+  const makeProfitPlugin = ch => ({
     id: 'profitLabel',
     afterDatasetsDraw(chart) {
       const meta = chart.getDatasetMeta(1);
@@ -348,9 +359,8 @@
       const revMeta = chart.getDatasetMeta(0);
       const rev = chart.data.datasets[0].data;
       revMeta.data.forEach((bar, i) => {
-        const pr = ds.data[i];
-        if (!rev[i] || pr === null || pr === undefined) return;
-        const pct = (pr / rev[i] * 100).toFixed(1).replace('.', ',') + '%';
+        const pct = marginLabel(ch, i);
+        if (!pct) return;
         ctx.save();
         ctx.fillStyle = BRAND_ORANGE;
         ctx.font = '700 13px sans-serif';
@@ -373,7 +383,7 @@
         ctx.restore();
       });
     }
-  };
+  });
 
   function renderCharts(ref, data) {
     if (ref._chartsFor === data) return; // уже нарисованы для этих данных
@@ -405,7 +415,7 @@
       });
       plCharts.push(new Chart(canvas.getContext('2d'), {
         type: 'bar',
-        plugins: [profitLabelPlugin],
+        plugins: [makeProfitPlugin(ch)],
         data: {
           labels: xLabels,
           datasets: [
@@ -414,7 +424,7 @@
               backgroundColor: color, borderRadius: 6, borderSkipped: false, maxBarThickness: 90
             },
             {
-              label: 'Marginal profit (cumulative)', data: ch.profit, order: 1, grouped: false,
+              label: 'Contribution margin', data: ch.profit, order: 1, grouped: false,
               backgroundColor: BRAND_ORANGE, borderRadius: 0, borderSkipped: false, maxBarThickness: 90
             }
           ]
@@ -429,8 +439,8 @@
               callbacks: {
                 label: c => c.dataset.label + ': ' + fmt(c.parsed.y),
                 afterBody: items => {
-                  const i = items[0].dataIndex, rev = ch.revenue[i], pr = ch.profit[i];
-                  return rev && pr !== null && pr !== undefined ? ['Margin: ' + (pr / rev * 100).toFixed(1).replace('.', ',') + '%'] : [];
+                  const m = marginLabel(ch, items[0].dataIndex);
+                  return m ? ['Margin: ' + m] : [];
                 }
               }
             }
@@ -566,7 +576,7 @@
       ts = tableState[key] = {
         key, _data: data, columns: columns || [], rows: rows || [], total: total || null,
         meta: meta || {}, sheetName, sortable,
-        sortIdx: -1, sortDir: 1, filters: {}, global: '', abcFilter: new Set(), unit: null
+        sortIdx: -1, sortDir: 1, filters: {}, global: '', abcFilter: new Set(), nameFilter: new Set(), unit: null
       };
     }
     return ts;
@@ -583,6 +593,9 @@
     }
     if (ts.abcFilter.size && ts.meta.abcIdx >= 0) {
       rows = rows.filter(row => ts.abcFilter.has(abcClass(row.v[ts.meta.abcIdx])));
+    }
+    if (ts.nameFilter.size) {
+      rows = rows.filter(row => Array.from(ts.nameFilter).some(p => !isBlank(row.v[p])));
     }
     if (ts.unit) {
       rows = rows.filter(row => row.t.slice(0, 3).some(x => normUnit(x).indexOf(ts.unit) !== -1));
@@ -696,6 +709,28 @@
       chip.addEventListener('click', () => { ts.unit = ts.unit === key ? null : key; redraw(ts); });
       left.appendChild(chip);
     });
+
+    // фильтры «есть в …» по столбцам с названиями (STOCKUP)
+    const nameCols = (ts.meta && ts.meta.nameColIdx) || [];
+    if (nameCols.length) {
+      left.appendChild(el('span', 'bar-label', 'ЕСТЬ В'));
+      const allN = el('button', 'chip all' + (ts.nameFilter.size ? '' : ' on'), 'Все');
+      allN.type = 'button';
+      allN.title = 'Показать все строки';
+      allN.addEventListener('click', () => { ts.nameFilter.clear(); redraw(ts); });
+      left.appendChild(allN);
+      nameCols.forEach(pos => {
+        const label = ts.columns[pos].label.replace(/^Name\s*/i, '').replace(/^[(]|[)]$/g, '') || ts.columns[pos].label;
+        const chip = el('button', 'chip unit' + (ts.nameFilter.has(pos) ? ' on' : ''), label);
+        chip.type = 'button';
+        chip.title = 'Только товары со значением в столбце «' + ts.columns[pos].label + '»';
+        chip.addEventListener('click', () => {
+          if (ts.nameFilter.has(pos)) ts.nameFilter.delete(pos); else ts.nameFilter.add(pos);
+          redraw(ts);
+        });
+        left.appendChild(chip);
+      });
+    }
 
     // отдельный фильтр ABC
     if (ts.meta && ts.meta.abcIdx >= 0) {
@@ -847,22 +882,31 @@
 
     const dateSeries = (ts.meta && ts.meta.dateSeries) || [];
     const dateSet = new Set(ts.meta && ts.meta.dateColumns ? dateSeries.map(d => d.pos) : []);
-    const hasChart = dateSeries.length > 0;
+    const clickable = dateSeries.length > 0; // WB: клик по строке открывает график во всплывающем окне
     const hiddenCols = hiddenSet(ts);
     const visible = ts.columns.map((col, pos) => ({ col, pos })).filter(x => !dateSet.has(x.pos) && !hiddenCols.has(x.col.label));
 
+    // закрепление первых столбцов (по умолчанию — из настроек листа)
+    const freeze = Math.min((ts.meta && ts.meta.freezeCols) || 0, 2);
+    const accent = new Set((ts.meta && ts.meta.accentIdx) || []);
+    const frzClass = i => (i < freeze ? 'frz frz' + (i + 1) : '');
+
     const widths = widthStore[ts.key] || (widthStore[ts.key] = {});
     visible.forEach(({ pos }) => { if (widths[pos] == null) widths[pos] = autoWidth(ts, pos); });
-    widths.chart = 200;
-    const keys = visible.map(x => x.pos).concat(hasChart ? ['chart'] : []);
-    const applyMin = () => { table.style.minWidth = keys.reduce((sum, k) => sum + widths[k], 0) + 'px'; };
+    const keys = visible.map(x => x.pos);
+    const applyMin = () => {
+      table.style.minWidth = keys.reduce((sum, k) => sum + widths[k], 0) + 'px';
+      // смещение 2-го закреплённого столбца = ширина 1-го
+      if (visible.length) table.style.setProperty('--frz2-left', widths[visible[0].pos] + 'px');
+    };
 
-    visible.forEach(({ col, pos }) => {
+    visible.forEach(({ col, pos }, vi) => {
       const colEl = el('col');
       colEl.style.width = widths[pos] + 'px';
       colgroup.appendChild(colEl);
 
       const th = el('th');
+      frzClass(vi).split(' ').filter(Boolean).forEach(c => th.classList.add(c));
       th.title = col.label;
       const inner = el('div', 'th-in');
       inner.appendChild(el('span', 'th-label', col.label));
@@ -890,12 +934,6 @@
       attachGrip(th, colEl, widths, pos, () => autoWidth(ts, pos), applyMin);
       headRow.appendChild(th);
     });
-    if (hasChart) {
-      const colEl = el('col');
-      colEl.style.width = widths.chart + 'px';
-      colgroup.appendChild(colEl);
-      headRow.appendChild(el('th', 'chart-action-cell', 'График'));
-    }
     // «добивающий» столбец: забирает свободное место, чтобы ширины остальных были точными
     colgroup.appendChild(el('col'));
     headRow.appendChild(el('th', 'filler'));
@@ -904,15 +942,18 @@
     thead.appendChild(headRow);
     table.appendChild(thead);
 
+    const makeCell = (pos, vi, value, text) => {
+      const td = el('td');
+      frzClass(vi).split(' ').filter(Boolean).forEach(c => td.classList.add(c));
+      if (accent.has(pos)) td.classList.add('col-accent');
+      fillCell(td, ts, pos, value, text);
+      return td;
+    };
+
     const tbody = el('tbody');
     if (ts.total) {
       const tr = el('tr', 'total-row');
-      visible.forEach(({ pos }) => {
-        const td = el('td');
-        fillCell(td, ts, pos, ts.total.v[pos], ts.total.t[pos]);
-        tr.appendChild(td);
-      });
-      if (hasChart) tr.appendChild(el('td', 'chart-action-cell', ''));
+      visible.forEach(({ pos }, vi) => tr.appendChild(makeCell(pos, vi, ts.total.v[pos], ts.total.t[pos])));
       tr.appendChild(el('td', 'filler'));
       tbody.appendChild(tr);
     }
@@ -920,32 +961,16 @@
     const frag = document.createDocumentFragment();
     rows.forEach(row => {
       const tr = el('tr');
-      visible.forEach(({ pos }) => {
-        const td = el('td');
-        fillCell(td, ts, pos, row.v[pos], row.t[pos]);
-        tr.appendChild(td);
-      });
-      if (hasChart) {
-        const td = el('td', 'chart-action-cell');
-        const points = seriesPoints(dateSeries, row);
-        const wrap = el('div', 'chart-cell');
-        if (points.length >= 2) {
-          const open = () => openRowChart(rowInfo(row, ts), points);
-          const spark = sparkline(points);
-          spark.addEventListener('click', open);
-          spark.style.cursor = 'pointer';
-          wrap.appendChild(spark);
-          const btn = el('button', 'row-chart-btn', 'Открыть');
-          btn.type = 'button';
-          btn.addEventListener('click', open);
-          wrap.appendChild(btn);
-        } else {
-          wrap.appendChild(el('span', 'spark-empty', '—'));
-        }
-        td.appendChild(wrap);
-        tr.appendChild(td);
-      }
+      visible.forEach(({ pos }, vi) => tr.appendChild(makeCell(pos, vi, row.v[pos], row.t[pos])));
       tr.appendChild(el('td', 'filler'));
+      if (clickable) {
+        tr.classList.add('clickable');
+        tr.title = 'Нажмите, чтобы открыть график по датам';
+        tr.addEventListener('click', e => {
+          if (e.target.closest('a, button')) return;
+          openRowChart(rowInfo(row, ts), seriesPoints(dateSeries, row));
+        });
+      }
       frag.appendChild(tr);
     });
     tbody.appendChild(frag);
@@ -1046,31 +1071,6 @@
       .map(d => ({ label: d.label, value: numOf(row.v[d.pos]), pct: (row.f[d.pos] || 0) >= 100 }))
       .filter(p => !isNaN(p.value))
       .sort((a, b) => parseDate(a.label) - parseDate(b.label));
-  }
-
-  function sparkline(points) {
-    const NS = 'http://www.w3.org/2000/svg';
-    const w = 84, h = 24, pad = 2;
-    const vals = points.map(p => p.value);
-    const min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
-    const span = max - min || 1;
-    const pts = vals.map((v, i) => {
-      const x = pad + (i / (vals.length - 1)) * (w - pad * 2);
-      const y = h - pad - ((v - min) / span) * (h - pad * 2);
-      return x.toFixed(1) + ',' + y.toFixed(1);
-    }).join(' ');
-    const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('class', 'spark');
-    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-    const line = document.createElementNS(NS, 'polyline');
-    line.setAttribute('points', pts);
-    line.setAttribute('fill', 'none');
-    line.setAttribute('stroke', '#ff7f57');
-    line.setAttribute('stroke-width', '1.6');
-    line.setAttribute('stroke-linejoin', 'round');
-    line.setAttribute('stroke-linecap', 'round');
-    svg.appendChild(line);
-    return svg;
   }
 
   function openRowChart(info, points) {
