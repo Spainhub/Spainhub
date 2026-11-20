@@ -318,7 +318,7 @@
   // Оранжевая зона внутри столбца = маржинальная прибыль (накопленная за период).
   let plCharts = [];
   const BRAND_ORANGE = '#ff7f57';
-  const DONUT_COLORS = ['#ff7f57', '#f4511e', '#ffab40', '#bf5b3d'];
+  const DONUT_COLORS = ['#7b61a5', '#4b3670', '#a28fc4', '#cfc3e3']; // оттенки фиолетового
 
   function destroyPlCharts() { plCharts.forEach(c => c.destroy()); plCharts = []; }
 
@@ -436,7 +436,7 @@
 
       // ───── тонкое кольцо: только Contribution margin по магазинам ─────
       const dCard = el('div', 'chart-card');
-      dCard.appendChild(el('div', 'chart-card-title', 'Contribution margin by account'));
+      dCard.appendChild(el('div', 'chart-card-title', 'Margin by Store'));
       const dWrap = el('div', 'chart-card-canvas');
       const dCanvas = document.createElement('canvas');
       dWrap.appendChild(dCanvas);
@@ -457,7 +457,7 @@
           c.fillStyle = '#777';
           c.font = '600 11px sans-serif';
           c.fillText('Contribution margin', cx, cy - 12);
-          c.fillStyle = BRAND_ORANGE;
+          c.fillStyle = '#5d467f';
           c.font = '700 20px sans-serif';
           c.fillText(fmt(total), cx, cy + 10);
           c.restore();
@@ -615,7 +615,7 @@
       ts = tableState[key] = {
         key, _data: data, columns: columns || [], rows: rows || [], total: total || null,
         meta: meta || {}, sheetName, sortable,
-        sortIdx: -1, sortDir: 1, filters: {}, global: '', abcFilter: new Set(), nameFilter: new Set(), unit: null
+        sortIdx: -1, sortDir: 1, filters: {}, global: '', abcFilter: new Set(), nameFilter: new Set(), unit: null, focus: null
       };
     }
     return ts;
@@ -792,6 +792,13 @@
     }
     bar.appendChild(left);
 
+    if (ts.focus !== null && ts.columns[ts.focus]) {
+      const back = el('button', 'chip unit on', 'Только: ' + ts.columns[ts.focus].label + '  ✕  показать все столбцы');
+      back.type = 'button';
+      back.addEventListener('click', () => { ts.focus = null; redraw(ts); });
+      left.appendChild(back);
+    }
+
     const hidden = hiddenSet(ts);
     const total = togglableColumns(ts).length;
     const shown = togglableColumns(ts).filter(x => !hidden.has(x.col.label)).length;
@@ -923,7 +930,14 @@
     const dateSet = new Set(ts.meta && ts.meta.dateColumns ? dateSeries.map(d => d.pos) : []);
     const clickable = dateSeries.length > 0; // WB: клик по строке открывает график во всплывающем окне
     const hiddenCols = hiddenSet(ts);
-    const visible = ts.columns.map((col, pos) => ({ col, pos })).filter(x => !dateSet.has(x.pos) && !hiddenCols.has(x.col.label));
+    const focusCols = new Set((ts.meta && ts.meta.focusCols) || []);
+    const focusKeep = new Set((ts.meta && ts.meta.focusKeep) || []);
+    const visible = ts.columns.map((col, pos) => ({ col, pos })).filter(x => {
+      if (dateSet.has(x.pos)) return false;
+      // режим «только выбранный столбец» (STOCKUP): остаётся выбранный и закреплённые настройкой
+      if (ts.focus !== null) return x.pos === ts.focus || focusKeep.has(x.pos);
+      return !hiddenCols.has(x.col.label);
+    });
 
     // закрепление первых столбцов (по умолчанию — из настроек листа)
     const freeze = Math.min((ts.meta && ts.meta.freezeCols) || 0, 2);
@@ -950,7 +964,22 @@
       th.title = col.label;
       const inner = el('div', 'th-in');
       inner.appendChild(el('span', 'th-label', col.label));
-      if (ts.sortable) {
+      if (focusCols.has(pos)) {
+        // клик по названию: показать только этот столбец / вернуть все
+        th.classList.add('focusable');
+        th.title = ts.focus === pos ? 'Нажмите, чтобы показать все столбцы' : 'Нажмите, чтобы показать только этот столбец';
+        th.addEventListener('click', () => { ts.focus = ts.focus === pos ? null : pos; redraw(ts); });
+        if (ts.focus === pos) inner.appendChild(el('span', 'sort-ind', '✕'));
+        const filter = el('button', 'col-filter-btn', '▼');
+        filter.type = 'button';
+        filter.title = 'Фильтр столбца';
+        if (ts.filters[pos] && ts.filters[pos].size) filter.classList.add('on');
+        filter.addEventListener('click', e => {
+          e.stopPropagation();
+          openFilter(ts, pos, filter, () => redraw(ts));
+        });
+        inner.appendChild(filter);
+      } else if (ts.sortable) {
         th.classList.add('sortable');
         if (ts.sortIdx === pos) inner.appendChild(el('span', 'sort-ind', ts.sortDir > 0 ? '▲' : '▼'));
         const filter = el('button', 'col-filter-btn', '▼');

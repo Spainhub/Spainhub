@@ -28,7 +28,7 @@ const SHEETS_CONFIG = {
   // Две таблицы одна под другой. headRow — строка шапки; данные идут до шапки следующей таблицы
   // (или до endRow, если указан). Таблица с шапкой в строке 17 — источник диаграммы, в списке таблиц не выводится.
   'WB&OZ': {
-    title: 'WB & OZ Total',
+    title: 'Сводная',
     tables: [
       { key: 'WB', title: 'Wildberries', headRow: 6,  units: ['WB Kvantum', 'WB Azimut'] },
       { key: 'OZ', title: 'Ozon',        headRow: 11, endRow: 16, units: ['Ozon Kvantum', 'Ozon Azimut'] }
@@ -37,25 +37,26 @@ const SHEETS_CONFIG = {
     // фиолетовый столбец — выручка магазина, оранжевая зона внутри — Contribution Margin,
     // оранжевый % над столбцом — Margin %. Период — из таблиц WB (Q:S) и Ozon (N:P), по порядку строк.
     charts: [
-      { title: 'Revenue by Account for the Period', color: '#7b61a5',
+      { title: 'Revenue by Store', color: '#7b61a5',
         store: 'B18:B21', revenue: 'C18:C21', profit: 'D18:D21', margin: 'E18:E21',
         from: ['Q7:Q8', 'N12:N13'], to: ['R7:R8', 'O12:O13'], days: ['S7:S8', 'P12:P13'] }
     ]
   },
   // freezeCols — сколько первых столбцов закрепить при горизонтальной прокрутке
-  'OZ_UNIT1': { title: 'OZ Unit 1', stickyTotal: true, marketplace: true, freezeCols: 2 },
-  'OZ_UNIT2': { title: 'OZ Unit 2', stickyTotal: true, marketplace: true, freezeCols: 2 },
-  'WB_UNIT1': { title: 'WB Unit 1', stickyTotal: true, dateColumns: true, marketplace: true, freezeCols: 2 },
-  'WB_UNIT2': { title: 'WB Unit 2', stickyTotal: true, dateColumns: true, marketplace: true, freezeCols: 2 },
-  'OZPL1':    { title: 'OZ Stock 1', infoRows: 4, headRow: 5, stickyTotal: true, freezeCols: 2 },
-  'OZPL2':    { title: 'OZ Stock 2', infoRows: 4, headRow: 5, stickyTotal: true, freezeCols: 2 },
+  'OZ_UNIT1': { title: 'Товары Озон 1', stickyTotal: true, marketplace: true, freezeCols: 2 },
+  'OZ_UNIT2': { title: 'Товары Озон 2', stickyTotal: true, marketplace: true, freezeCols: 2 },
+  'WB_UNIT1': { title: 'Товары ВБ 1', stickyTotal: true, dateColumns: true, marketplace: true, freezeCols: 2 },
+  'WB_UNIT2': { title: 'Товары ВБ 2', stickyTotal: true, dateColumns: true, marketplace: true, freezeCols: 2 },
+  'OZPL1':    { title: 'Склад Озон 1', infoRows: 4, headRow: 5, stickyTotal: true, freezeCols: 2 },
+  'OZPL2':    { title: 'Склад Озон 2', infoRows: 4, headRow: 5, stickyTotal: true, freezeCols: 2 },
   // Планирование закупок: шапка в строке 5, «Итого» в строке 6.
   //   nameCols   — столбцы с названиями (C–F): строки, где все они пусты, исключаются;
   //                по этим столбцам есть быстрые фильтры «есть в …»
   //   accentCols — столбцы, текст которых выводится оранжевым (L — «Total for procurement per month»)
-  'STOCKUP':  { title: 'STOCKUP', infoRows: 4, headRow: 5, stickyTotal: true, freezeCols: 2,
-                nameCols: [3, 4, 5, 6], accentCols: [12] },
-  'LINK':     { title: 'LINK', view: true, range: 'A1:J30' }
+  //   focusOnNames — клик по заголовку столбца-названия оставляет только этот столбец (focusKeep — номера столбцов, которые остаются всегда)
+  'STOCKUP':  { title: 'План.закупок', infoRows: 4, headRow: 5, stickyTotal: true, freezeCols: 2,
+                nameCols: [3, 4, 5, 6], accentCols: [12], focusOnNames: true, focusKeep: [] },
+  'LINK':     { title: 'Ссылки', view: true, range: 'A1:J30' }
 };
 
 /** Если проект НЕ привязан к Google-таблице, укажите её ID. */
@@ -313,7 +314,9 @@ function buildUnitTable(cfg, raw, fmts, tz, labels, width, head) {
   return {
     meta: {
       dateColumns: !!cfg.dateColumns, stickyTotal: !!cfg.stickyTotal, abcIdx,
-      freezeCols: cfg.freezeCols || 0, accentIdx, nameColIdx
+      freezeCols: cfg.freezeCols || 0, accentIdx, nameColIdx,
+      focusCols: cfg.focusOnNames ? nameColIdx : [],
+      focusKeep: (cfg.focusKeep || []).map(posOf).filter(p => p >= 0)
     },
     columns, rows, fmts: rowFmts, totalRow, dateSeries
   };
