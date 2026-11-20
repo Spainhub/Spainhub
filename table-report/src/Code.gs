@@ -83,7 +83,7 @@ const FRACTION_LABEL_RE = /\((months?|weeks?)\)|daily|per day|\(мес|\(нед|
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
-    .setTitle('REPORT · P&L 4 version 1.0')
+    .setTitle('REPORT · P&L 4')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
