@@ -393,7 +393,7 @@
       // подписи оси X: магазин + длительность в днях
       const xLabels = ch.labels.map((l, i) => {
         const d = (ch.period && ch.period.days && ch.period.days[i]) || '';
-        return d ? [l, d + ' days'] : l;
+        return d ? [l, d + ' дн.'] : l;
       });
       plCharts.push(new Chart(canvas.getContext('2d'), {
         type: 'bar',
@@ -402,11 +402,11 @@
           labels: xLabels,
           datasets: [
             {
-              label: 'Revenue', data: ch.revenue, order: 2, grouped: false,
+              label: 'Выручка', data: ch.revenue, order: 2, grouped: false,
               backgroundColor: color, borderRadius: 6, borderSkipped: false, maxBarThickness: 90
             },
             {
-              label: 'Contribution margin', data: ch.profit, order: 1, grouped: false,
+              label: 'Маржинальная прибыль', data: ch.profit, order: 1, grouped: false,
               backgroundColor: BRAND_ORANGE, borderRadius: 0, borderSkipped: false, maxBarThickness: 90
             }
           ]
@@ -422,7 +422,7 @@
                 label: c => c.dataset.label + ': ' + fmt(c.parsed.y),
                 afterBody: items => {
                   const m = marginLabel(ch, items[0].dataIndex);
-                  return m ? ['Margin: ' + m] : [];
+                  return m ? ['Маржа: ' + m] : [];
                 }
               }
             }
@@ -436,7 +436,7 @@
 
       // ───── тонкое кольцо: только Contribution margin по магазинам ─────
       const dCard = el('div', 'chart-card');
-      dCard.appendChild(el('div', 'chart-card-title', 'Margin by Store'));
+      dCard.appendChild(el('div', 'chart-card-title', 'Маржа по магазинам'));
       const dWrap = el('div', 'chart-card-canvas');
       const dCanvas = document.createElement('canvas');
       dWrap.appendChild(dCanvas);
@@ -456,7 +456,7 @@
           c.textBaseline = 'middle';
           c.fillStyle = '#777';
           c.font = '600 11px sans-serif';
-          c.fillText('Contribution margin', cx, cy - 12);
+          c.fillText('Маржинальная прибыль', cx, cy - 12);
           c.fillStyle = '#5d467f';
           c.font = '700 20px sans-serif';
           c.fillText(fmt(total), cx, cy + 10);
